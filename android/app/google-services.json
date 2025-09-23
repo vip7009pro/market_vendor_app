@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "794292505696",
+    "project_id": "ghinoflutter",
+    "storage_bucket": "ghinoflutter.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:794292505696:android:8f0010b2828df545128705",
+        "android_client_info": {
+          "package_name": "com.marketvendor.market_vendor_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "794292505696-40l6loammr7sebhhpomqt371tsed661k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.marketvendor.market_vendor_app",
+            "certificate_hash": "c37e23647935aff9bd609c6e8e8730618a7dd4d7"
+          }
+        },
+        {
+          "client_id": "794292505696-b7i1aen31vtadk7afldfi7gfro2kjl9g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.marketvendor.market_vendor_app",
+            "certificate_hash": "0bf417c5d9fb42cbf5fa7f02187477794dd9aded"
+          }
+        },
+        {
+          "client_id": "794292505696-91jr15omjtkfod6rh44k7figsrmsb52t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUVM4Nm9R0-VDrol59kyanAoAZNfUxMn4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "794292505696-91jr15omjtkfod6rh44k7figsrmsb52t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
