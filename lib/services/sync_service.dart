@@ -188,10 +188,15 @@ class SyncService {
                     }
                   });
                   
-                  // Thêm dữ liệu vào database local (không cần mã hóa)
+                  // Nếu là sale_items hoặc debt_payments, đảm bảo id là int
+                  if (entity == 'sale_items' || entity == 'debt_payments') {
+                    processedData['id'] = int.parse(id);
+                  }
+                  
+                  // Thêm dữ liệu vào database local
                   await _db.db.insert(
                     entity,
-                    {...processedData, 'id': id, 'isSynced': 1}, // Đánh dấu là đã đồng bộ
+                    {...processedData, 'id': processedData['id'], 'isSynced': 1},
                     conflictAlgorithm: ConflictAlgorithm.replace,
                   );
                   successCount++;
@@ -277,9 +282,23 @@ class SyncService {
           
           if (isDeleted.isEmpty) {
             // Nếu chưa bị xóa, cập nhật hoặc thêm mới
+            final processedData = Map<String, dynamic>.from(data);
+            
+            // Xử lý các trường Timestamp
+            processedData.forEach((key, value) {
+              if (value is Timestamp) {
+                processedData[key] = value.toDate().toIso8601String();
+              }
+            });
+            
+            // Nếu là sale_items hoặc debt_payments, đảm bảo id là int
+            if (entity == 'sale_items' || entity == 'debt_payments') {
+              processedData['id'] = int.parse(id);
+            }
+            
             await _db.db.insert(
               entity,
-              {...data, 'id': id, 'isSynced': 1}, // Đánh dấu là đã đồng bộ
+              {...processedData, 'id': processedData['id'], 'isSynced': 1},
               conflictAlgorithm: ConflictAlgorithm.replace,
             );
           }
@@ -313,11 +332,16 @@ class SyncService {
           final batchData = unsynced.sublist(i, end);
           
           for (final record in batchData) {
+            // Chuyển id sang String cho Firestore
+            final recordId = (entity == 'sale_items' || entity == 'debt_payments')
+                ? (record['id'] as int).toString()
+                : record['id'] as String;
+                
             final docRef = _firestore
                 .collection('users')
                 .doc(userId)
                 .collection(entity)
-                .doc(record['id'] as String);
+                .doc(recordId);
             
             // Sử dụng merge để tránh ghi đè dữ liệu mới hơn
             batch.set(docRef, record, SetOptions(merge: true));
@@ -326,7 +350,11 @@ class SyncService {
           await batch.commit();
           
           // Đánh dấu là đã đồng bộ
-          final syncedIds = batchData.map((r) => r['id'] as String).toList();
+          final syncedIds = batchData
+              .map((r) => (entity == 'sale_items' || entity == 'debt_payments')
+                  ? (r['id'] as int).toString()
+                  : r['id'] as String)
+              .toList();
           await _db.markAsSynced(entity, syncedIds);
         }
         
