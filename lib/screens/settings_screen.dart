@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:market_vendor_app/providers/product_provider.dart';
 import 'package:provider/provider.dart';
 import '../main.dart'; // Import main.dart để lấy navigatorKey
 import '../providers/auth_provider.dart';
 import '../providers/customer_provider.dart';
 import '../providers/debt_provider.dart';
+import '../providers/sale_provider.dart';
 import '../services/sync_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -84,26 +86,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                   : FilledButton.icon(
                       onPressed: auth.isSignedIn && auth.uid != null
-                          ? () async {
-                              setState(() => _syncing = true);
-                              try {
-                                final syncService = SyncService(navigatorKey: navigatorKey);
-                                final userId = auth.uid!;
-                                await syncService.syncNow(userId: userId);
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Đồng bộ xong')),
-                                );
-                              } catch (e) {
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Lỗi đồng bộ: $e')),
-                                );
-                              } finally {
-                                if (mounted) setState(() => _syncing = false);
-                              }
-                            }
-                          : null,
+    ? () async {
+        setState(() => _syncing = true);
+        try {
+          final syncService = SyncService(navigatorKey: navigatorKey);
+          final userId = auth.uid!;
+          await syncService.syncNow(userId: userId);
+          
+          // Làm mới dữ liệu từ tất cả các provider
+          print('🔄 Đang làm mới dữ liệu từ các provider...');
+          await Future.wait([
+            context.read<ProductProvider>().load().then((_) => print('✅ Đã cập nhật ProductProvider')),
+            context.read<CustomerProvider>().load().then((_) => print('✅ Đã cập nhật CustomerProvider')),
+            context.read<SaleProvider>().load().then((_) => print('✅ Đã cập nhật SaleProvider')),
+            context.read<DebtProvider>().load().then((_) => print('✅ Đã cập nhật DebtProvider')),
+          ]);
+          
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Đồng bộ và cập nhật dữ liệu thành công')),
+          );
+        } catch (e, stackTrace) {
+          print('❌ Lỗi khi đồng bộ: $e');
+          print('Stack trace: $stackTrace');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Lỗi khi đồng bộ: ${e.toString()}'),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        } finally {
+          if (mounted) {
+            setState(() => _syncing = false);
+          }
+        }
+      }
+    : null,
                       icon: const Icon(Icons.sync),
                       label: const Text('Đồng bộ'),
                     ),
@@ -128,6 +147,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 // Cập nhật UI bằng cách gọi lại phương thức load() của các provider
                                 await Provider.of<CustomerProvider>(context, listen: false).load();
                                 await Provider.of<DebtProvider>(context, listen: false).load();
+                                await Provider.of<SaleProvider>(context, listen: false).load();
+                                await Provider.of<ProductProvider>(context, listen: false).load();
+                                
                                 if (!mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(content: Text('Đã tải dữ liệu từ đám mây')),

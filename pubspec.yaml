@@ -43,6 +43,7 @@ dependencies:
   
   # State Management
   provider: ^6.1.1
+  rxdart: ^0.27.7
   
   # Database
   sqflite: ^2.3.2

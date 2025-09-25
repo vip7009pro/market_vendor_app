@@ -309,14 +309,27 @@ class DatabaseService {
         }
       }
     }
+    
+    // Migration từ version 6 lên 7: Thêm cột isSynced vào bảng sale_items và debt_payments
+    if (oldVersion < 7) {
+      try {
+        print('Đang thêm cột isSynced vào bảng sale_items và debt_payments...');
+        await safeAddColumn(db, 'sale_items', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+        await safeAddColumn(db, 'debt_payments', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+        print('Đã cập nhật bảng sale_items và debt_payments thành công');
+      } catch (e) {
+        print('Lỗi khi cập nhật bảng sale_items và debt_payments: $e');
+      }
+    }
   }
+
   Future<void> init() async {
     final dbPath = await getDatabasesPath();
     final path = p.join(dbPath, 'market_vendor.db');
     
     _db = await openDatabase(
       path,
-      version: 6, // Tăng version để áp dụng migration
+      version: 7, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -370,6 +383,7 @@ class DatabaseService {
             unitPrice REAL NOT NULL,
             quantity REAL NOT NULL,
             unit TEXT NOT NULL,
+            isSynced INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (saleId) REFERENCES sales(id) ON DELETE CASCADE
           )
         ''');
@@ -409,6 +423,7 @@ class DatabaseService {
             amount REAL NOT NULL,
             note TEXT,
             createdAt TEXT NOT NULL,
+            isSynced INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (debtId) REFERENCES debts(id) ON DELETE CASCADE
           )
         ''');
@@ -591,6 +606,7 @@ class DatabaseService {
             'unitPrice': it.unitPrice,
             'quantity': it.quantity,
             'unit': it.unit,
+            'isSynced': 0, // Chưa đồng bộ
           });
         }
         await _addAuditTxn(txn, 'sale', s.id, 'create', {
@@ -604,7 +620,6 @@ class DatabaseService {
       rethrow;
     }
   }
-
 
   Future<void> upsertSale(Sale s, {DateTime? updatedAt}) async {
     try {
@@ -640,6 +655,7 @@ class DatabaseService {
             'unitPrice': it.unitPrice,
             'quantity': it.quantity,
             'unit': it.unit,
+            'isSynced': 0, // Chưa đồng bộ
           });
         }
       });
@@ -1009,6 +1025,7 @@ class DatabaseService {
         'amount': amount,
         'note': encryptedNote,
         'createdAt': (createdAt ?? DateTime.now()).toIso8601String(),
+        'isSynced': 0, // Chưa đồng bộ
       });
     } catch (e) {
       developer.log('Error inserting debt payment:', error: e);
