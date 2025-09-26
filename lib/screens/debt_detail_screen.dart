@@ -226,7 +226,7 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
                       children: [
                         Row(
                           children: [
-                            Expanded(child: Text('Bên: ${_debt.partyName}')),
+                            Expanded(child: Text('Tên: ${_debt.partyName}')),
                             Chip(label: Text(_debt.type == DebtType.othersOweMe ? 'Nợ tôi' : 'Tôi nợ')),
                           ],
                         ),

@@ -16,9 +16,13 @@ class ReportScreen extends StatelessWidget {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
     final startOfWeek = startOfDay.subtract(Duration(days: startOfDay.weekday - 1));
+    final startOfMonth = DateTime(now.year, now.month, 1);
+    final startOfYear = DateTime(now.year, 1, 1);
 
     final todaySales = sales.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.total);
     final weekSales = sales.where((s) => s.createdAt.isAfter(startOfWeek)).fold(0.0, (p, s) => p + s.total);
+    final monthSales = sales.where((s) => s.createdAt.isAfter(startOfMonth)).fold(0.0, (p, s) => p + s.total);
+    final yearSales = sales.where((s) => s.createdAt.isAfter(startOfYear)).fold(0.0, (p, s) => p + s.total);
     final totalOweOthers = debtsProvider.totalOweOthers;
     final totalOthersOweMe = debtsProvider.totalOthersOweMe;
 
@@ -62,6 +66,8 @@ class ReportScreen extends StatelessWidget {
               children: [
                 _KpiCard(title: 'Doanh thu hôm nay', value: currency.format(todaySales), color: Colors.blue),
                 _KpiCard(title: 'Doanh thu tuần', value: currency.format(weekSales), color: Colors.green),
+                _KpiCard(title: 'Doanh thu tháng', value: currency.format(monthSales), color: Colors.pink),
+                _KpiCard(title: 'Doanh thu năm', value: currency.format(yearSales), color: Colors.purple),
                 _KpiCard(title: 'Tiền nợ tôi', value: currency.format(totalOthersOweMe), color: Colors.red),
                 _KpiCard(title: 'Tiền tôi nợ', value: currency.format(totalOweOthers), color: Colors.orange),
               ],
@@ -76,7 +82,7 @@ class ReportScreen extends StatelessWidget {
                     const Text('Doanh thu 7 ngày gần nhất', style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     SizedBox(
-                      height: 240,
+                      height: 200,
                       child: BarChart(
                         BarChartData(
                           gridData: const FlGridData(show: false),

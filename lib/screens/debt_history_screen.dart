@@ -14,6 +14,21 @@ class DebtHistoryScreen extends StatefulWidget {
   State<DebtHistoryScreen> createState() => _DebtHistoryScreenState();
 }
 
+// Vietnamese diacritics removal (accent-insensitive search)
+String _vn(String input) {
+  const source = 'àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ';
+  const target = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyydAAAAAAAAAAAAAAAAAEEEEEEEEEEEIIIIIooooooooooooooooOUUUUUUUUUUYYYYYD';
+  final map = <String, String>{};
+  for (var i = 0; i < source.length; i++) {
+    map[source[i]] = target[i];
+  }
+  final sb = StringBuffer();
+  for (final ch in input.split('')) {
+    sb.write(map[ch] ?? ch);
+  }
+  return sb.toString();
+}
+
 class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
   DebtType? _filterType; // null = all
   bool _onlyUnsettled = true;
@@ -38,8 +53,8 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
       debts = debts.where((d) => d.createdAt.isAfter(start.subtract(const Duration(milliseconds: 1))) && d.createdAt.isBefore(end.add(const Duration(milliseconds: 1)))).toList();
     }
     if (_query.isNotEmpty) {
-      final q = _query.toLowerCase();
-      debts = debts.where((d) => d.partyName.toLowerCase().contains(q) || (d.description ?? '').toLowerCase().contains(q)).toList();
+      final q = _vn(_query).toLowerCase();
+      debts = debts.where((d) => _vn(d.partyName).toLowerCase().contains(q) || _vn(d.description ?? '').toLowerCase().contains(q)).toList();
     }
 
     return Scaffold(

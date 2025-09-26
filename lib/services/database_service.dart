@@ -88,18 +88,6 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getUnsyncedDeletions() async {
     try {
       final db = await this.db;
-      // Ensure the table exists with the correct structure
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS deleted_entities(
-          entityType TEXT NOT NULL,
-          entityId TEXT NOT NULL,
-          deletedAt TEXT NOT NULL,
-          deviceId TEXT NOT NULL,
-          isSynced INTEGER NOT NULL DEFAULT 0,
-          PRIMARY KEY (entityType, entityId)
-        )
-      ''');
-      
       return await db.query(
         'deleted_entities',
         where: 'isSynced = ?',
@@ -782,6 +770,7 @@ class DatabaseService {
           'dueDate': d.dueDate?.toIso8601String(),
           'settled': d.settled ? 1 : 0,
           'updatedAt': DateTime.now().toIso8601String(),
+          'isSynced': 0, // Đánh dấu là chưa đồng bộ để đẩy lên Firestore
         },
         where: 'id = ?',
         whereArgs: [d.id],
@@ -971,8 +960,26 @@ class DatabaseService {
 
   Future<void> deleteSale(String saleId) async {
     await db.transaction((txn) async {
+      // Ghi nhận xóa cho tất cả sale_items thuộc sale này để đồng bộ xóa trên Firestore
+      final items = await txn.query(
+        'sale_items',
+        columns: ['id'],
+        where: 'saleId = ?',
+        whereArgs: [saleId],
+      );
+      for (final it in items) {
+        final iid = it['id'];
+        if (iid != null) {
+          await _markEntityAsDeletedTxn(txn, 'sale_items', iid.toString());
+          await _addAuditTxn(txn, 'sale_item', iid.toString(), 'delete', {});
+        }
+      }
+
+      // Xóa dữ liệu local
       await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
       await txn.delete('sales', where: 'id = ?', whereArgs: [saleId]);
+
+      // Ghi nhận xóa sale để đồng bộ lên Firestore
       await _markEntityAsDeletedTxn(txn, 'sales', saleId);
       await _addAuditTxn(txn, 'sale', saleId, 'delete', {});
     });
@@ -1086,18 +1093,41 @@ class DatabaseService {
   }
 
   Future<void> deleteDebtPayment(int id) async {
-    await db.delete('debt_payments', where: 'id = ?', whereArgs: [id]);
+    // Ghi nhận xóa để đồng bộ với Firestore, sau đó mới xóa local
+    await db.transaction((txn) async {
+      await _markEntityAsDeletedTxn(txn, 'debt_payments', id.toString());
+      await txn.delete('debt_payments', where: 'id = ?', whereArgs: [id]);
+      await _addAuditTxn(txn, 'debt_payment', id.toString(), 'delete', {});
+    });
   }
-
+  
   Future<void> deleteDebt(String debtId) async {
     await db.transaction((txn) async {
+      // Ghi nhận xóa cho tất cả các payment liên quan để đồng bộ xóa trên Firestore
+      final payments = await txn.query(
+        'debt_payments',
+        columns: ['id'],
+        where: 'debtId = ?',
+        whereArgs: [debtId],
+      );
+      for (final p in payments) {
+        final pid = p['id'];
+        if (pid != null) {
+          await _markEntityAsDeletedTxn(txn, 'debt_payments', pid.toString());
+          await _addAuditTxn(txn, 'debt_payment', pid.toString(), 'delete', {});
+        }
+      }
+
+      // Xóa dữ liệu local
       await txn.delete('debt_payments', where: 'debtId = ?', whereArgs: [debtId]);
       await txn.delete('debts', where: 'id = ?', whereArgs: [debtId]);
+
+      // Ghi nhận xóa debt để đồng bộ lên Firestore
       await _markEntityAsDeletedTxn(txn, 'debts', debtId);
       await _addAuditTxn(txn, 'debt', debtId, 'delete', {});
     });
   }
-
+  
   // Audit helpers
   Future<void> _addAudit(String entity, String entityId, String action, Map<String, dynamic> payload) async {
     await db.insert('audit_logs', {

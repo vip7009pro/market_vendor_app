@@ -15,6 +15,7 @@ import 'screens/sales_history_screen.dart';
 import 'screens/debt_history_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'services/sync_service.dart';
+import 'theme/momo_theme.dart';
 
 // Tạo GlobalKey cho Navigator
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -68,13 +69,7 @@ class MyApp extends StatelessWidget {
           print('User found, showing app content');
           return AppInit(child: child!);
         },
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-          inputDecorationTheme: const InputDecorationTheme(
-            border: OutlineInputBorder(),
-          ),
-        ),
+        theme: MomoTheme.light(),
         locale: const Locale('vi'),
         supportedLocales: const [Locale('vi'), Locale('en')],
         localizationsDelegates: const [
