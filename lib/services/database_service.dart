@@ -947,6 +947,16 @@ class DatabaseService {
     return await db.query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
   }
 
+  // Sum of payments for a debt
+  Future<double> getTotalPaidForDebt(String debtId) async {
+    final rows = await db.rawQuery(
+      'SELECT SUM(amount) as total FROM debt_payments WHERE debtId = ?',
+      [debtId],
+    );
+    final val = rows.isNotEmpty ? rows.first['total'] as num? : null;
+    return (val ?? 0).toDouble();
+  }
+
   Future<void> _markEntityAsDeletedTxn(Transaction txn, String table, String id) async {
     final devId = await deviceId;
     await txn.insert('deleted_entities', {

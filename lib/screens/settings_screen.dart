@@ -7,6 +7,8 @@ import '../providers/customer_provider.dart';
 import '../providers/debt_provider.dart';
 import '../providers/sale_provider.dart';
 import '../services/sync_service.dart';
+import '../services/drive_sync_service.dart';
+import '../services/database_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -17,6 +19,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _syncing = false;
+  bool _driveSyncing = false;
+  bool _driveRestoring = false;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
+          
           const SizedBox(height: 4),
           Card(
             child: ListTile(
@@ -97,6 +102,161 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Google Drive sync card
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.cloud_upload_outlined),
+              title: const Text('Khôi phục từ Google Drive'),
+              subtitle: const Text('Chọn bản sao lưu trong thư mục GhiNoBackUp để khôi phục'),
+              trailing: _driveRestoring
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                  : SizedBox(
+                      width: 140,
+                      child: FilledButton.icon(
+                        onPressed: auth.isSignedIn
+                            ? () async {
+                                setState(() => _driveRestoring = true);
+                                try {
+                                  final token = await context.read<AuthProvider>().getAccessToken();
+                                  if (token == null || token.isEmpty) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Không lấy được token Google. Vui lòng đăng nhập lại.')),
+                                    );
+                                    return;
+                                  }
+                                  final drive = DriveSyncService();
+                                  final files = await drive.listBackups(accessToken: token);
+                                  if (!mounted) return;
+                                  if (files.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Không có bản sao lưu nào trong Google Drive')),
+                                    );
+                                  } else {
+                                    final selected = await showModalBottomSheet<Map<String, String>>(
+                                      context: context,
+                                      showDragHandle: true,
+                                      builder: (sheetCtx) {
+                                        return SafeArea(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Padding(
+                                                padding: EdgeInsets.all(16),
+                                                child: Text('Chọn bản sao lưu', style: TextStyle(fontWeight: FontWeight.bold)),
+                                              ),
+                                              Flexible(
+                                                child: ListView.separated(
+                                                  shrinkWrap: true,
+                                                  itemCount: files.length,
+                                                  separatorBuilder: (_, __) => const Divider(height: 1),
+                                                  itemBuilder: (_, i) {
+                                                    final f = files[i];
+                                                    final name = f['name'] ?? '';
+                                                    final time = f['modifiedTime'] ?? '';
+                                                    return ListTile(
+                                                      title: Text(name),
+                                                      subtitle: Text(time),
+                                                      onTap: () => Navigator.pop(sheetCtx, f),
+                                                    );
+                                                  },
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    );
+                                    if (selected != null) {
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (_) => AlertDialog(
+                                          title: const Text('Xác nhận khôi phục'),
+                                          content: Text('Khôi phục từ "${selected['name'] ?? ''}"? Dữ liệu hiện tại sẽ bị ghi đè.'),
+                                          actions: [
+                                            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+                                            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Khôi phục')),
+                                          ],
+                                        ),
+                                      );
+                                      if (confirm == true) {
+                                        // Close current DB connection before replacing the file
+                                        await DatabaseService.instance.close();
+                                        await drive.restoreToLocal(accessToken: token, fileId: selected['id']!);
+                                        // Reinitialize DB and then reload providers
+                                        await DatabaseService.instance.reinitialize();
+                                        await Future.wait([
+                                          Provider.of<ProductProvider>(context, listen: false).load(),
+                                          Provider.of<CustomerProvider>(context, listen: false).load(),
+                                          Provider.of<SaleProvider>(context, listen: false).load(),
+                                          Provider.of<DebtProvider>(context, listen: false).load(),
+                                        ]);
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Đã khôi phục từ ${selected['name'] ?? ''}')),
+                                        );
+                                      }
+                                    }
+                                  }
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Lỗi khôi phục: $e')),
+                                  );
+                                } finally {
+                                  if (mounted) setState(() => _driveRestoring = false);
+                                }
+                              }
+                            : null,
+                        icon: const Icon(Icons.restore),
+                        label: const Text('Khôi phục'),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.cloud_upload_outlined),
+              title: const Text('Đồng bộ Google Drive'),
+              subtitle: const Text('Sao lưu cơ sở dữ liệu lên Google Drive (drive.file)'),
+              trailing: _driveSyncing
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                  : SizedBox(
+                      width: 140,
+                      child: FilledButton.icon(
+                        onPressed: auth.isSignedIn
+                            ? () async {
+                                setState(() => _driveSyncing = true);
+                                try {
+                                  final token = await context.read<AuthProvider>().getAccessToken();
+                                  if (token == null || token.isEmpty) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Không lấy được token Google. Vui lòng đăng nhập lại.')),
+                                    );
+                                  } else {
+                                    final msg = await DriveSyncService().uploadLocalDb(accessToken: token);
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+                                  }
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Lỗi khi đồng bộ Google Drive: $e')),
+                                  );
+                                } finally {
+                                  if (mounted) setState(() => _driveSyncing = false);
+                                }
+                              }
+                            : null,
+                        icon: const Icon(Icons.cloud_upload),
+                        label: const Text('Đồng bộ Drive'),
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: 4),

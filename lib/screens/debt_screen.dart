@@ -5,6 +5,7 @@ import '../providers/debt_provider.dart';
 import 'debt_form_screen.dart';
 import 'debt_detail_screen.dart';
 import 'package:intl/intl.dart';
+import '../services/database_service.dart';
 
 class DebtScreen extends StatefulWidget {
   const DebtScreen({super.key});
@@ -263,6 +264,20 @@ class DebtList extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('${DateFormat('dd/MM/yyyy HH:mm').format(d.createdAt)}'),
+              FutureBuilder<double>(
+                future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const SizedBox.shrink();
+                  }
+                  final paid = snap.data ?? 0;
+                  final initial = paid + d.amount;
+                  return Text(
+                    'Nợ ban đầu: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(initial)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                  );
+                },
+              ),
               if ((d.description ?? '').isNotEmpty) Text(d.description!),
               Text(
                 d.settled ? 'Đã tất toán' : 'Chưa tất toán',
@@ -275,7 +290,7 @@ class DebtList extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                currency.format(d.amount),
+                'Còn lại: ${currency.format(d.amount)}',
                 style: TextStyle(color: color, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),

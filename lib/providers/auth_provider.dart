@@ -10,7 +10,12 @@ import '../services/database_service.dart';
 
 class AuthProvider with ChangeNotifier {
   GoogleSignInAccount? _user;
-  final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: ['email']);
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    scopes: [
+      'email',
+      'https://www.googleapis.com/auth/drive.file',
+    ],
+  );
   fb.User? _fbUser;
 
   GoogleSignInAccount? get user => _user;
@@ -47,6 +52,21 @@ class AuthProvider with ChangeNotifier {
       print('Silent sign in failed: $e');
       // Notify listeners to update UI
       notifyListeners();
+    }
+  }
+
+  // Retrieve current Google OAuth access token (for Google Drive API)
+  Future<String?> getAccessToken() async {
+    try {
+      if (_user == null) {
+        // attempt silent sign-in to refresh token
+        _user = await _googleSignIn.signInSilently();
+      }
+      final auth = await _user?.authentication;
+      return auth?.accessToken;
+    } catch (e) {
+      debugPrint('getAccessToken error: $e');
+      return null;
     }
   }
 

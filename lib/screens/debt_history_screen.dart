@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 import '../providers/debt_provider.dart';
 import '../models/debt.dart';
+import '../services/database_service.dart';
 
 class DebtHistoryScreen extends StatefulWidget {
   const DebtHistoryScreen({super.key});
@@ -133,12 +134,31 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                 return ListTile(
                   leading: Icon(d.type == DebtType.othersOweMe ? Icons.call_received : Icons.call_made),
                   title: Text(d.partyName),
-                  subtitle: Text(d.description ?? ''),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FutureBuilder<double>(
+                        future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                        builder: (context, snap) {
+                          if (snap.connectionState == ConnectionState.waiting) {
+                            return const SizedBox.shrink();
+                          }
+                          final paid = snap.data ?? 0;
+                          final initial = paid + d.amount;
+                          return Text(
+                            'Nợ ban đầu: ${currency.format(initial)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                          );
+                        },
+                      ),
+                      if ((d.description ?? '').isNotEmpty) Text(d.description!),
+                    ],
+                  ),
                   trailing: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(currency.format(d.amount), style: TextStyle(color: d.type == DebtType.othersOweMe ? Colors.red : Colors.amber, fontWeight: FontWeight.bold)),
+                      Text('Còn lại: ${currency.format(d.amount)}', style: TextStyle(color: d.type == DebtType.othersOweMe ? Colors.red : Colors.amber, fontWeight: FontWeight.bold)),
                       if (d.settled) const Text('Đã thanh toán', style: TextStyle(color: Colors.green)),
                     ],
                   ),

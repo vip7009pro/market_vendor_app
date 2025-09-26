@@ -232,6 +232,14 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text('Số tiền còn lại: ${_currency.format(_debt.amount)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Builder(
+                          builder: (_) {
+                            final paid = _payments.fold<double>(0, (p, e) => p + ((e['amount'] as num).toDouble()));
+                            final initial = paid + _debt.amount;
+                            return Text('Nợ ban đầu: ${_currency.format(initial)}', style: const TextStyle(color: Colors.black54));
+                          },
+                        ),
                         const SizedBox(height: 8),
                         if ((_debt.description ?? '').isNotEmpty) Text(_debt.description!),
                         const SizedBox(height: 4),
