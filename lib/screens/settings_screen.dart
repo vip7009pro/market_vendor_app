@@ -105,12 +105,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 4),
+           Card(
+            child: ListTile(
+              leading: const Icon(Icons.cloud_upload_outlined),
+              title: const Text('Sao lưu'),
+              subtitle: const Text('Lưu lên Drive'),
+              trailing: _driveSyncing
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                  : SizedBox(
+                      width: 140,
+                      child: FilledButton.icon(
+                        onPressed: auth.isSignedIn
+                            ? () async {
+                                setState(() => _driveSyncing = true);
+                                try {
+                                  final token = await context.read<AuthProvider>().getAccessToken();
+                                  if (token == null || token.isEmpty) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Không lấy được token Google. Vui lòng đăng nhập lại.')),
+                                    );
+                                  } else {
+                                    final msg = await DriveSyncService().uploadLocalDb(accessToken: token);
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+                                  }
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Lỗi khi đồng bộ Google Drive: $e')),
+                                  );
+                                } finally {
+                                  if (mounted) setState(() => _driveSyncing = false);
+                                }
+                              }
+                            : null,
+                        icon: const Icon(Icons.cloud_upload),
+                        label: const Text('Tải lên'),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 4),
           // Google Drive sync card
           Card(
             child: ListTile(
               leading: const Icon(Icons.cloud_upload_outlined),
-              title: const Text('Khôi phục từ Google Drive'),
-              subtitle: const Text('Chọn bản sao lưu trong thư mục GhiNoBackUp để khôi phục'),
+              title: const Text('Khôi phục'),
+              subtitle: const Text('Khôi phục từ Drive'),
               trailing: _driveRestoring
                   ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                   : SizedBox(
@@ -211,56 +253,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 }
                               }
                             : null,
-                        icon: const Icon(Icons.restore),
-                        label: const Text('Khôi phục'),
+                        icon: const Icon(Icons.download),
+                        label: const Text('Tải xuống'),
                       ),
                     ),
             ),
           ),
           const SizedBox(height: 4),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.cloud_upload_outlined),
-              title: const Text('Đồng bộ Google Drive'),
-              subtitle: const Text('Sao lưu cơ sở dữ liệu lên Google Drive (drive.file)'),
-              trailing: _driveSyncing
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-                  : SizedBox(
-                      width: 140,
-                      child: FilledButton.icon(
-                        onPressed: auth.isSignedIn
-                            ? () async {
-                                setState(() => _driveSyncing = true);
-                                try {
-                                  final token = await context.read<AuthProvider>().getAccessToken();
-                                  if (token == null || token.isEmpty) {
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Không lấy được token Google. Vui lòng đăng nhập lại.')),
-                                    );
-                                  } else {
-                                    final msg = await DriveSyncService().uploadLocalDb(accessToken: token);
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-                                  }
-                                } catch (e) {
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Lỗi khi đồng bộ Google Drive: $e')),
-                                  );
-                                } finally {
-                                  if (mounted) setState(() => _driveSyncing = false);
-                                }
-                              }
-                            : null,
-                        icon: const Icon(Icons.cloud_upload),
-                        label: const Text('Đồng bộ Drive'),
-                      ),
-                    ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Card(
+         
+          
+         /*  Card(
             child: ListTile(
               leading: const Icon(Icons.cloud_sync_outlined),
               title: const Text('Đồng bộ dữ liệu'),
@@ -349,7 +351,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
             ),
           ),
-          const SizedBox(height: 8),
+           */const SizedBox(height: 8),
           const _AboutCard(),
         ],
       ),

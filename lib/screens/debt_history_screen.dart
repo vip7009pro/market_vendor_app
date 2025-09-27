@@ -131,36 +131,188 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (_, i) {
                 final d = debts[i];
-                return ListTile(
-                  leading: Icon(d.type == DebtType.othersOweMe ? Icons.call_received : Icons.call_made),
-                  title: Text(d.partyName),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      FutureBuilder<double>(
-                        future: DatabaseService.instance.getTotalPaidForDebt(d.id),
-                        builder: (context, snap) {
-                          if (snap.connectionState == ConnectionState.waiting) {
-                            return const SizedBox.shrink();
-                          }
-                          final paid = snap.data ?? 0;
-                          final initial = paid + d.amount;
-                          return Text(
-                            'Nợ ban đầu: ${currency.format(initial)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
-                          );
-                        },
-                      ),
-                      if ((d.description ?? '').isNotEmpty) Text(d.description!),
-                    ],
+                final isOwedToMe = d.type == DebtType.othersOweMe;
+                final amountColor = isOwedToMe ? Colors.green : Colors.orange;
+                final iconColor = isOwedToMe ? Colors.green : Colors.orange;
+                final statusColor = d.settled ? Colors.green : Colors.blueGrey;
+                
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  elevation: 1,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey.shade200, width: 1),
                   ),
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('Còn lại: ${currency.format(d.amount)}', style: TextStyle(color: d.type == DebtType.othersOweMe ? Colors.red : Colors.amber, fontWeight: FontWeight.bold)),
-                      if (d.settled) const Text('Đã thanh toán', style: TextStyle(color: Colors.green)),
-                    ],
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        // Header row with party name and amount
+                        Row(
+                          children: [
+                            // Icon with background
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: iconColor.withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                isOwedToMe ? Icons.call_received : Icons.call_made,
+                                size: 20,
+                                color: iconColor,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            // Party name and date
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    d.partyName,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    DateFormat('dd/MM/yyyy').format(d.createdAt),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Amount
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: amountColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                currency.format(d.amount),
+                                style: TextStyle(
+                                  color: amountColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        // Description and payment info
+                        if ((d.description ?? '').isNotEmpty || !d.settled) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              // Description
+                              if ((d.description ?? '').isNotEmpty) ...[
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      d.description!,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey.shade800,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              
+                              // Payment status
+                              if (!d.settled)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: FutureBuilder<double>(
+                                    future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                                    builder: (context, snap) {
+                                      if (snap.connectionState != ConnectionState.done) {
+                                        return const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        );
+                                      }
+                                      final paid = snap.data ?? 0;
+                                      final initial = paid + d.amount;
+                                      final paidPercentage = (paid / initial * 100).toInt();
+                                      
+                                      return Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            'Đã trả $paidPercentage%',
+                                            style: TextStyle(
+                                              color: statusColor,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Icon(
+                                            paidPercentage >= 100 ? Icons.check_circle : Icons.pending_actions,
+                                            size: 16,
+                                            color: paidPercentage >= 100 ? Colors.green : statusColor,
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                        
+                        // Status badge
+                        if (d.settled) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.check_circle, size: 16, color: Colors.green),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Đã thanh toán đủ',
+                                  style: TextStyle(
+                                    color: Colors.green.shade800,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 );
               },

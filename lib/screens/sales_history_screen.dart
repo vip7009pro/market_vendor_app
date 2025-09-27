@@ -176,49 +176,170 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, i) {
                 final s = filtered[i];
-                final subtitleItems = s.items.map((e) => '${e.name} x ${e.quantity}').join(', ');
                 final customer = s.customerName?.trim().isEmpty == false ? s.customerName!.trim() : 'Khách lẻ';
-                return ListTile(
-                  title: Text('${currency.format(s.total)} • $customer'),
-                  subtitle: Text('${fmtDate.format(s.createdAt)} • $subtitleItems'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (s.debt > 0) Text('Nợ ${currency.format(s.debt)}', style: const TextStyle(color: Colors.red)),
-                      IconButton(
-                        tooltip: 'Xóa',
-                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                        onPressed: () async {
-                          final ok = await showDialog<bool>(
-                            context: context,
-                            builder: (_) => AlertDialog(
-                              title: const Text('Xóa hóa đơn'),
-                              content: const Text('Bạn có chắc muốn xóa hóa đơn này?'),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-                                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
-                              ],
-                            ),
-                          );
-                          if (ok == true) {
-                            final messenger = ScaffoldMessenger.of(context);
-                            await context.read<SaleProvider>().delete(s.id);
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: const Text('Đã xóa hóa đơn'),
-                                action: SnackBarAction(
-                                  label: 'Hoàn tác',
-                                  onPressed: () async {
-                                    final ok = await context.read<SaleProvider>().undoLastDelete();
-                                    if (ok) messenger.showSnackBar(const SnackBar(content: Text('Đã khôi phục')));
-                                  },
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                  elevation: 1,
+                  child: InkWell(
+                    onTap: () {
+                      // Handle tap if needed
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Header row with customer and total
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  customer,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                            );
-                          }
-                        },
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: s.debt > 0 ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  currency.format(s.total),
+                                  style: TextStyle(
+                                    color: s.debt > 0 ? Colors.red : Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          
+                          // Date and time
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              fmtDate.format(s.createdAt),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ),
+                          
+                          // Items list
+                          const SizedBox(height: 8),
+                          ...s.items.map((item) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  margin: const EdgeInsets.only(right: 8),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.blue,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    '${item.name} x ${item.quantity} ${item.unit}',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                                Text(
+                                  '${currency.format(item.unitPrice)} x ${item.quantity} = ${currency.format(item.unitPrice * item.quantity)}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )).toList(),
+                          
+                          // Payment status and actions
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              if (s.debt > 0) 
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Còn nợ: ${currency.format(s.debt)}',
+                                    style: const TextStyle(
+                                      color: Colors.red,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                )
+                              else
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'Đã thanh toán',
+                                    style: TextStyle(
+                                      color: Colors.green,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                
+                              // Delete button
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                onPressed: () async {
+                                  final ok = await showDialog<bool>(
+                                    context: context,
+                                    builder: (_) => AlertDialog(
+                                      title: const Text('Xóa hóa đơn'),
+                                      content: const Text('Bạn có chắc muốn xóa hóa đơn này?'),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context, false), 
+                                          child: const Text('Hủy')
+                                        ),
+                                        FilledButton(
+                                          onPressed: () => Navigator.pop(context, true), 
+                                          child: const Text('Xóa')
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (ok == true) {
+                                    await context.read<SaleProvider>().delete(s.id);
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Đã xóa hóa đơn')),
+                                    );
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 );
               },

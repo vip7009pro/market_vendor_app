@@ -258,59 +258,7 @@ class DebtList extends StatelessWidget {
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (_, i) {
         final d = debts[i];
-        return ListTile(
-          title: Text(d.partyName),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${DateFormat('dd/MM/yyyy HH:mm').format(d.createdAt)}'),
-              FutureBuilder<double>(
-                future: DatabaseService.instance.getTotalPaidForDebt(d.id),
-                builder: (context, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const SizedBox.shrink();
-                  }
-                  final paid = snap.data ?? 0;
-                  final initial = paid + d.amount;
-                  return Text(
-                    'Nợ ban đầu: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(initial)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
-                  );
-                },
-              ),
-              if ((d.description ?? '').isNotEmpty) Text(d.description!),
-              Text(
-                d.settled ? 'Đã tất toán' : 'Chưa tất toán',
-                style: TextStyle(color: d.settled ? Colors.green : Colors.orange, fontSize: 12),
-              ),
-            ],
-          ),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'Còn lại: ${currency.format(d.amount)}',
-                style: TextStyle(color: color, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Trả nợ',
-                    icon: const Icon(Icons.payments_outlined),
-                    onPressed: () => _showPayDialog(context, d, currency),
-                  ),
-                  IconButton(
-                    tooltip: 'Lịch sử',
-                    icon: const Icon(Icons.history),
-                    onPressed: () => _showPaymentHistory(context, d, currency),
-                  ),
-                ],
-              ),
-            ],
-          ),
+        return GestureDetector(
           onTap: () async {
             await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DebtDetailScreen(debt: d)));
           },
@@ -321,17 +269,181 @@ class DebtList extends StatelessWidget {
                 title: const Text('Xóa công nợ'),
                 content: const Text('Bạn có chắc muốn xóa công nợ này? Mọi lịch sử thanh toán sẽ bị xóa.'),
                 actions: [
-                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-                  FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Hủy'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Xóa'),
+                  ),
                 ],
               ),
             );
             if (ok == true) {
               await context.read<DebtProvider>().deleteDebt(d.id);
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa công nợ')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Đã xóa công nợ')),
+              );
             }
           },
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Left side - Main content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // First row - Name and status
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              d.partyName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 16,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: d.settled ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              d.settled ? 'Đã tất toán' : 'Chưa tất toán',
+                              style: TextStyle(
+                                color: d.settled ? Colors.green : Colors.orange,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 4),
+                      
+                      // Second row - Date and initial debt
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            DateFormat('dd/MM/yyyy').format(d.createdAt),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FutureBuilder<double>(
+                              future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                              builder: (context, snap) {
+                                if (snap.connectionState == ConnectionState.waiting) {
+                                  return const SizedBox.shrink();
+                                }
+                                final paid = snap.data ?? 0;
+                                final initial = paid + d.amount;
+                                return Text(
+                                  'Nợ ban đầu: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(initial)}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black87,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      // Description (if exists)
+                      if ((d.description ?? '').isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          d.description!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                // Right side - Amount and actions
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    // Amount
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        currency.format(d.amount),
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    
+                    // Action buttons
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Pay button
+                        GestureDetector(
+                          onTap: () => _showPayDialog(context, d, currency),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Icon(Icons.payments_outlined, size: 18, color: Colors.green),
+                          ),
+                        ),
+                        
+                        const SizedBox(width: 6),
+                        
+                        // History button
+                        GestureDetector(
+                          onTap: () => _showPaymentHistory(context, d, currency),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Icon(Icons.history, size: 18, color: Colors.blue),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
