@@ -148,6 +148,12 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final remainingColor = _debt.amount > 0 ? Colors.red : Colors.green;
+    final typeColor = _debt.type == DebtType.othersOweMe ? Colors.blue : Colors.redAccent;
+    final paid = _payments.fold<double>(0, (p, e) => p + ((e['amount'] as num).toDouble()));
+    final initial = paid + _debt.amount;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Chi tiết công nợ'),
@@ -212,118 +218,143 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       body: RepaintBoundary(
         key: _captureKey,
         child: Material(
-          color: Colors.white,
+          color: theme.scaffoldBackgroundColor,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(12.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Expanded(child: Text('Tên: ${_debt.partyName}')),
-                            Chip(label: Text(_debt.type == DebtType.othersOweMe ? 'Nợ tôi' : 'Tôi nợ')),
-                          ],
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('Tên: ${_debt.partyName}', style: theme.textTheme.titleMedium),
+                          trailing: Chip(
+                            label: Text(_debt.type == DebtType.othersOweMe ? 'Nợ tôi' : 'Tôi nợ'),
+                            backgroundColor: typeColor.withOpacity(0.2),
+                            labelStyle: TextStyle(color: typeColor),
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        Text('Số tiền còn lại: ${_currency.format(_debt.amount)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        Builder(
-                          builder: (_) {
-                            final paid = _payments.fold<double>(0, (p, e) => p + ((e['amount'] as num).toDouble()));
-                            final initial = paid + _debt.amount;
-                            return Text('Nợ ban đầu: ${_currency.format(initial)}', style: const TextStyle(color: Colors.black54));
-                          },
+                        const Divider(height: 8),
+                        Text(
+                          'Số tiền còn lại: ${_currency.format(_debt.amount)}',
+                          style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold, color: remainingColor),
                         ),
-                        const SizedBox(height: 8),
-                        if ((_debt.description ?? '').isNotEmpty) Text(_debt.description!),
                         const SizedBox(height: 4),
-                        Text(_debt.settled ? 'Đã tất toán' : 'Chưa tất toán', style: TextStyle(color: _debt.settled ? Colors.green : Colors.orange)),
+                        Text(
+                          'Nợ ban đầu: ${_currency.format(initial)}',
+                          style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                        ),
+                        if ((_debt.description ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(_debt.description!, style: theme.textTheme.bodyMedium),
+                        ],
+                        const SizedBox(height: 4),
+                        Text(
+                          _debt.settled ? 'Đã tất toán' : 'Chưa tất toán',
+                          style: theme.textTheme.bodyMedium?.copyWith(color: _debt.settled ? Colors.green : Colors.orange),
+                        ),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(child: Text('Lịch sử thanh toán', style: Theme.of(context).textTheme.titleMedium)),
+                    Text('Lịch sử thanh toán', style: theme.textTheme.titleMedium),
                     TextButton.icon(
                       onPressed: () => _exportPaymentsCsv(context),
-                      icon: const Icon(Icons.file_download_outlined),
+                      icon: const Icon(Icons.file_download_outlined, size: 20),
                       label: const Text('Xuất CSV'),
+                      style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Expanded(
-                  child: _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _payments.isEmpty
-                          ? const Center(child: Text('Chưa có lịch sử'))
-                          : ListView.separated(
-                              itemCount: _payments.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1),
-                              itemBuilder: (_, i) {
-                                final m = _payments[i];
-                                final createdAt = DateTime.parse(m['createdAt'] as String);
-                                final note = (m['note'] as String?) ?? '';
-                                final amount = (m['amount'] as num).toDouble();
-                                final id = m['id'] as int;
-                                return ListTile(
-                                  title: Text('${DateFormat('dd/MM/yyyy HH:mm').format(createdAt)}'),
-                                  subtitle: note.isEmpty ? null : Text(note),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(_currency.format(amount), style: const TextStyle(fontWeight: FontWeight.bold)),
-                                      IconButton(
-                                        tooltip: 'Xóa',
-                                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                        onPressed: () async {
-                                          final ok = await showDialog<bool>(
-                                            context: context,
-                                            builder: (_) => AlertDialog(
-                                              title: const Text('Xóa thanh toán'),
-                                              content: const Text('Bạn có chắc muốn xóa khoản thanh toán này?'),
-                                              actions: [
-                                                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-                                                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
-                                              ],
-                                            ),
-                                          );
-                                          if (ok == true) {
-                                          final messenger = ScaffoldMessenger.of(context);
-                                          await context.read<DebtProvider>().deletePayment(paymentId: id, debtId: _debt.id);
-                                          await _load();
-                                          if (!mounted) return;
-                                          messenger.showSnackBar(
-                                            SnackBar(
-                                              content: const Text('Đã xóa thanh toán'),
-                                              action: SnackBarAction(
-                                                label: 'Hoàn tác',
-                                                onPressed: () async {
-                                                  final ok = await context.read<DebtProvider>().undoLastPaymentDeletion();
-                                                  if (ok) {
-                                                    await _load();
-                                                    if (!mounted) return;
-                                                    messenger.showSnackBar(const SnackBar(content: Text('Đã khôi phục thanh toán')));
-                                                  }
-                                                },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: _loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _payments.isEmpty
+                            ? const Center(child: Text('Chưa có lịch sử', style: TextStyle(color: Colors.grey)))
+                            : ListView.builder(
+                                itemCount: _payments.length,
+                                itemBuilder: (_, i) {
+                                  final m = _payments[i];
+                                  final createdAt = DateTime.parse(m['createdAt'] as String);
+                                  final note = (m['note'] as String?) ?? '';
+                                  final amount = (m['amount'] as num).toDouble();
+                                  final id = m['id'] as int;
+                                  return ListTile(
+                                    dense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    title: Text(DateFormat('dd/MM/yyyy HH:mm').format(createdAt), style: theme.textTheme.bodyMedium),
+                                    subtitle: note.isEmpty ? null : Text(note, style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600])),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          _currency.format(amount),
+                                          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.green),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Xóa',
+                                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () async {
+                                            final ok = await showDialog<bool>(
+                                              context: context,
+                                              builder: (_) => AlertDialog(
+                                                title: const Text('Xóa thanh toán'),
+                                                content: const Text('Bạn có chắc muốn xóa khoản thanh toán này?'),
+                                                actions: [
+                                                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+                                                  FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
+                                                ],
                                               ),
-                                            ),
-                                          );
-                                        }
-                                      },
-                                  )],
-                                  ),
-                                );
-                              },
-                            ),
+                                            );
+                                            if (ok == true) {
+                                              final messenger = ScaffoldMessenger.of(context);
+                                              await context.read<DebtProvider>().deletePayment(paymentId: id, debtId: _debt.id);
+                                              await _load();
+                                              if (!mounted) return;
+                                              messenger.showSnackBar(
+                                                SnackBar(
+                                                  content: const Text('Đã xóa thanh toán'),
+                                                  action: SnackBarAction(
+                                                    label: 'Hoàn tác',
+                                                    onPressed: () async {
+                                                      final ok = await context.read<DebtProvider>().undoLastPaymentDeletion();
+                                                      if (ok) {
+                                                        await _load();
+                                                        if (!mounted) return;
+                                                        messenger.showSnackBar(const SnackBar(content: Text('Đã khôi phục thanh toán')));
+                                                      }
+                                                    },
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
                 ),
               ],
             ),
