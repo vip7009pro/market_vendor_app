@@ -241,6 +241,12 @@ class _SaleScreenState extends State<SaleScreen> {
               }
             },
           ),
+           IconButton(
+            tooltip: 'Lịch sử bán',
+            icon: const Icon(Icons.history),
+            onPressed: () => Navigator.of(context).pushNamed('/sales_history'),
+          ),
+
           PopupMenuButton<String>(
             onSelected: (val) async {
               if (val == 'set_step') {

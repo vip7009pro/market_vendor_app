@@ -18,6 +18,7 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
   late final TabController _tabController;
   final TextEditingController _searchCtrl = TextEditingController();
   DateTimeRange? _range;
+  bool _showOnlyUnpaid = true;
 
   @override
   void initState() {
@@ -47,6 +48,11 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
       bool inRange(DateTime t) => t.isAfter(_range!.start.subtract(const Duration(seconds: 1))) && t.isBefore(_range!.end.add(const Duration(seconds: 1)));
       othersOwe = othersOwe.where((d) => inRange(d.createdAt)).toList();
       iOwe = iOwe.where((d) => inRange(d.createdAt)).toList();
+    }
+    
+    if (_showOnlyUnpaid) {
+      othersOwe = othersOwe.where((d) => d.amount > 0).toList();
+      iOwe = iOwe.where((d) => d.amount > 0).toList();
     }
 
     return Scaffold(
@@ -100,6 +106,28 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
                     icon: const Icon(Icons.clear),
                     onPressed: () => setState(() => _range = null),
                   ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            child: Row(
+              children: [
+                const Text('Chỉ hiển thị còn nợ'),
+                const SizedBox(width: 8),
+                Switch(
+                  value: _showOnlyUnpaid,
+                  onChanged: (value) {
+                    setState(() {
+                      _showOnlyUnpaid = value;
+                    });
+                  },
+                ),
+                const Spacer(),
+                Text(
+                  'Tổng: ${_tabController.index == 0 ? othersOwe.length : iOwe.length} người',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ],
             ),
           ),
