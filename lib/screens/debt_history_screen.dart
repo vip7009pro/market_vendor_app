@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'package:permission_handler/permission_handler.dart';
 import '../providers/debt_provider.dart';
 import '../models/debt.dart';
 import '../services/database_service.dart';
+import '../utils/file_helper.dart';
 
 class DebtHistoryScreen extends StatefulWidget {
   const DebtHistoryScreen({super.key});
@@ -324,13 +323,9 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
   }
 
   Future<void> _exportCsv(BuildContext context, List<Debt> debts) async {
-    // Request storage permission for writing to Downloads
-    final status = await Permission.storage.request();
-    if (!status.isGranted) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không có quyền lưu tệp. Vui lòng cấp quyền lưu trữ.')));
-      return;
-    }
+    if (!context.mounted) return;
+    
+    // Tạo nội dung CSV
     final buffer = StringBuffer();
     buffer.writeln('id,type,partyId,partyName,amount,settled,createdAt,description');
     for (final d in debts) {
@@ -338,18 +333,13 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
       final desc = (d.description ?? '').replaceAll('\n', ' ').replaceAll(',', ' ');
       buffer.writeln('${d.id},$typeStr,${d.partyId},${d.partyName},${d.amount},${d.settled},${d.createdAt.toIso8601String()},$desc');
     }
-    final fileName = 'debt_export_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.csv';
-    Directory? dir;
-    try {
-      final candidates = await getExternalStorageDirectories(type: StorageDirectory.downloads);
-      if (candidates != null && candidates.isNotEmpty) {
-        dir = candidates.first;
-      }
-    } catch (_) {}
-    dir ??= await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/$fileName');
-    await file.writeAsString(buffer.toString());
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã xuất CSV: ${file.path}')));
+    
+    // Sử dụng helper để xuất file
+    await FileHelper.exportCsv(
+      context: context,
+      csvContent: buffer.toString(),
+      fileName: 'debt_export',
+      openAfterExport: false,
+    );
   }
 }

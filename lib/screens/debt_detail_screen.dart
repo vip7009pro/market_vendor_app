@@ -6,10 +6,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:open_filex/open_filex.dart';
 import '../models/debt.dart';
 import '../providers/debt_provider.dart';
+import '../utils/file_helper.dart';
 
 class DebtDetailScreen extends StatefulWidget {
   final Debt debt;
@@ -34,40 +34,22 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
   }
 
   Future<void> _exportPaymentsCsv(BuildContext context) async {
-    // Request storage permission to write to public Downloads
-    final status = await Permission.storage.request();
-    if (!status.isGranted) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không có quyền lưu tệp. Vui lòng cấp quyền lưu trữ.')));
-      return;
-    }
+    if (!mounted) return;
+    
+    // Tạo nội dung CSV
     final buffer = StringBuffer();
     buffer.writeln('id,debtId,createdAt,amount,note');
     for (final m in _payments) {
       final note = (m['note'] as String? ?? '').replaceAll('\n', ' ').replaceAll('"', '""');
       buffer.writeln("${m['id']},${_debt.id},${m['createdAt']},${m['amount']},\"$note\"");
     }
-    final fileName = 'debt_${_debt.id}_payments_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.csv';
-    Directory? dir;
-    try {
-      final candidates = await getExternalStorageDirectories(type: StorageDirectory.downloads);
-      if (candidates != null && candidates.isNotEmpty) {
-        dir = candidates.first;
-      }
-    } catch (_) {}
-    dir ??= await getApplicationDocumentsDirectory();
-    final dirPath = dir.path;
-    final file = File('$dirPath/$fileName');
-    await file.writeAsString(buffer.toString());
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Đã xuất CSV: ${file.path}'),
-        action: SnackBarAction(
-          label: 'Mở thư mục',
-          onPressed: () => OpenFilex.open(dirPath),
-        ),
-      ),
+    
+    // Sử dụng helper để xuất file
+    await FileHelper.exportCsv(
+      context: context,
+      csvContent: buffer.toString(),
+      fileName: 'debt_${_debt.id}_payments',
+      openAfterExport: false,
     );
   }
 
