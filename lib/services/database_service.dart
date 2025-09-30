@@ -721,7 +721,7 @@ class DatabaseService {
           final items = await db.query(
             'sale_items', 
             where: 'saleId = ?', 
-            whereArgs: [row['id']]
+            whereArgs: [row['id']],            
           );
           
           // Process sale items

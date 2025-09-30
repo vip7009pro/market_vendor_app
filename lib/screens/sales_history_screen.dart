@@ -54,7 +54,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       final end = DateTime(_range!.end.year, _range!.end.month, _range!.end.day, 23, 59, 59, 999);
       filtered = filtered
           .where((s) => s.createdAt.isAfter(start.subtract(const Duration(milliseconds: 1))) && s.createdAt.isBefore(end.add(const Duration(milliseconds: 1))))
-          .toList();
+          .toList(); // Chuyển thành list có thể sửa đổi
     }
     if (_query.isNotEmpty) {
       final q = _vn(_query).toLowerCase();
@@ -62,8 +62,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         final customer = _vn(s.customerName ?? '').toLowerCase();
         final items = _vn(s.items.map((e) => e.name).join(', ')).toLowerCase();
         return customer.contains(q) || items.contains(q);
-      }).toList();
+      }).toList(); // Chuyển thành list có thể sửa đổi
     }
+
+    // Tạo bản sao và sắp xếp theo createdAt giảm dần (mới nhất lên đầu)
+    final List<Sale> sortedFiltered = List.from(filtered)..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     return Scaffold(
       appBar: AppBar(
@@ -113,7 +116,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   );
                 }
               } else if (val == 'export_csv') {
-                await _exportCsv(context, filtered);
+                await _exportCsv(context, sortedFiltered); // Sử dụng sortedFiltered
               }
             },
             itemBuilder: (context) => const [
@@ -170,10 +173,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           const Divider(height: 1),
           Expanded(
             child: ListView.separated(
-              itemCount: filtered.length,
+              itemCount: sortedFiltered.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, i) {
-                final s = filtered[i];
+                final s = sortedFiltered[i];
                 final customer = s.customerName?.trim().isEmpty == false ? s.customerName!.trim() : 'Khách lẻ';
                 return Card(
                   margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
