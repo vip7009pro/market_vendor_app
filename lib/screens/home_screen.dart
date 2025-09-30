@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:market_vendor_app/providers/auth_provider.dart';
+import 'package:market_vendor_app/screens/sales_history_screen.dart';
 import 'package:provider/provider.dart';
 import 'debt_screen.dart';
 import 'report_screen.dart';
@@ -80,6 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _pages = [
       const SaleScreen(),
+      const SalesHistoryScreen(),
       const DebtScreen(),
       const ReportScreen(),
       const SettingsScreen(),
@@ -226,6 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Bán hàng'),
+          NavigationDestination(icon: Icon(Icons.history), label: 'Lịch sử'),
           NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Ghi nợ'),
           NavigationDestination(icon: Icon(Icons.insights), label: 'Báo cáo'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Cài đặt'),

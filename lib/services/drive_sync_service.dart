@@ -133,6 +133,7 @@ class DriveSyncService {
   }
 
   /// Downloads the selected backup and restores it to the local SQLite DB path.
+  /// Sau khi khôi phục, sẽ tự động thực hiện migration nếu cần thiết.
   Future<void> restoreToLocal({required String accessToken, required String fileId}) async {
     final bytes = await downloadFile(accessToken: accessToken, fileId: fileId);
     final dbPath = await getDatabasesPath();

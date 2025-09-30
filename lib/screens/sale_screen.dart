@@ -13,6 +13,8 @@ import 'package:intl/intl.dart';
 import 'dart:math' as math;
 import 'scan_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:dropdown_search/dropdown_search.dart';
 
 class SaleScreen extends StatefulWidget {
   const SaleScreen({super.key});
@@ -29,17 +31,39 @@ class _SaleScreenState extends State<SaleScreen> {
   double _paid = 0;
   String? _customerId;
   String? _customerName;
-  bool _paidEdited = false; // track if user manually edited paid
+  bool _paidEdited = false;
   List<String> _recentUnits = ['cái', 'kg', 'g', 'hộp'];
   double _qtyStep = 0.5;
   VoidCallback? _clearProductField;
   VoidCallback? _unfocusProductField;
+  List<Customer> _recentCustomers = [];
+  List<Product> _recentProducts = [];
+
+  // Hàm chuyển đổi tiếng Việt có dấu thành không dấu
+  String removeDiacritics(String str) {
+    const withDiacritics = 'áàảãạăắằẳẵặâấầuẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵđ';
+    const withoutDiacritics = 'aaaaaăaaaaaaâaaaaaaeeeeeêeeeeeiiiiioooooôooooooơooooouuuuuưuuuuuyyyyyd';
+    String result = str.toLowerCase();
+    for (int i = 0; i < withDiacritics.length; i++) {
+      result = result.replaceAll(withDiacritics[i], withoutDiacritics[i]);
+    }
+    return result;
+  }
+
+  // Hàm lấy chữ cái đầu của các từ
+  String getInitials(String str) {
+    final normalized = removeDiacritics(str);
+    final words = normalized.split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    return words.map((w) => w[0]).join().toLowerCase();
+  }
 
   @override
   void initState() {
     super.initState();
     _loadRecentUnits();
     _loadQtyStep();
+    _loadRecentCustomers();
+    _loadRecentProducts();
   }
 
   Future<void> _loadRecentUnits() async {
@@ -47,7 +71,6 @@ class _SaleScreenState extends State<SaleScreen> {
     final list = sp.getStringList('recent_units') ?? _recentUnits;
     setState(() {
       _recentUnits = list.toSet().toList();
-      // no direct state to set from last here; we apply per-item when adding
     });
   }
 
@@ -90,9 +113,60 @@ class _SaleScreenState extends State<SaleScreen> {
     });
   }
 
+  Future<void> _loadRecentCustomers() async {
+    final sp = await SharedPreferences.getInstance();
+    final customerJsonList = sp.getStringList('recent_customers') ?? [];
+    final customers = context.read<CustomerProvider>().customers;
+    setState(() {
+      _recentCustomers = customerJsonList
+          .map((json) => Customer.fromMap(jsonDecode(json)))
+          .where((c) => customers.any((cust) => cust.id == c.id))
+          .take(3)
+          .toList();
+    });
+  }
+
+  Future<void> _saveRecentCustomer(Customer customer) async {
+    final sp = await SharedPreferences.getInstance();
+    final customerJsonList = sp.getStringList('recent_customers') ?? [];
+    final customerJson = jsonEncode(customer.toMap());
+    final updatedList = [customerJson, ...customerJsonList]
+        .toSet()
+        .take(3)
+        .toList();
+    await sp.setStringList('recent_customers', updatedList);
+    await _loadRecentCustomers();
+  }
+
+  Future<void> _loadRecentProducts() async {
+    final sp = await SharedPreferences.getInstance();
+    final productJsonList = sp.getStringList('recent_products') ?? [];
+    final products = context.read<ProductProvider>().products;
+    setState(() {
+      _recentProducts = productJsonList
+          .map((json) => Product.fromMap(jsonDecode(json)))
+          .where((p) => products.any((prod) => prod.id == p.id))
+          .take(3)
+          .toList();
+    });
+  }
+
+  Future<void> _saveRecentProduct(Product product) async {
+    final sp = await SharedPreferences.getInstance();
+    final productJsonList = sp.getStringList('recent_products') ?? [];
+    final productJson = jsonEncode(product.toMap());
+    final updatedList = [productJson, ...productJsonList]
+        .toSet()
+        .take(3)
+        .toList();
+    await sp.setStringList('recent_products', updatedList);
+    await _loadRecentProducts();
+  }
+
   Future<void> _addQuickProductDialog({String? prefillName}) async {
     final nameCtrl = TextEditingController(text: prefillName ?? '');
     final priceCtrl = TextEditingController(text: '0');
+    final costPriceCtrl = TextEditingController(text: '0');
     final unitCtrl = TextEditingController(text: 'cái');
     final barcodeCtrl = TextEditingController();
     final ok = await showDialog<bool>(
@@ -104,7 +178,9 @@ class _SaleScreenState extends State<SaleScreen> {
           children: [
             TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên sản phẩm')),
             const SizedBox(height: 8),
-            TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá')),
+            TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá bán')),
+            const SizedBox(height: 8),
+            TextField(controller: costPriceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá vốn')),
             const SizedBox(height: 8),
             TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')),
             const SizedBox(height: 8),
@@ -139,26 +215,38 @@ class _SaleScreenState extends State<SaleScreen> {
       final p = Product(
         name: nameCtrl.text.trim(),
         price: double.tryParse(priceCtrl.text.trim()) ?? 0,
+        costPrice: double.tryParse(costPriceCtrl.text.trim()) ?? 0,
         unit: unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim(),
         barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
       );
       await context.read<ProductProvider>().add(p);
       setState(() {
-        final newItem = SaleItem(
-          productId: p.id,
-          name: p.name,
-          unitPrice: p.price,
-          quantity: 1,
-          unit: p.unit,
+        final existingItem = _items.firstWhere(
+          (item) => item.productId == p.id,
+          orElse: () => SaleItem(
+            productId: p.id,
+            name: p.name,
+            unitPrice: p.price,
+            unitCost: p.costPrice,
+            quantity: 0,
+            unit: p.unit,
+          ),
         );
-        _items.add(newItem);
+        if (_items.contains(existingItem)) {
+          existingItem.quantity += 1;
+        } else {
+          _items.add(existingItem..quantity = 1);
+        }
+        _productCtrl.text = p.name;
       });
-      await _applyLastUnitTo(_items.last);
+      await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
+      await _saveRecentProduct(p);
       if (!_paidEdited) {
         final subtotal = _items.fold(0.0, (p, e) => p + e.total);
         final total = (subtotal - _discount).clamp(0, double.infinity).toDouble();
         setState(() => _paid = total);
       }
+      _unfocusProductField?.call();
     }
   }
 
@@ -184,13 +272,17 @@ class _SaleScreenState extends State<SaleScreen> {
       ),
     );
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
-      final c = Customer(name: nameCtrl.text.trim(), phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim());
+      final c = Customer(
+        name: nameCtrl.text.trim(),
+        phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
+      );
       await context.read<CustomerProvider>().add(c);
       setState(() {
         _customerId = c.id;
         _customerName = c.name;
         _customerCtrl.text = c.name;
       });
+      await _saveRecentCustomer(c);
     }
   }
 
@@ -218,22 +310,31 @@ class _SaleScreenState extends State<SaleScreen> {
               final p = context.read<ProductProvider>().findByBarcode(code);
               if (p != null) {
                 setState(() {
-                  final it = SaleItem(
-                    productId: p.id,
-                    name: p.name,
-                    unitPrice: p.price,
-                    quantity: 1,
-                    unit: p.unit,
+                  final existingItem = _items.firstWhere(
+                    (item) => item.productId == p.id,
+                    orElse: () => SaleItem(
+                      productId: p.id,
+                      name: p.name,
+                      unitPrice: p.price,
+                      unitCost: p.costPrice,
+                      quantity: 0,
+                      unit: p.unit,
+                    ),
                   );
-                  _items.add(it);
+                  if (_items.contains(existingItem)) {
+                    existingItem.quantity += 1;
+                  } else {
+                    _items.add(existingItem..quantity = 1);
+                  }
+                  _productCtrl.text = p.name;
                 });
-                await _applyLastUnitTo(_items.last);
+                await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
+                await _saveRecentProduct(p);
                 if (!_paidEdited) {
                   final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
                   final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
                   setState(() => _paid = total2);
                 }
-                // Clear product field and hide keyboard (use callbacks from fieldViewBuilder)
                 _clearProductField?.call();
                 _unfocusProductField?.call();
               } else {
@@ -241,12 +342,11 @@ class _SaleScreenState extends State<SaleScreen> {
               }
             },
           ),
-           IconButton(
+          IconButton(
             tooltip: 'Lịch sử bán',
             icon: const Icon(Icons.history),
             onPressed: () => Navigator.of(context).pushNamed('/sales_history'),
           ),
-
           PopupMenuButton<String>(
             onSelected: (val) async {
               if (val == 'set_step') {
@@ -289,103 +389,194 @@ class _SaleScreenState extends State<SaleScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Customer selection
-            Autocomplete<Customer>(
-              optionsBuilder: (text) {
-                final q = text.text.toLowerCase();
-                if (q.isEmpty) return customers;
-                return customers.where((c) => c.name.toLowerCase().contains(q));
-              },
-              displayStringForOption: (c) => c.name,
-              fieldViewBuilder: (context, ctrl, focus, onSubmit) {
-                _customerCtrl.value = ctrl.value;
-                return TextField(
-                  controller: ctrl,
-                  focusNode: focus,
-                  decoration: InputDecoration(
-                    labelText: 'Khách hàng (tuỳ chọn)',
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.person_add_alt),
-                      onPressed: _addQuickCustomerDialog,
-                    ),
+            DropdownSearch<Customer>(
+              items: customers,
+              dropdownDecoratorProps: DropDownDecoratorProps(
+                dropdownSearchDecoration: InputDecoration(
+                  labelText: 'Khách hàng (tuỳ chọn)',
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.person_add_alt),
+                    onPressed: _addQuickCustomerDialog,
+                    tooltip: 'Thêm khách hàng mới',
                   ),
-                  onChanged: (v) {
-                    setState(() {
-                      _customerId = null;
-                      _customerName = v.isEmpty ? null : v;
-                    });
-                  },
-                );
+                  suffixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                ),
+              ),
+              onChanged: (c) async {
+                if (c != null) {
+                  setState(() {
+                    _customerId = c.id;
+                    _customerName = c.name;
+                    _customerCtrl.text = c.name;
+                  });
+                  await _saveRecentCustomer(c);
+                } else {
+                  setState(() {
+                    _customerId = null;
+                    _customerName = null;
+                    _customerCtrl.text = '';
+                  });
+                }
               },
-              onSelected: (c) {
-                setState(() {
-                  _customerId = c.id;
-                  _customerName = c.name;
-                  _customerCtrl.text = c.name;
-                });
+              selectedItem: _customerId != null
+                  ? customers.firstWhere((c) => c.id == _customerId, orElse: () => Customer(name: _customerName ?? ''))
+                  : null,
+              itemAsString: (c) => c.name,
+              filterFn: (c, query) {
+                final normalizedQuery = removeDiacritics(query).toLowerCase();
+                final normalizedName = removeDiacritics(c.name).toLowerCase();
+                final initials = getInitials(c.name);
+                return normalizedName.contains(normalizedQuery) || initials.contains(normalizedQuery);
               },
+              popupProps: const PopupProps.menu(
+                showSearchBox: true,
+                fit: FlexFit.loose,
+                searchDelay: Duration.zero,
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Recent Customers
+            Wrap(
+              spacing: 8,
+              children: [
+                ..._recentCustomers.map(
+                  (c) => ActionChip(
+                    side: const BorderSide(color: Colors.pink),
+                    label: Text(c.name),
+                    onPressed: () async {
+                      setState(() {
+                        _customerId = c.id;
+                        _customerName = c.name;
+                        _customerCtrl.text = c.name;
+                      });
+                      await _saveRecentCustomer(c);
+                    },
+                  ),
+                ),
+                ActionChip(
+                  side: const BorderSide(color: Colors.pink),
+                  label: const Text('Thêm'),
+                  avatar: const Icon(Icons.person_add_alt, size: 18),
+                  onPressed: _addQuickCustomerDialog,
+                ),
+              ],
             ),
             const SizedBox(height: 12),
-            Autocomplete<Product>(
-              optionsBuilder: (text) {
-                final q = text.text.toLowerCase();
-                // show all products if empty to open list immediately on focus
-                final base = q.isEmpty ? products : products.where((p) => p.name.toLowerCase().contains(q));
-                return base;
-              },
-              displayStringForOption: (p) => p.name,
-              fieldViewBuilder: (context, ctrl, focus, onSubmit) {
-                _productCtrl.value = ctrl.value;
-                // When gaining focus with empty input, briefly nudge the controller to show options
-                focus.addListener(() {
-                  if (focus.hasFocus && (ctrl.text.isEmpty)) {
-                    final orig = ctrl.text;
-                    ctrl.text = ' ';
-                    ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length);
-                    Future.microtask(() {
-                      ctrl.text = orig;
-                      ctrl.selection = TextSelection.collapsed(offset: orig.length);
-                    });
-                  }
-                });
-                // wire clear/unfocus callbacks so outside handlers can control this field
-                _clearProductField = () => ctrl.clear();
-                _unfocusProductField = () => focus.unfocus();
-                return TextField(
-                  controller: ctrl,
-                  focusNode: focus,
-                  decoration: InputDecoration(
-                    labelText: 'Thêm sản phẩm nhanh',
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.add),
-                      onPressed: () async {
-                        await _addQuickProductDialog(prefillName: ctrl.text.trim().isEmpty ? null : ctrl.text.trim());
-                        ctrl.clear();
-                        FocusScope.of(context).unfocus();
-                      },
-                    ),
+            // Product selection
+            DropdownSearch<Product>(
+              items: products,
+              dropdownDecoratorProps: DropDownDecoratorProps(
+                dropdownSearchDecoration: InputDecoration(
+                  labelText: 'Thêm sản phẩm nhanh',
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.add),
+                    onPressed: () async {
+                      await _addQuickProductDialog(prefillName: _productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim());
+                      _productCtrl.clear();
+                      _unfocusProductField?.call();
+                    },
+                    tooltip: 'Thêm sản phẩm mới',
                   ),
-                );
-              },
-              onSelected: (p) async {
-                setState(() {
-                  final it = SaleItem(
-                    productId: p.id,
-                    name: p.name,
-                    unitPrice: p.price,
-                    quantity: 1,
-                    unit: p.unit,
-                  );
-                  _items.add(it);
-                });
-                await _applyLastUnitTo(_items.last);
-                if (!_paidEdited) {
-                  final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
-                  final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
-                  setState(() => _paid = total2);
+                  suffixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                ),
+              ),
+              onChanged: (p) async {
+                if (p != null) {
+                  setState(() {
+                    final existingItem = _items.firstWhere(
+                      (item) => item.productId == p.id,
+                      orElse: () => SaleItem(
+                        productId: p.id,
+                        name: p.name,
+                        unitPrice: p.price,
+                        unitCost: p.costPrice,
+                        quantity: 0,
+                        unit: p.unit,
+                      ),
+                    );
+                    if (_items.contains(existingItem)) {
+                      existingItem.quantity += 1;
+                    } else {
+                      _items.add(existingItem..quantity = 1);
+                    }
+                    _productCtrl.text = p.name;
+                  });
+                  await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
+                  await _saveRecentProduct(p);
+                  if (!_paidEdited) {
+                    final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                    final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                    setState(() => _paid = total2);
+                  }
+                  _clearProductField?.call();
+                  _unfocusProductField?.call();
                 }
-                _clearProductField?.call();
-                _unfocusProductField?.call();
               },
+              itemAsString: (p) => p.name,
+              filterFn: (p, query) {
+                final normalizedQuery = removeDiacritics(query).toLowerCase();
+                final normalizedName = removeDiacritics(p.name).toLowerCase();
+                final initials = getInitials(p.name);
+                return normalizedName.contains(normalizedQuery) || initials.contains(normalizedQuery);
+              },
+              popupProps: const PopupProps.menu(
+                showSearchBox: true,
+                fit: FlexFit.loose,
+                searchDelay: Duration.zero,
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Recent Products
+            Wrap(
+              spacing: 8,
+              children: [
+                ..._recentProducts.map(
+                  (p) => ActionChip(
+                    side: const BorderSide(color: Colors.pink),
+                    label: Text(p.name),
+                    onPressed: () async {
+                      setState(() {
+                        final existingItem = _items.firstWhere(
+                          (item) => item.productId == p.id,
+                          orElse: () => SaleItem(
+                            productId: p.id,
+                            name: p.name,
+                            unitPrice: p.price,
+                            unitCost: p.costPrice,
+                            quantity: 0,
+                            unit: p.unit,
+                          ),
+                        );
+                        if (_items.contains(existingItem)) {
+                          existingItem.quantity += 1;
+                        } else {
+                          _items.add(existingItem..quantity = 1);
+                        }
+                        _productCtrl.text = p.name;
+                      });
+                      await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
+                      await _saveRecentProduct(p);
+                      if (!_paidEdited) {
+                        final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                        final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                        setState(() => _paid = total2);
+                      }
+                      _clearProductField?.call();
+                      _unfocusProductField?.call();
+                    },
+                  ),
+                ),
+                ActionChip(
+                  side: const BorderSide(color: Colors.pink),
+                  label: const Text('Thêm'),
+                  avatar: const Icon(Icons.add, size: 18),
+                  onPressed: () async {
+                    await _addQuickProductDialog(prefillName: _productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim());
+                    _productCtrl.clear();
+                    _unfocusProductField?.call();
+                  },
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -453,7 +644,6 @@ class _SaleScreenState extends State<SaleScreen> {
                         const SizedBox(height: 6),
                         Row(
                           children: [
-                            // Unit dropdown
                             SizedBox(
                               width: 60,
                               child: DropdownButtonHideUnderline(
@@ -471,7 +661,6 @@ class _SaleScreenState extends State<SaleScreen> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            // Direct quantity input
                             SizedBox(
                               width: 110,
                               child: TextField(
@@ -497,7 +686,6 @@ class _SaleScreenState extends State<SaleScreen> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            // Quantity stepper
                             QuantityStepper(
                               value: it.quantity,
                               onChanged: (v) {

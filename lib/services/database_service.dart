@@ -309,6 +309,17 @@ class DatabaseService {
         print('Lỗi khi cập nhật bảng sale_items và debt_payments: $e');
       }
     }
+    
+    // Migration từ version 7 lên 8: Thêm cột costPrice vào bảng products
+    if (oldVersion < 8) {
+      try {
+        print('Đang thêm cột costPrice vào bảng products...');
+        await safeAddColumn(db, 'products', 'costPrice', 'REAL NOT NULL DEFAULT 0');
+        print('Đã cập nhật bảng products thành công');
+      } catch (e) {
+        print('Lỗi khi cập nhật bảng products: $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -317,7 +328,7 @@ class DatabaseService {
     
     _db = await openDatabase(
       path,
-      version: 7, // Tăng version để áp dụng migration
+      version: 8, // Tăng version để áp dụng migration cho costPrice
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -325,6 +336,7 @@ class DatabaseService {
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             price REAL NOT NULL,
+            costPrice REAL NOT NULL DEFAULT 0,
             unit TEXT NOT NULL,
             barcode TEXT,
             isActive INTEGER NOT NULL DEFAULT 1,

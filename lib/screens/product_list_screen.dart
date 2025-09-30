@@ -32,7 +32,13 @@ class ProductListScreen extends StatelessWidget {
           final p = products[i];
           return ListTile(
             title: Text(p.name),
-            subtitle: Text('${currency.format(p.price)} / ${p.unit}'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Giá bán: ${currency.format(p.price)} / ${p.unit}'),
+                Text('Giá vốn: ${currency.format(p.costPrice)}'),
+              ],
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -85,6 +91,7 @@ class ProductListScreen extends StatelessWidget {
   Future<void> _showProductDialog(BuildContext context, {Product? existing}) async {
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final priceCtrl = TextEditingController(text: existing?.price.toStringAsFixed(0) ?? '0');
+    final costPriceCtrl = TextEditingController(text: existing?.costPrice.toStringAsFixed(0) ?? '0');
     final unitCtrl = TextEditingController(text: existing?.unit ?? 'cái');
     final barcodeCtrl = TextEditingController(text: existing?.barcode ?? '');
 
@@ -97,7 +104,9 @@ class ProductListScreen extends StatelessWidget {
           children: [
             TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên')), 
             const SizedBox(height: 8),
-            TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá')), 
+            TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá bán')), 
+            const SizedBox(height: 8),
+            TextField(controller: costPriceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá vốn')), 
             const SizedBox(height: 8),
             TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')), 
             const SizedBox(height: 8),
@@ -135,6 +144,7 @@ class ProductListScreen extends StatelessWidget {
         await provider.add(Product(
           name: nameCtrl.text.trim(),
           price: double.tryParse(priceCtrl.text.trim()) ?? 0,
+          costPrice: double.tryParse(costPriceCtrl.text.trim()) ?? 0,
           unit: unitCtrl.text.trim(),
           barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
         ));
@@ -143,6 +153,7 @@ class ProductListScreen extends StatelessWidget {
           id: existing.id,
           name: nameCtrl.text.trim(),
           price: double.tryParse(priceCtrl.text.trim()) ?? 0,
+          costPrice: double.tryParse(costPriceCtrl.text.trim()) ?? 0,
           unit: unitCtrl.text.trim(),
           barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
           isActive: existing.isActive,
