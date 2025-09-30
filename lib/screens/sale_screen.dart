@@ -783,12 +783,15 @@ class _SaleScreenState extends State<SaleScreen> {
                 onPressed: _items.isEmpty
                     ? null
                     : () async {
+                        // Tính totalCost dựa trên unitCost của các SaleItem
+                        double calculatedTotalCost = _items.fold(0.0, (p, e) => p + e.totalCost);
                         final sale = Sale(
                           items: _items.toList(),
                           discount: _discount,
                           paidAmount: _paid,
                           customerId: _customerId,
                           customerName: _customerName,
+                          totalCost: calculatedTotalCost, // Thêm totalCost vào Sale
                         );
                         await context.read<SaleProvider>().add(sale);
                         final debtValue = (sale.total - sale.paidAmount).clamp(0.0, double.infinity).toDouble();

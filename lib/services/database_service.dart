@@ -320,6 +320,17 @@ class DatabaseService {
         print('Lỗi khi cập nhật bảng products: $e');
       }
     }
+    
+    // Migration từ version 8 lên 9: Thêm cột totalCost vào bảng sales
+    if (oldVersion < 9) {
+      try {
+        print('Đang thêm cột totalCost vào bảng sales...');
+        await safeAddColumn(db, 'sales', 'totalCost', 'REAL NOT NULL DEFAULT 0');
+        print('Đã cập nhật bảng sales thành công');
+      } catch (e) {
+        print('Lỗi khi cập nhật bảng sales: $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -328,7 +339,7 @@ class DatabaseService {
     
     _db = await openDatabase(
       path,
-      version: 8, // Tăng version để áp dụng migration cho costPrice
+      version: 9, // Tăng version để áp dụng migration cho costPrice
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -367,6 +378,7 @@ class DatabaseService {
             customerName TEXT,
             discount REAL NOT NULL DEFAULT 0,
             paidAmount REAL NOT NULL DEFAULT 0,
+            totalCost REAL NOT NULL DEFAULT 0, -- Thêm cột totalCost
             note TEXT,
             updatedAt TEXT NOT NULL,
             deviceId TEXT,
@@ -586,6 +598,19 @@ class DatabaseService {
           ? await EncryptionService.instance.encrypt(s.note!)
           : null;
       
+      // Tính totalCost dựa trên costPrice của các sale_items
+      double totalCost = 0.0;
+      final productIds = s.items.map((item) => item.productId).whereType<String>().toList();
+      if (productIds.isNotEmpty) {
+        final productRows = await db.query('products', where: 'id IN (${List.filled(productIds.length, '?').join(',')})', whereArgs: productIds);
+        final productMap = {for (var p in productRows) p['id'] as String: (p['costPrice'] as num).toDouble()};
+        
+        for (final item in s.items) {
+          final costPrice = productMap[item.productId]! * item.quantity;
+          totalCost += costPrice;
+        }
+      }
+
       await db.transaction((txn) async {
         await txn.insert('sales', {
           'id': s.id,
@@ -594,6 +619,7 @@ class DatabaseService {
           'customerName': s.customerName,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
+          'totalCost': totalCost, // Lưu totalCost
           'note': encryptedNote,
           'updatedAt': DateTime.now().toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -613,6 +639,7 @@ class DatabaseService {
           'total': s.total,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
+          'totalCost': totalCost,
         });
       });
     } catch (e) {
@@ -631,6 +658,19 @@ class DatabaseService {
           ? await EncryptionService.instance.encrypt(s.note!)
           : null;
       
+      // Tính totalCost dựa trên costPrice của các sale_items
+      double totalCost = 0.0;
+      final productIds = s.items.map((item) => item.productId).whereType<String>().toList();
+      if (productIds.isNotEmpty) {
+        final productRows = await db.query('products', where: 'id IN (${List.filled(productIds.length, '?').join(',')})', whereArgs: productIds);
+        final productMap = {for (var p in productRows) p['id'] as String: (p['costPrice'] as num).toDouble()};
+        
+        for (final item in s.items) {
+          final costPrice = productMap[item.productId]! * item.quantity;
+          totalCost += costPrice;
+        }
+      }
+
       await db.transaction((txn) async {
         await txn.insert('sales', {
           'id': s.id,
@@ -639,6 +679,7 @@ class DatabaseService {
           'customerName': s.customerName,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
+          'totalCost': totalCost, // Lưu totalCost
           'note': encryptedNote,
           'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -700,6 +741,9 @@ class DatabaseService {
               ? await EncryptionService.instance.decrypt(note)
               : null;
           
+          // Lấy totalCost từ database
+          final totalCost = (row['totalCost'] as num?)?.toDouble() ?? 0.0;
+
           // Create sale object
           final sale = Sale(
             id: row['id'] as String,
@@ -710,6 +754,7 @@ class DatabaseService {
             discount: (row['discount'] as num).toDouble(),
             paidAmount: (row['paidAmount'] as num).toDouble(),
             note: decryptedNote,
+            totalCost: totalCost, // Sử dụng totalCost từ database
           );
           
           sales.add(sale);
