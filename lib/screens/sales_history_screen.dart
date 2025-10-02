@@ -5,13 +5,6 @@ import '../providers/sale_provider.dart';
 import '../models/sale.dart';
 import '../utils/file_helper.dart';
 
-class SalesHistoryScreen extends StatefulWidget {
-  const SalesHistoryScreen({super.key});
-
-  @override
-  State<SalesHistoryScreen> createState() => _SalesHistoryScreenState();
-}
-
 // Vietnamese diacritics removal (accent-insensitive search)
 String _vn(String s) {
   const groups = <String, String>{
@@ -38,6 +31,15 @@ String _vn(String s) {
   return s;
 }
 
+// --- MÀN HÌNH CHÍNH: SalesHistoryScreen ---
+
+class SalesHistoryScreen extends StatefulWidget {
+  const SalesHistoryScreen({super.key});
+
+  @override
+  State<SalesHistoryScreen> createState() => _SalesHistoryScreenState();
+}
+
 class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   DateTimeRange? _range;
   String _query = '';
@@ -54,7 +56,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       final end = DateTime(_range!.end.year, _range!.end.month, _range!.end.day, 23, 59, 59, 999);
       filtered = filtered
           .where((s) => s.createdAt.isAfter(start.subtract(const Duration(milliseconds: 1))) && s.createdAt.isBefore(end.add(const Duration(milliseconds: 1))))
-          .toList(); // Chuyển thành list có thể sửa đổi
+          .toList();
     }
     if (_query.isNotEmpty) {
       final q = _vn(_query).toLowerCase();
@@ -62,7 +64,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         final customer = _vn(s.customerName ?? '').toLowerCase();
         final items = _vn(s.items.map((e) => e.name).join(', ')).toLowerCase();
         return customer.contains(q) || items.contains(q);
-      }).toList(); // Chuyển thành list có thể sửa đổi
+      }).toList();
     }
 
     // Tạo bản sao và sắp xếp theo createdAt giảm dần (mới nhất lên đầu)
@@ -303,38 +305,52 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                     ),
                                   ),
                                 ),
-                                
-                              // Delete button
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                                onPressed: () async {
-                                  final ok = await showDialog<bool>(
-                                    context: context,
-                                    builder: (_) => AlertDialog(
-                                      title: const Text('Xóa hóa đơn'),
-                                      content: const Text('Bạn có chắc muốn xóa hóa đơn này?'),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pop(context, false), 
-                                          child: const Text('Hủy')
+                              
+                              // New Print Button & Delete Button
+                              Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.print_outlined, color: Colors.blueAccent, size: 20),
+                                    tooltip: 'In hóa đơn',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => _showPrintPreview(context, s, currency), // Gọi hàm hiển thị preview
+                                  ),
+                                  const SizedBox(width: 8), 
+                                  // Delete button
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                    tooltip: 'Xóa hóa đơn',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () async {
+                                      final ok = await showDialog<bool>(
+                                        context: context,
+                                        builder: (_) => AlertDialog(
+                                          title: const Text('Xóa hóa đơn'),
+                                          content: const Text('Bạn có chắc muốn xóa hóa đơn này?'),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(context, false), 
+                                              child: const Text('Hủy')
+                                            ),
+                                            FilledButton(
+                                              onPressed: () => Navigator.pop(context, true), 
+                                              child: const Text('Xóa')
+                                            ),
+                                          ],
                                         ),
-                                        FilledButton(
-                                          onPressed: () => Navigator.pop(context, true), 
-                                          child: const Text('Xóa')
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                  if (ok == true) {
-                                    await context.read<SaleProvider>().delete(s.id);
-                                    if (!context.mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Đã xóa hóa đơn')),
-                                    );
-                                  }
-                                },
+                                      );
+                                      if (ok == true) {
+                                        await context.read<SaleProvider>().delete(s.id);
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Đã xóa hóa đơn')),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -348,6 +364,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // Hàm hiển thị màn hình preview và in
+  Future<void> _showPrintPreview(BuildContext context, Sale sale, NumberFormat currency) async {
+    await showDialog(
+      context: context,
+      builder: (_) => _ReceiptPreviewDialog(sale: sale, currency: currency),
     );
   }
 
@@ -368,6 +392,208 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       csvContent: buffer.toString(),
       fileName: 'sales_export',
       openAfterExport: false,
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------------
+// --- WIDGET XEM TRƯỚC HÓA ĐƠN ĐÃ SỬA LỖI RangeError ---
+// -----------------------------------------------------------------------------------
+
+class _ReceiptPreviewDialog extends StatefulWidget {
+  final Sale sale;
+  final NumberFormat currency;
+
+  const _ReceiptPreviewDialog({required this.sale, required this.currency});
+
+  @override
+  State<_ReceiptPreviewDialog> createState() => _ReceiptPreviewDialogState();
+}
+
+class _ReceiptPreviewDialogState extends State<_ReceiptPreviewDialog> {
+  // Key: Độ rộng giấy (mm), Value: Số lượng ký tự tối đa
+  final Map<String, int> _paperSizes = {'80mm': 40, '57mm': 32};
+  
+  // Mặc định chọn 80mm
+  String _selectedSize = '80mm';
+
+  // Hàm tạo nội dung hóa đơn kiểu POS (dạng text đơn giản)
+  String _buildReceiptContent(Sale sale, NumberFormat currency, int columnWidth) {
+    final dateFormat = DateFormat('dd/MM/yyyy HH:mm:ss');
+    final List<String> lines = [];
+    
+    // Helper function để căn giữa
+    String center(String text) => text.padLeft((columnWidth - text.length) ~/ 2 + text.length);
+
+    // Helper function để căn 2 bên (Trái + Phải = columnWidth)
+    String justify(String left, String right) {
+      final totalLen = left.length + right.length;
+      
+      // Nếu tổng độ dài vượt quá, chúng ta phải cắt chuỗi bên trái.
+      if (totalLen > columnWidth) {
+        // Độ dài còn lại cho phần bên trái (bao gồm 3 chấm '...')
+        final maxLeftLength = columnWidth - right.length; 
+        
+        if (maxLeftLength < 4) { // 4 ký tự cần thiết cho "..." + ít nhất 1 ký tự nội dung
+          // Trường hợp quá chật, chỉ còn cách hiển thị chuỗi trái và xuống dòng cho chuỗi phải
+          // (Mặc dù lý tưởng không phải là POS, nhưng tránh RangeError)
+          return '$left\n${''.padLeft(columnWidth - right.length) + right}';
+        }
+
+        // Độ dài cần cắt (đã trừ đi 3 chấm)
+        final trimLength = maxLeftLength - 3; 
+
+        // SỬA LỖI RangeError: Đảm bảo trimLength không âm
+        if (trimLength <= 0 || left.length <= trimLength) {
+             // Chỉ lấy tối đa 1 ký tự, hoặc nếu left quá ngắn, hiển thị left và right
+             return left.padRight(columnWidth - right.length) + right;
+        }
+
+        // Cắt chuỗi và thêm dấu '...'
+        final trimmedLeft = left.substring(0, trimLength) + '...';
+        return trimmedLeft.padRight(columnWidth - right.length) + right;
+      }
+      // Trường hợp bình thường, căn chỉnh
+      return left.padRight(columnWidth - right.length) + right;
+    }
+
+    // Header
+    lines.add('=' * columnWidth);
+    lines.add(center('CỬA HÀNG ABC'));
+    lines.add(center('Địa chỉ: 123 Đường XYZ'));
+    lines.add(center('Hotline: 090xxxxxxx'));
+    lines.add('=' * columnWidth);
+    lines.add(center('HÓA ĐƠN BÁN HÀNG'));
+    lines.add(justify('Mã HD:', sale.id)); 
+    lines.add(justify('Ngày:', dateFormat.format(sale.createdAt)));
+    lines.add('Khách hàng: ${sale.customerName?.trim().isNotEmpty == true ? sale.customerName!.trim() : 'Khách lẻ'}');
+    lines.add('-' * columnWidth);
+
+    // Items Header
+    final headerLeft = 'Mặt hàng';
+    final headerRight = 'SL'.padLeft(4) + 'TT'.padLeft(6); // 4 + 6 = 10 ký tự
+    lines.add(justify(headerLeft, headerRight));
+    lines.add('-' * columnWidth);
+    
+    // Items
+    for (final item in sale.items) {
+      // Dòng 1: Tên sản phẩm
+      lines.add(item.name); 
+
+      // Dòng 2: Đơn giá x Số lượng = Thành tiền
+      final itemTotal = currency.format(item.unitPrice * item.quantity);
+      final itemQuantity = item.quantity % 1 == 0 ? item.quantity.toInt().toString() : item.quantity.toString();
+      
+      final leftPart = currency.format(item.unitPrice); // Giá đơn vị
+      final rightPart = 'x $itemQuantity ${item.unit} = $itemTotal'; // Số lượng + Thành tiền
+
+      // Căn chỉnh: Đơn giá (leftPart) nằm ở đầu, (Số lượng + Thành tiền) (rightPart) nằm ở cuối
+      lines.add(justify(leftPart, rightPart));
+    }
+
+    // Totals
+    lines.add('-' * columnWidth);
+    
+    // Tổng số lượng
+    final totalQuantity = sale.items.fold<double>(0.0, (sum, item) => sum + item.quantity);
+    lines.add('Tổng SL: ${totalQuantity % 1 == 0 ? totalQuantity.toInt() : totalQuantity}');
+
+    // Các dòng tổng tiền
+    lines.add(justify('Tạm tính:', currency.format(sale.subtotal)));
+    if (sale.discount > 0) { 
+      lines.add(justify('Giảm giá:', '-${currency.format(sale.discount)}'));
+    }
+    lines.add(justify('TỔNG CỘNG:', currency.format(sale.total)));
+    lines.add(justify('Đã thanh toán:', currency.format(sale.paidAmount)));
+    if (sale.debt > 0) {
+      lines.add(justify('CÒN NỢ:', currency.format(sale.debt)));
+    }
+    
+    lines.add('=' * columnWidth);
+    lines.add(center('Cảm ơn quý khách và hẹn gặp lại!'));
+    lines.add('=' * columnWidth);
+    lines.add('');
+    lines.add('');
+    lines.add('');
+
+    return lines.join('\n');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final columnWidth = _paperSizes[_selectedSize]!;
+    final receiptContent = _buildReceiptContent(widget.sale, widget.currency, columnWidth);
+    
+    // Giả lập chiều rộng màn hình dựa trên số ký tự cho hiển thị preview
+    double maxWidth;
+    if (_selectedSize == '80mm') {
+      maxWidth = 300;
+    } else {
+      maxWidth = 240; // Giả lập hẹp hơn cho 57mm
+    }
+
+    return AlertDialog(
+      // SỬA LỖI OVERFLOW: Dùng Column để buộc Dropdown xuống dòng
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Xem trước Hóa đơn POS'),
+          const SizedBox(height: 8),
+          DropdownButton<String>(
+            value: _selectedSize,
+            isDense: true, // Giúp gọn gàng hơn
+            underline: const SizedBox.shrink(), // Bỏ gạch chân mặc định
+            items: _paperSizes.keys.map((String value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text('Khổ giấy: $value'),
+              );
+            }).toList(),
+            onChanged: (String? newValue) {
+              if (newValue != null) {
+                setState(() {
+                  _selectedSize = newValue;
+                });
+              }
+            },
+          ),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Container(
+          // Chiều rộng tối đa cho màn hình preview
+          constraints: BoxConstraints(maxWidth: maxWidth), 
+          padding: const EdgeInsets.all(8.0),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.black),
+            color: Colors.white,
+          ),
+          child: Text(
+            receiptContent,
+            style: const TextStyle(
+              fontFamily: 'monospace', // Bắt buộc dùng font cố định để căn lề
+              fontSize: 12,
+              height: 1.2,
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context), 
+          child: const Text('Đóng')
+        ),
+        FilledButton.icon(
+          icon: const Icon(Icons.print),
+          label: Text('In (${_selectedSize})'),
+          onPressed: () {
+            // TODO: Thay thế bằng logic gọi API/Bluetooth/USB để in thực tế trên máy in POS
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Đang giả lập in hóa đơn ${_selectedSize} (Cần tích hợp thư viện in POS)')),
+            );
+          },
+        ),
+      ],
     );
   }
 }
