@@ -106,14 +106,14 @@ class NatureTheme {
           side: BorderSide(color: colorScheme.primary),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600),  
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 1,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: colorScheme.surfaceVariant),
+          side: BorderSide(color: colorScheme.onSurfaceVariant),
         ),
         color: colorScheme.surface,
       ),

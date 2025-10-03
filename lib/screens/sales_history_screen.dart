@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
@@ -450,7 +449,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 }
 
 // -----------------------------------------------------------------------------------
-// --- WIDGET XEM TRƯỚC HÓA ĐƠN VỚI CHỨC NĂNG IN & SHARE ---
+// --- WIDGET XEM TRƯỚC HÓA ĐƠN VỚI CHỨC NĂNG IN & SHARE (KHÔNG DÙNG PRINTING NỮA) ---
 // -----------------------------------------------------------------------------------
 
 class _ReceiptPreviewDialog extends StatefulWidget {
@@ -583,10 +582,10 @@ class _ReceiptPreviewDialogState extends State<_ReceiptPreviewDialog> {
             ),
             ListTile(
               leading: const Icon(Icons.print),
-              title: const Text('In ra máy in'),
+              title: const Text('Chia sẻ PDF (in từ share)'),
               onTap: () {
                 Navigator.pop(ctx); // Đóng BottomSheet
-                _printToPrinter(receiptContent); // Gọi hàm in
+                _sharePdf(receiptContent); // Gọi hàm share PDF
               },
             ),
           ],
@@ -625,35 +624,48 @@ class _ReceiptPreviewDialogState extends State<_ReceiptPreviewDialog> {
     }
   }
 
-  // --- HÀM MỚI: Tạo PDF và in (ĐÃ SỬA LẠI) ---
-  Future<void> _printToPrinter(String receiptContent) async {
+  // --- HÀM MỚI: Tạo PDF và share (THAY THẾ PRINTING) ---
+  Future<void> _sharePdf(String receiptContent) async {
     try {
       final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
       if (!mounted) return;
 
       final ttfFont = pw.Font.ttf(fontData);
-      final doc = pw.Document();
-      doc.addPage(
-        pw.Page(
-          pageFormat: _selectedSize == '80mm'
-              ? PdfPageFormat.roll80
-              : PdfPageFormat.roll57,
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4, // Dùng A4 đơn giản, hoặc roll nếu cần
           build: (pw.Context context) {
-            return pw.Text(
-              receiptContent,
-              style: pw.TextStyle(font: ttfFont, fontSize: 8),
-            );
+            // FIX: Trả về List<pw.Widget> thay vì Widget đơn lẻ
+            return <pw.Widget>[
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    receiptContent,
+                    style: pw.TextStyle(font: ttfFont, fontSize: 8),
+                  ),
+                ],
+              ),
+            ];
           },
         ),
       );
-      await Printing.layoutPdf(
-        onLayout: (PdfPageFormat format) async => doc.save(),
-      );
+
+      final pdfBytes = await pdf.save();
+      if (!mounted) return;
+
+      final tempDir = await getTemporaryDirectory();
+      final file = await File('${tempDir.path}/hoadon_${widget.sale.id}.pdf').create();
+      await file.writeAsBytes(pdfBytes);
+
+      await Share.shareXFiles([XFile(file.path)], text: 'Hóa đơn bán hàng #${widget.sale.id} (chọn "In" từ share để in)');
+
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi khi chuẩn bị in: $e')));
-      debugPrint("Lỗi in ấn: $e");
+          SnackBar(content: Text('Lỗi khi tạo PDF: $e')));
+      debugPrint("Lỗi tạo PDF: $e");
     } finally {
       // **QUAN TRỌNG**: Sau khi hoàn thành, tự đóng Dialog hóa đơn.
       if (mounted) {

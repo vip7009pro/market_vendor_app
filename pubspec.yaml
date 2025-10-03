@@ -34,7 +34,7 @@ dependencies:
   # UI Components
   cupertino_icons: ^1.0.8
   flutter_svg: ^2.0.10+1
-  intl: ^0.19.0
+  intl: ^0.20.2
   flutter_slidable: ^3.0.1
   flutter_switch: ^0.3.2
   fl_chart: ^0.69.0
@@ -58,7 +58,6 @@ dependencies:
   google_sign_in: ^6.1.6
   
   # Utils
-  printing: ^5.11.1
   screenshot: ^3.0.0
   esc_pos_printer_plus: ^0.1.1  # Để in thermal POS
   uuid: ^4.2.2

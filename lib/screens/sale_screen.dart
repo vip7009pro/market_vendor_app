@@ -188,18 +188,21 @@ class _SaleScreenState extends State<SaleScreen> {
               controller: barcodeCtrl,
               decoration: InputDecoration(
                 labelText: 'Mã vạch (nếu có)',
-                suffixIcon: IconButton(
-                  tooltip: 'Quét mã vạch',
-                  icon: const Icon(Icons.qr_code_scanner),
-                  onPressed: () async {
-                    final code = await Navigator.of(context).push<String>(
-                      MaterialPageRoute(builder: (_) => const ScanScreen()),
-                    );
-                    if (code != null && code.isNotEmpty) {
-                      barcodeCtrl.text = code;
-                      FocusScope.of(context).unfocus();
-                    }
-                  },
+                // FIX: Wrap IconButton trong Builder để lấy fresh context có Overlay cho Tooltip
+                suffixIcon: Builder(
+                  builder: (ctx) => IconButton(
+                    tooltip: 'Quét mã vạch',
+                    icon: const Icon(Icons.qr_code_scanner),
+                    onPressed: () async {
+                      final code = await Navigator.of(context).push<String>(
+                        MaterialPageRoute(builder: (_) => const ScanScreen()),
+                      );
+                      if (code != null && code.isNotEmpty) {
+                        barcodeCtrl.text = code;
+                        FocusScope.of(context).unfocus();
+                      }
+                    },
+                  ),
                 ),
               ),
             ),
@@ -271,7 +274,7 @@ class _SaleScreenState extends State<SaleScreen> {
         ],
       ),
     );
-    if (ok == true && nameCtrl.text.trim().isNotEmpty) {
+    if (ok == true && nameCtrl.text.trim().isEmpty == false) {
       final c = Customer(
         name: nameCtrl.text.trim(),
         phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
@@ -299,48 +302,51 @@ class _SaleScreenState extends State<SaleScreen> {
       appBar: AppBar(
         title: const Text('Bán hàng'),
         actions: [
-          IconButton(
-            tooltip: 'Quét mã vạch',
-            icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () async {
-              final code = await Navigator.of(context).push<String>(
-                MaterialPageRoute(builder: (_) => const ScanScreen()),
-              );
-              if (code == null || code.isEmpty) return;
-              final p = context.read<ProductProvider>().findByBarcode(code);
-              if (p != null) {
-                setState(() {
-                  final existingItem = _items.firstWhere(
-                    (item) => item.productId == p.id,
-                    orElse: () => SaleItem(
-                      productId: p.id,
-                      name: p.name,
-                      unitPrice: p.price,
-                      unitCost: p.costPrice,
-                      quantity: 0,
-                      unit: p.unit,
-                    ),
-                  );
-                  if (_items.contains(existingItem)) {
-                    existingItem.quantity += 1;
-                  } else {
-                    _items.add(existingItem..quantity = 1);
+          // FIX: Wrap IconButton trong Builder để lấy fresh context có Overlay cho Tooltip (fix lỗi No Overlay)
+          Builder(
+            builder: (ctx) => IconButton(
+              tooltip: 'Quét mã vạch',
+              icon: const Icon(Icons.qr_code_scanner),
+              onPressed: () async {
+                final code = await Navigator.of(context).push<String>(
+                  MaterialPageRoute(builder: (_) => const ScanScreen()),
+                );
+                if (code == null || code.isEmpty) return;
+                final p = context.read<ProductProvider>().findByBarcode(code);
+                if (p != null) {
+                  setState(() {
+                    final existingItem = _items.firstWhere(
+                      (item) => item.productId == p.id,
+                      orElse: () => SaleItem(
+                        productId: p.id,
+                        name: p.name,
+                        unitPrice: p.price,
+                        unitCost: p.costPrice,
+                        quantity: 0,
+                        unit: p.unit,
+                      ),
+                    );
+                    if (_items.contains(existingItem)) {
+                      existingItem.quantity += 1;
+                    } else {
+                      _items.add(existingItem..quantity = 1);
+                    }
+                    _productCtrl.text = p.name;
+                  });
+                  await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
+                  await _saveRecentProduct(p);
+                  if (!_paidEdited) {
+                    final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                    final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                    setState(() => _paid = total2);
                   }
-                  _productCtrl.text = p.name;
-                });
-                await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
-                await _saveRecentProduct(p);
-                if (!_paidEdited) {
-                  final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
-                  final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
-                  setState(() => _paid = total2);
+                  _clearProductField?.call();
+                  _unfocusProductField?.call();
+                } else {
+                  await _addQuickProductDialog(prefillName: '');
                 }
-                _clearProductField?.call();
-                _unfocusProductField?.call();
-              } else {
-                await _addQuickProductDialog(prefillName: '');
-              }
-            },
+              },
+            ),
           ),
           IconButton(
             tooltip: 'Lịch sử bán',

@@ -133,7 +133,7 @@ class MomoTheme {
         labelStyle: TextStyle(color: colorScheme.onPrimaryContainer),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 0,
         color: colorScheme.surface,
         margin: const EdgeInsets.all(8),
@@ -146,7 +146,7 @@ class MomoTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       dividerTheme: DividerThemeData(color: colorScheme.outline),
-      tabBarTheme: TabBarTheme(
+      tabBarTheme: TabBarThemeData(
         labelColor: colorScheme.primary,
         unselectedLabelColor: colorScheme.onSurfaceVariant,
         indicator: UnderlineTabIndicator(
