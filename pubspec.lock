@@ -73,6 +73,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  charset_converter:
+    dependency: transitive
+    description:
+      name: charset_converter
+      sha256: a601f27b78ca86c3d88899d53059786d9c3f3c485b64974e9105c06c2569aef5
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.3.0"
   clock:
     dependency: transitive
     description:
@@ -153,6 +161,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.6"
+  csslib:
+    dependency: transitive
+    description:
+      name: csslib
+      sha256: "09bad715f418841f976c77db72d5398dc1253c21fb9c0c7f0b0b985860b2d58e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.2"
   cupertino_icons:
     dependency: "direct main"
     description:
@@ -209,6 +225,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.7"
+  esc_pos_printer_plus:
+    dependency: "direct main"
+    description:
+      name: esc_pos_printer_plus
+      sha256: "76e0d8347fb10b25ad78311fc416a968528a00d18e7bad311fa6c34f4d662d71"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.1"
+  esc_pos_utils_plus:
+    dependency: transitive
+    description:
+      name: esc_pos_utils_plus
+      sha256: "2a22d281cb6f04600ba3ebd607ad8df03a4b2446d814007d22525bab4d50c2ff"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.4"
   fake_async:
     dependency: transitive
     description:
@@ -493,6 +525,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.12.4+4"
+  html:
+    dependency: transitive
+    description:
+      name: html
+      sha256: "6d1264f2dffa1b1101c25a91dff0dc2daee4c18e87cd8538729773c073dbf602"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.15.6"
   http:
     dependency: "direct main"
     description:
@@ -781,6 +821,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.11.3"
+  pdf_widget_wrapper:
+    dependency: transitive
+    description:
+      name: pdf_widget_wrapper
+      sha256: c930860d987213a3d58c7ec3b7ecf8085c3897f773e8dc23da9cae60a5d6d0f5
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.4"
   percent_indicator:
     dependency: "direct main"
     description:
@@ -877,6 +925,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.0.3"
+  printing:
+    dependency: "direct main"
+    description:
+      name: printing
+      sha256: cc4b256a5a89d5345488e3318897b595867f5181b8c5ed6fc63bfa5f2044aec3
+      url: "https://pub.dev"
+    source: hosted
+    version: "5.13.1"
   provider:
     dependency: "direct main"
     description:
@@ -901,6 +957,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.27.7"
+  screenshot:
+    dependency: "direct main"
+    description:
+      name: screenshot
+      sha256: "63817697a7835e6ce82add4228e15d233b74d42975c143ad8cfe07009fab866b"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.0"
   share_plus:
     dependency: "direct main"
     description:

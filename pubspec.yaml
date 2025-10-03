@@ -58,6 +58,9 @@ dependencies:
   google_sign_in: ^6.1.6
   
   # Utils
+  printing: ^5.11.1
+  screenshot: ^3.0.0
+  esc_pos_printer_plus: ^0.1.1  # Để in thermal POS
   uuid: ^4.2.2
   flutter_secure_storage: ^9.0.0
   encrypt: ^5.0.3
@@ -106,6 +109,7 @@ flutter:
     - assets/images/
     - assets/icons/
     - assets/translations/
+    - assets/fonts/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

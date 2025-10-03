@@ -16,7 +16,6 @@ import 'screens/sales_history_screen.dart';
 import 'screens/debt_history_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'services/sync_service.dart';
-import 'theme/momo_theme.dart';
 
 // Tạo GlobalKey cho Navigator
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
