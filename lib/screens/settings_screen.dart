@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:market_vendor_app/providers/product_provider.dart';
+import 'package:market_vendor_app/screens/store_info_screen.dart';
 import 'package:provider/provider.dart';
 import '../main.dart'; // Import main.dart để lấy navigatorKey
 import '../providers/auth_provider.dart';
 import '../providers/customer_provider.dart';
 import '../providers/debt_provider.dart';
 import '../providers/sale_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/sync_service.dart';
 import '../services/drive_sync_service.dart';
 import '../services/database_service.dart';
+import 'theme_selection_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -45,6 +48,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: const Icon(Icons.people_outline),
                 label: const Text('Khách hàng'),
               ),
+              FilledButton.tonalIcon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const StoreInfoScreen()),
+                ),
+                icon: const Icon(Icons.store),
+                label: const Text('Thông tin cửa hàng'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ThemeSelectionScreen()),
+                ),
+                icon: const Icon(Icons.palette_outlined),
+                label: const Text('Giao diện'),
+              ),
+              
             ],
           ),
           

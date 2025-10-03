@@ -441,7 +441,7 @@ class _SaleScreenState extends State<SaleScreen> {
               children: [
                 ..._recentCustomers.map(
                   (c) => ActionChip(
-                    side: const BorderSide(color: Colors.pink),
+                    side: BorderSide(color: Theme.of(context).colorScheme.primary),
                     label: Text(c.name),
                     onPressed: () async {
                       setState(() {
@@ -454,7 +454,7 @@ class _SaleScreenState extends State<SaleScreen> {
                   ),
                 ),
                 ActionChip(
-                  side: const BorderSide(color: Colors.pink),
+                  side: BorderSide(color: Theme.of(context).colorScheme.primary),
                   label: const Text('Thêm'),
                   avatar: const Icon(Icons.person_add_alt, size: 18),
                   onPressed: _addQuickCustomerDialog,
@@ -532,7 +532,7 @@ class _SaleScreenState extends State<SaleScreen> {
               children: [
                 ..._recentProducts.map(
                   (p) => ActionChip(
-                    side: const BorderSide(color: Colors.pink),
+                    side: BorderSide(color: Theme.of(context).colorScheme.primary),
                     label: Text(p.name),
                     onPressed: () async {
                       setState(() {
@@ -567,7 +567,7 @@ class _SaleScreenState extends State<SaleScreen> {
                   ),
                 ),
                 ActionChip(
-                  side: const BorderSide(color: Colors.pink),
+                  side: BorderSide(color: Theme.of(context).colorScheme.primary),
                   label: const Text('Thêm'),
                   avatar: const Icon(Icons.add, size: 18),
                   onPressed: () async {

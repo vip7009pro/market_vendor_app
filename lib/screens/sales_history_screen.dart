@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Import shared_preferences
 import '../providers/sale_provider.dart';
 import '../models/sale.dart';
 import '../utils/file_helper.dart';
@@ -417,6 +418,26 @@ class _ReceiptPreviewDialogState extends State<_ReceiptPreviewDialog> {
   // Mặc định chọn 80mm
   String _selectedSize = '80mm';
 
+  // Thêm biến để lưu thông tin cửa hàng
+  String _storeName = 'CỬA HÀNG ABC';
+  String _storeAddress = 'Địa chỉ: 123 Đường XYZ';
+  String _storePhone = 'Hotline: 090xxxxxxx';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStoreInfo();
+  }
+
+  Future<void> _loadStoreInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _storeName = prefs.getString('store_name') ?? 'CỬA HÀNG ABC';
+      _storeAddress = prefs.getString('store_address') ?? 'Địa chỉ: 123 Đường XYZ';
+      _storePhone = prefs.getString('store_phone') ?? 'Hotline: 090xxxxxxx';
+    });
+  }
+
   // Hàm tạo nội dung hóa đơn kiểu POS (dạng text đơn giản)
   String _buildReceiptContent(Sale sale, NumberFormat currency, int columnWidth) {
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm:ss');
@@ -459,9 +480,9 @@ class _ReceiptPreviewDialogState extends State<_ReceiptPreviewDialog> {
 
     // Header
     lines.add('=' * columnWidth);
-    lines.add(center('CỬA HÀNG ABC'));
-    lines.add(center('Địa chỉ: 123 Đường XYZ'));
-    lines.add(center('Hotline: 090xxxxxxx'));
+    lines.add(center(_storeName)); // Sử dụng thông tin từ SharedPreferences
+    lines.add(center(_storeAddress)); // Sử dụng thông tin từ SharedPreferences
+    lines.add(center(_storePhone)); // Sử dụng thông tin từ SharedPreferences
     lines.add('=' * columnWidth);
     lines.add(center('HÓA ĐƠN BÁN HÀNG'));
     lines.add(justify('Mã HD:', sale.id)); 

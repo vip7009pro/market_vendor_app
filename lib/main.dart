@@ -9,6 +9,7 @@ import 'providers/debt_provider.dart';
 import 'services/database_service.dart';
 import 'app_init.dart';
 import 'providers/auth_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/product_list_screen.dart';
 import 'screens/customer_list_screen.dart';
 import 'screens/sales_history_screen.dart';
@@ -49,40 +50,43 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CustomerProvider()),
         ChangeNotifierProvider(create: (_) => SaleProvider()),
         ChangeNotifierProvider(create: (_) => DebtProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider.value(value: auth),
       ],
-      child: MaterialApp(
-        title: 'Quản lý bán hàng',
-        debugShowCheckedModeBanner: false,
-        navigatorKey: navigatorKey,
-        builder: (context, child) {
-          final auth = Provider.of<AuthProvider>(context);
-          print('Auth state - FirebaseUser: ${auth.firebaseUser}');
-          
-          // Show loading screen only during initial auth check
-          if (auth.firebaseUser == null) {
-            print('No user found, showing sign in screen');
-            // Return the HomeScreen which should show the sign-in button
-            return const HomeScreen();
-          }
-          
-          print('User found, showing app content');
-          return AppInit(child: child!);
-        },
-        theme: MomoTheme.light(),
-        locale: const Locale('vi'),
-        supportedLocales: const [Locale('vi'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
-        home: const HomeScreen(),
-        routes: {
-          '/products': (_) => const ProductListScreen(),
-          '/customers': (_) => const CustomerListScreen(),
-          '/sales_history': (_) => const SalesHistoryScreen(),
-          '/debts_history': (_) => const DebtHistoryScreen(),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          return MaterialApp(
+            title: 'Quản lý bán hàng',
+            debugShowCheckedModeBanner: false,
+            navigatorKey: navigatorKey,
+            theme: themeProvider.currentTheme,
+            locale: const Locale('vi'),
+            supportedLocales: const [Locale('vi'), Locale('en')],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+            ],
+            builder: (context, child) {
+              final auth = Provider.of<AuthProvider>(context, listen: false);
+              print('Auth state - FirebaseUser: ${auth.firebaseUser}');
+              
+              if (auth.firebaseUser == null) {
+                print('No user found, showing sign in screen');
+                return const HomeScreen();
+              }
+              
+              print('User found, showing app content');
+              return AppInit(child: child!);
+            },
+            home: const HomeScreen(),
+            routes: {
+              '/products': (_) => const ProductListScreen(),
+              '/customers': (_) => const CustomerListScreen(),
+              '/sales_history': (_) => const SalesHistoryScreen(),
+              '/debts_history': (_) => const DebtHistoryScreen(),
+            },
+          );
         },
       ),
     );
