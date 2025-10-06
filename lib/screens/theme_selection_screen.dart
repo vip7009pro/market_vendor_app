@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Thêm import để lưu theme
 import '../providers/theme_provider.dart';
 
 class ThemeSelectionScreen extends StatelessWidget {
@@ -28,6 +29,9 @@ class ThemeSelectionScreen extends StatelessWidget {
             onChanged: (value) async {
               if (value != null) {
                 await themeProvider.setTheme(value);
+                // Lưu theme vào SharedPreferences
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('selected_theme', value);
                 // Update the UI immediately
                 if (context.mounted) {
                   Navigator.pop(context);

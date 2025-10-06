@@ -4,6 +4,8 @@ import 'package:market_vendor_app/providers/auth_provider.dart';
 import 'package:market_vendor_app/screens/sales_history_screen.dart';
 import 'package:market_vendor_app/utils/contact_serializer.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../providers/theme_provider.dart'; // Import theme_provider
 import 'debt_screen.dart';
 import 'report_screen.dart';
 import 'settings_screen.dart';
@@ -79,17 +81,17 @@ class _HomeScreenState extends State<HomeScreen> {
   late final List<Widget> _pages;
 
   Future<void> _loadAndCacheContacts() async {
-  try {
-    final granted = await FlutterContacts.requestPermission();
-    if (granted) {
-      final contacts = await FlutterContacts.getContacts(withProperties: true, withPhoto: true);
-      await ContactSerializer.saveContactsToPrefs(contacts); // Cache ngay
-      debugPrint('Cached ${contacts.length} contacts');
+    try {
+      final granted = await FlutterContacts.requestPermission();
+      if (granted) {
+        final contacts = await FlutterContacts.getContacts(withProperties: true, withPhoto: true);
+        await ContactSerializer.saveContactsToPrefs(contacts);
+        debugPrint('Cached ${contacts.length} contacts');
+      }
+    } catch (e) {
+      debugPrint('Error caching contacts: $e');
     }
-  } catch (e) {
-    debugPrint('Error caching contacts: $e');
   }
-}
 
   @override
   void initState() {
@@ -102,6 +104,14 @@ class _HomeScreenState extends State<HomeScreen> {
       const SettingsScreen(),
     ];
     _loadAndCacheContacts();
+    // Load saved theme từ SharedPreferences sau build đầu tiên
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTheme = prefs.getString('selected_theme') ?? 'light';
+      final themeProvider = context.read<ThemeProvider>();
+      themeProvider.setTheme(savedTheme);
+      debugPrint('Loaded saved theme: $savedTheme'); // Debug log để check
+    });
   }
 
   @override
