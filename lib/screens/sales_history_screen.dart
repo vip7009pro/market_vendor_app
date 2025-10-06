@@ -3,16 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:provider/provider.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/sale_provider.dart';
 import '../models/sale.dart';
 import '../utils/file_helper.dart';
+// Import file mới
+import 'receipt_preview_screen.dart'; // Thêm dòng này
 
 // Vietnamese diacritics removal (accent-insensitive search)
 String _vn(String s) {
@@ -412,14 +410,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
   }
 
-  // Hàm hiển thị màn hình preview và in
+  // Hàm hiển thị màn hình preview và in (Cập nhật: Thay showDialog bằng Navigator.push)
   Future<void> _showPrintPreview(
       BuildContext context, Sale sale, NumberFormat currency) async {
-    await showDialog(
-      context: context,
-      // `useRootNavigator: false` giúp dialog mới không bị ảnh hưởng bởi dialog cũ
-      useRootNavigator: false,
-      builder: (_) => _ReceiptPreviewDialog(sale: sale, currency: currency),
+    // Chuyển sang màn hình riêng thay vì dialog
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReceiptPreviewScreen(sale: sale, currency: currency),
+      ),
     );
   }
 
@@ -444,307 +443,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       csvContent: buffer.toString(),
       fileName: 'sales_export',
       openAfterExport: false,
-    );
-  }
-}
-
-// -----------------------------------------------------------------------------------
-// --- WIDGET XEM TRƯỚC HÓA ĐƠN VỚI CHỨC NĂNG IN & SHARE (KHÔNG DÙNG PRINTING NỮA) ---
-// -----------------------------------------------------------------------------------
-
-class _ReceiptPreviewDialog extends StatefulWidget {
-  final Sale sale;
-  final NumberFormat currency;
-
-  const _ReceiptPreviewDialog({required this.sale, required this.currency});
-
-  @override
-  State<_ReceiptPreviewDialog> createState() => _ReceiptPreviewDialogState();
-}
-
-class _ReceiptPreviewDialogState extends State<_ReceiptPreviewDialog> {
-  final Map<String, int> _paperSizes = {'80mm': 35, '57mm': 32};
-  String _selectedSize = '80mm';
-  final _screenshotController = ScreenshotController();
-  String _storeName = 'CỬA HÀNG ABC';
-  String _storeAddress = 'Địa chỉ: 123 Đường XYZ';
-  String _storePhone = 'Hotline: 090xxxxxxx';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadStoreInfo();
-  }
-
-  Future<void> _loadStoreInfo() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _storeName = prefs.getString('store_name') ?? 'CỬA HÀNG ABC';
-      _storeAddress =
-          prefs.getString('store_address') ?? 'Địa chỉ: 123 Đường XYZ';
-      _storePhone = prefs.getString('store_phone') ?? 'Hotline: 090xxxxxxx';
-    });
-  }
-
-  String _buildReceiptContent(Sale sale, NumberFormat currency, int columnWidth) {
-    // ... (Hàm này không thay đổi, giữ nguyên như cũ)
-     final dateFormat = DateFormat('dd/MM/yyyy HH:mm:ss');
-    final List<String> lines = [];
-
-    String center(String text) =>
-        text.padLeft((columnWidth - text.length) ~/ 2 + text.length);
-
-    String justify(String left, String right) {
-      final totalLen = left.length + right.length;
-      if (totalLen > columnWidth) {
-        final maxLeftLength = columnWidth - right.length;
-        if (maxLeftLength < 4) {
-          return '$left\n${''.padLeft(columnWidth - right.length) + right}';
-        }
-        final trimLength = maxLeftLength - 3;
-        if (trimLength <= 0 || left.length <= trimLength) {
-          return left.padRight(columnWidth - right.length) + right;
-        }
-        final trimmedLeft = left.substring(0, trimLength) + '...';
-        return trimmedLeft.padRight(columnWidth - right.length) + right;
-      }
-      return left.padRight(columnWidth - right.length) + right;
-    }
-
-    lines.add('=' * columnWidth);
-    lines.add(center(_storeName));
-    lines.add(center(_storeAddress));
-    lines.add(center(_storePhone));
-    lines.add('=' * columnWidth);
-    lines.add(center('HÓA ĐƠN BÁN HÀNG'));
-    lines.add(justify('Mã HD:', sale.id));
-    lines.add(justify('Ngày:', dateFormat.format(sale.createdAt)));
-    lines.add(
-        'Khách hàng: ${sale.customerName?.trim().isNotEmpty == true ? sale.customerName!.trim() : 'Khách lẻ'}');
-    lines.add('-' * columnWidth);
-
-    final headerLeft = 'Mặt hàng';
-    final headerRight = 'SL'.padLeft(4) + 'TT'.padLeft(6);
-    lines.add(justify(headerLeft, headerRight));
-    lines.add('-' * columnWidth);
-
-    for (final item in sale.items) {
-      lines.add(item.name);
-      final itemTotal = currency.format(item.unitPrice * item.quantity);
-      final itemQuantity = item.quantity % 1 == 0
-          ? item.quantity.toInt().toString()
-          : item.quantity.toString();
-      final leftPart = currency.format(item.unitPrice);
-      final rightPart = 'x $itemQuantity ${item.unit} = $itemTotal';
-      lines.add(justify(leftPart, rightPart));
-    }
-
-    lines.add('-' * columnWidth);
-    final totalQuantity =
-        sale.items.fold<double>(0.0, (sum, item) => sum + item.quantity);
-    lines.add(
-        'Tổng SL: ${totalQuantity % 1 == 0 ? totalQuantity.toInt() : totalQuantity}');
-    lines.add(justify('Tạm tính:', currency.format(sale.subtotal)));
-    if (sale.discount > 0) {
-      lines.add(justify('Giảm giá:', '-${currency.format(sale.discount)}'));
-    }
-    lines.add(justify('TỔNG CỘNG:', currency.format(sale.total)));
-    lines.add(justify('Đã thanh toán:', currency.format(sale.paidAmount)));
-    if (sale.debt > 0) {
-      lines.add(justify('CÒN NỢ:', currency.format(sale.debt)));
-    }
-    lines.add('=' * columnWidth);
-    lines.add(center('Cảm ơn quý khách và hẹn gặp lại!'));
-    lines.add('=' * columnWidth);
-    lines.add('');
-    lines.add('');
-    lines.add('');
-    return lines.join('\n');
-  }
-
-  // --- HÀM MỚI: Xử lý sự kiện nhấn nút In (ĐÃ SỬA LẠI) ---
-  Future<void> _handlePrintAction(String receiptContent) async {
-    // **QUAN TRỌNG**: KHÔNG pop dialog ở đây nữa.
-    // Dialog sẽ vẫn mở trong khi BottomSheet hiển thị.
-
-    await showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea( // `ctx` là context của BottomSheet
-        child: Wrap(
-          children: <Widget>[
-            ListTile(
-              leading: const Icon(Icons.image),
-              title: const Text('Chia sẻ dạng ảnh (PNG)'),
-              onTap: () {
-                Navigator.pop(ctx); // Đóng BottomSheet
-                _shareAsImage();    // Gọi hàm chia sẻ ảnh
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.print),
-              title: const Text('Chia sẻ PDF (in từ share)'),
-              onTap: () {
-                Navigator.pop(ctx); // Đóng BottomSheet
-                _sharePdf(receiptContent); // Gọi hàm share PDF
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- HÀM MỚI: Chụp ảnh và chia sẻ (ĐÃ SỬA LẠI) ---
-  Future<void> _shareAsImage() async {
-    try {
-      final imageBytes = await _screenshotController.capture();
-      if (!mounted) return;
-
-      if (imageBytes == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Lỗi: Không thể tạo ảnh hóa đơn.')));
-        return;
-      }
-      final tempDir = await getTemporaryDirectory();
-      if (!mounted) return;
-
-      final file = await File('${tempDir.path}/invoice.png').create();
-      await file.writeAsBytes(imageBytes);
-      await Share.shareXFiles([XFile(file.path)], text: 'Hóa đơn bán hàng');
-
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Đã xảy ra lỗi khi chia sẻ: $e')));
-    } finally {
-      // **QUAN TRỌNG**: Sau khi hoàn thành, tự đóng Dialog hóa đơn.
-      if (mounted) {
-        Navigator.pop(context);
-      }
-    }
-  }
-
-  // --- HÀM MỚI: Tạo PDF và share (THAY THẾ PRINTING) ---
-  Future<void> _sharePdf(String receiptContent) async {
-    try {
-      final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
-      if (!mounted) return;
-
-      final ttfFont = pw.Font.ttf(fontData);
-      final pdf = pw.Document();
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4, // Dùng A4 đơn giản, hoặc roll nếu cần
-          build: (pw.Context context) {
-            // FIX: Trả về List<pw.Widget> thay vì Widget đơn lẻ
-            return <pw.Widget>[
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    receiptContent,
-                    style: pw.TextStyle(font: ttfFont, fontSize: 8),
-                  ),
-                ],
-              ),
-            ];
-          },
-        ),
-      );
-
-      final pdfBytes = await pdf.save();
-      if (!mounted) return;
-
-      final tempDir = await getTemporaryDirectory();
-      final file = await File('${tempDir.path}/hoadon_${widget.sale.id}.pdf').create();
-      await file.writeAsBytes(pdfBytes);
-
-      await Share.shareXFiles([XFile(file.path)], text: 'Hóa đơn bán hàng #${widget.sale.id} (chọn "In" từ share để in)');
-
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi khi tạo PDF: $e')));
-      debugPrint("Lỗi tạo PDF: $e");
-    } finally {
-      // **QUAN TRỌNG**: Sau khi hoàn thành, tự đóng Dialog hóa đơn.
-      if (mounted) {
-        Navigator.pop(context);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final columnWidth = _paperSizes[_selectedSize]!;
-    final receiptContent =
-        _buildReceiptContent(widget.sale, widget.currency, columnWidth);
-
-    double maxWidth;
-    if (_selectedSize == '80mm') {
-      maxWidth = 300;
-    } else {
-      maxWidth = 240;
-    }
-
-    return AlertDialog(
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Xem trước Hóa đơn POS'),
-          const SizedBox(height: 8),
-          DropdownButton<String>(
-            value: _selectedSize,
-            isDense: true,
-            underline: const SizedBox.shrink(),
-            items: _paperSizes.keys.map((String value) {
-              return DropdownMenuItem<String>(
-                value: value,
-                child: Text('Khổ giấy: $value'),
-              );
-            }).toList(),
-            onChanged: (String? newValue) {
-              if (newValue != null) {
-                setState(() {
-                  _selectedSize = newValue;
-                });
-              }
-            },
-          ),
-        ],
-      ),
-      content: SingleChildScrollView(
-        child: Screenshot(
-          controller: _screenshotController,
-          child: Container(
-            constraints: BoxConstraints(maxWidth: maxWidth),
-            padding: const EdgeInsets.all(8.0),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.black),
-              color: Colors.white,
-            ),
-            child: Text(
-              receiptContent,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
-                height: 1.2,
-                color: Colors.black,
-              ),
-            ),
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Đóng')),
-        FilledButton.icon(
-          icon: const Icon(Icons.print),
-          label: const Text('In / Chia sẻ'),
-          onPressed: () => _handlePrintAction(receiptContent),
-        ),
-      ],
     );
   }
 }

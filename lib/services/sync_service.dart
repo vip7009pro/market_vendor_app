@@ -100,7 +100,7 @@ class SyncService {
       await _pushData(userId);
       
       // 3. Kéo dữ liệu từ Firestore về local
-      await _pullData(userId);
+      //await _pullData(userId);
       
       // 4. Cập nhật thời gian đồng bộ cuối cùng
       final prefs = await SharedPreferences.getInstance();

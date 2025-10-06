@@ -47,7 +47,7 @@ class ThemeSelectionScreen extends StatelessWidget {
   String _getThemeDisplayName(String themeName) {
     switch (themeName) {
       case 'light':
-        return 'Momo';
+        return 'Hồng mộng mơ';
       case 'dark':
         return 'Tối';
       case 'nature':

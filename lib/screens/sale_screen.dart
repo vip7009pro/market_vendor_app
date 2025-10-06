@@ -33,7 +33,7 @@ class _SaleScreenState extends State<SaleScreen> {
   String? _customerName;
   bool _paidEdited = false;
   List<String> _recentUnits = ['cái', 'kg', 'g', 'hộp'];
-  double _qtyStep = 0.5;
+  double _qtyStep = 1;
   VoidCallback? _clearProductField;
   VoidCallback? _unfocusProductField;
   List<Customer> _recentCustomers = [];
