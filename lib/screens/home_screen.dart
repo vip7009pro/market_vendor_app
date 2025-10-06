@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:market_vendor_app/providers/auth_provider.dart';
 import 'package:market_vendor_app/screens/sales_history_screen.dart';
+import 'package:market_vendor_app/utils/contact_serializer.dart';
 import 'package:provider/provider.dart';
 import 'debt_screen.dart';
 import 'report_screen.dart';
@@ -76,6 +78,19 @@ class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
   late final List<Widget> _pages;
 
+  Future<void> _loadAndCacheContacts() async {
+  try {
+    final granted = await FlutterContacts.requestPermission();
+    if (granted) {
+      final contacts = await FlutterContacts.getContacts(withProperties: true, withPhoto: true);
+      await ContactSerializer.saveContactsToPrefs(contacts); // Cache ngay
+      debugPrint('Cached ${contacts.length} contacts');
+    }
+  } catch (e) {
+    debugPrint('Error caching contacts: $e');
+  }
+}
+
   @override
   void initState() {
     super.initState();
@@ -86,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const ReportScreen(),
       const SettingsScreen(),
     ];
+    _loadAndCacheContacts();
   }
 
   @override

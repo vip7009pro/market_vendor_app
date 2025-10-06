@@ -463,7 +463,7 @@ class _ReceiptPreviewDialog extends StatefulWidget {
 }
 
 class _ReceiptPreviewDialogState extends State<_ReceiptPreviewDialog> {
-  final Map<String, int> _paperSizes = {'80mm': 40, '57mm': 32};
+  final Map<String, int> _paperSizes = {'80mm': 35, '57mm': 32};
   String _selectedSize = '80mm';
   final _screenshotController = ScreenshotController();
   String _storeName = 'CỬA HÀNG ABC';
