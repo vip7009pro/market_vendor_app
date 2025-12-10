@@ -10,6 +10,7 @@ import '../providers/product_provider.dart';
 import '../providers/customer_provider.dart';
 import '../providers/sale_provider.dart';
 import '../providers/debt_provider.dart';
+import '../providers/purchase_provider.dart';
 import '../services/database_service.dart';
 import '../services/drive_sync_service.dart';
 import 'theme_selection_screen.dart';
@@ -67,6 +68,134 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _getAppVersion();
   }
 
+  /// Show purchase dialog for premium features
+  Future<void> _showPurchaseDialog(BuildContext context) async {
+    final purchaseProvider = context.read<PurchaseProvider>();
+
+    if (!purchaseProvider.isStoreAvailable) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cửa hàng không khả dụng trên thiết bị này')),
+      );
+      return;
+    }
+
+    final product = purchaseProvider.backupRestoreProduct;
+    if (product == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không tìm thấy sản phẩm. Vui lòng thử lại sau.')),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Nâng cấp Premium'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              product.title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(product.description),
+            const SizedBox(height: 16),
+            const Text(
+              'Tính năng Premium bao gồm:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text('• Sao lưu dữ liệu lên Google Drive'),
+            const Text('• Khôi phục dữ liệu từ Google Drive'),
+            const Text('• Đồng bộ tự động'),
+            const Text('• Hỗ trợ ưu tiên'),
+            const SizedBox(height: 16),
+            Text(
+              'Giá: ${product.price}',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: Colors.green,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mua ngay'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      final success = await purchaseProvider.purchaseProduct(product);
+      if (!success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(purchaseProvider.lastError ?? 'Không thể bắt đầu giao dịch'),
+          ),
+        );
+      } else if (success && mounted && purchaseProvider.lastSuccessMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(purchaseProvider.lastSuccessMessage!)),
+        );
+      }
+    }
+  }
+
+  /// Check if user has premium access, show purchase dialog if not
+  Future<bool> _checkPremiumAccess(BuildContext context) async {
+    final purchaseProvider = context.read<PurchaseProvider>();
+
+    // Try to restore previous purchases first (for cases when user installs on new device)
+    await purchaseProvider.restorePurchases();
+
+    // Also re-check premium status from local storage
+    final hasPremium = await purchaseProvider.checkPremiumStatus();
+
+    if (purchaseProvider.isPremiumUser || hasPremium) {
+      return true;
+    }
+
+    // Show dialog to inform user about premium feature
+    final shouldPurchase = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Tính năng Premium'),
+        content: const Text(
+          'Sao lưu và khôi phục dữ liệu lên Google Drive là tính năng Premium. '
+          'Bạn có muốn nâng cấp để sử dụng tính năng này không?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Để sau'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Nâng cấp'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldPurchase == true && mounted) {
+      await _showPurchaseDialog(context);
+      // Check again after purchase attempt
+      return purchaseProvider.isPremiumUser;
+    }
+
+    return false;
+  }
+
   Future<void> _getAppVersion() async {
     try {
       final info = await package_info.PackageInfo.fromPlatform();
@@ -90,6 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final auth = context.watch<AuthProvider>();
+    final purchaseProvider = context.watch<PurchaseProvider>();
     
     return Scaffold(
       appBar: AppBar(
@@ -292,6 +422,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : FilledButton.icon(
                           onPressed: auth.isSignedIn
                               ? () async {
+                                  // Check premium access first
+                                  final hasPremium = await _checkPremiumAccess(context);
+                                  if (!hasPremium) return;
+
                                   setState(() => _driveSyncing = true);
                                   try {
                                     final token = await context.read<AuthProvider>().getAccessToken();
@@ -336,6 +470,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : FilledButton.icon(
                           onPressed: auth.isSignedIn
                               ? () async {
+                                  // Check premium access first
+                                  final hasPremium = await _checkPremiumAccess(context);
+                                  if (!hasPremium) return;
+                                  
                                   setState(() => _driveRestoring = true);
                                   try {
                                     final token = await context.read<AuthProvider>().getAccessToken();
@@ -456,6 +594,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
         ]),
           ),
+          
+          // Premium Status Card
+          if (purchaseProvider.isStoreAvailable)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Card(
+                color: purchaseProvider.isPremiumUser 
+                    ? theme.colorScheme.primaryContainer 
+                    : null,
+                child: ListTile(
+                  leading: Icon(
+                    purchaseProvider.isPremiumUser 
+                        ? Icons.workspace_premium 
+                        : Icons.lock_outline,
+                    color: purchaseProvider.isPremiumUser 
+                        ? theme.colorScheme.primary 
+                        : null,
+                  ),
+                  title: Text(
+                    purchaseProvider.isPremiumUser 
+                        ? 'Tài khoản Premium' 
+                        : 'Nâng cấp Premium',
+                  ),
+                  subtitle: Text(
+                    purchaseProvider.isPremiumUser 
+                        ? 'Bạn đang sử dụng tất cả tính năng premium' 
+                        : 'Mở khóa sao lưu Google Drive và nhiều tính năng khác',
+                  ),
+                  trailing: purchaseProvider.isPremiumUser 
+                      ? const Icon(Icons.check_circle, color: Colors.green)
+                      : TextButton(
+                          onPressed: () => _showPurchaseDialog(context),
+                          child: const Text('Xem thêm'),
+                        ),
+                ),
+              ),
+            ),
+          
           const SizedBox(height: 4),
          
           

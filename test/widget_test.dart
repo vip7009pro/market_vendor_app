@@ -10,15 +10,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:market_vendor_app/main.dart';
 import 'package:market_vendor_app/providers/auth_provider.dart';
+import 'package:market_vendor_app/providers/purchase_provider.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     final auth = AuthProvider();
+    final purchaseProvider = PurchaseProvider();
     await tester.pumpWidget(
       ChangeNotifierProvider<AuthProvider>(
         create: (_) => auth,
-        child: MyApp(auth: auth),
+        child: MyApp(auth: auth, purchaseProvider: purchaseProvider),
       ),
     );
 

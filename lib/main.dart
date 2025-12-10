@@ -10,6 +10,7 @@ import 'services/database_service.dart';
 import 'app_init.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/purchase_provider.dart';
 import 'screens/product_list_screen.dart';
 import 'screens/customer_list_screen.dart';
 import 'screens/sales_history_screen.dart';
@@ -29,16 +30,21 @@ Future<void> main() async {
   final auth = AuthProvider();
   await auth.initialize();
   
+  // Initialize purchase provider
+  final purchaseProvider = PurchaseProvider();
+  await purchaseProvider.initialize();
+  
   // Initialize SyncService with navigatorKey
   SyncService(navigatorKey: navigatorKey);
   
-  runApp(MyApp(auth: auth));
+  runApp(MyApp(auth: auth, purchaseProvider: purchaseProvider));
 }
 
 class MyApp extends StatelessWidget {
   final AuthProvider auth;
+  final PurchaseProvider purchaseProvider;
   
-  const MyApp({super.key, required this.auth});
+  const MyApp({super.key, required this.auth, required this.purchaseProvider});
 
   // This widget is the root of your application.
   @override
@@ -51,6 +57,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => DebtProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider.value(value: auth),
+        ChangeNotifierProvider.value(value: purchaseProvider),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
