@@ -301,6 +301,8 @@ class _SaleScreenState extends State<SaleScreen> {
                           return displayNameLower.contains(valueLower) || normalizedName.contains(normalizedQuery);
                         }).toList();
                       }
+                      // Khi đang tìm theo tên thì ẩn toàn bộ gợi ý theo SĐT
+                      phoneMatches = [];
                       setStateDialog(() {});
                     },
                   ),
@@ -339,6 +341,8 @@ class _SaleScreenState extends State<SaleScreen> {
                           return c.phones.any((p) => p.number.contains(value));
                         }).toList();
                       }
+                      // Khi đang tìm theo SĐT thì ẩn toàn bộ gợi ý theo tên
+                      nameMatches = [];
                       setStateDialog(() {});
                     },
                   ),
