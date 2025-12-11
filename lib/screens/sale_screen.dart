@@ -10,11 +10,12 @@ import '../providers/customer_provider.dart';
 import '../providers/debt_provider.dart';
 import '../models/debt.dart';
 import 'package:intl/intl.dart';
-import 'dart:math' as math;
 import 'scan_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:dropdown_search/dropdown_search.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import '../utils/contact_serializer.dart';
 
 class SaleScreen extends StatefulWidget {
   const SaleScreen({super.key});
@@ -256,23 +257,121 @@ class _SaleScreenState extends State<SaleScreen> {
   Future<void> _addQuickCustomerDialog() async {
     final nameCtrl = TextEditingController(text: _customerCtrl.text);
     final phoneCtrl = TextEditingController();
+    // Load contacts từ cache / hệ thống để gợi ý giống CustomerFormScreen
+    List<Contact> allContacts = await ContactSerializer.loadContactsFromPrefs();
+    if (allContacts.isEmpty) {
+      try {
+        final granted = await FlutterContacts.requestPermission();
+        if (granted) {
+          allContacts = await FlutterContacts.getContacts(withProperties: true, withPhoto: true);
+          await ContactSerializer.saveContactsToPrefs(allContacts);
+        }
+      } catch (e) {
+        debugPrint('Error getting contacts in quick dialog: $e');
+      }
+    }
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Thêm khách hàng'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên')),
-            const SizedBox(height: 8),
-            TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'SĐT (tuỳ chọn)')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
-        ],
-      ),
+      builder: (_) {
+        List<Contact> nameMatches = [];
+        List<Contact> phoneMatches = [];
+
+        return StatefulBuilder(
+          builder: (dialogContext, setStateDialog) {
+            return AlertDialog(
+              title: const Text('Thêm khách hàng'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Tên'),
+                    onChanged: (value) {
+                      if (value.isEmpty) {
+                        nameMatches = [];
+                      } else {
+                        final valueLower = value.toLowerCase();
+                        final normalizedQuery = removeDiacritics(valueLower);
+                        nameMatches = allContacts.where((c) {
+                          if (c.displayName.isEmpty) return false;
+                          final displayNameLower = c.displayName.toLowerCase();
+                          final normalizedName = removeDiacritics(displayNameLower);
+                          return displayNameLower.contains(valueLower) || normalizedName.contains(normalizedQuery);
+                        }).toList();
+                      }
+                      setStateDialog(() {});
+                    },
+                  ),
+                  if (nameMatches.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    ...nameMatches.take(5).map(
+                          (contact) => ListTile(
+                            dense: true,
+                            leading: contact.photo != null
+                                ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
+                                : const CircleAvatar(child: Icon(Icons.person)),
+                            title: Text(contact.displayName),
+                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
+                            onTap: () {
+                              nameCtrl.text = contact.displayName;
+                              if (contact.phones.isNotEmpty) {
+                                phoneCtrl.text = contact.phones.first.number;
+                              }
+                              nameMatches = [];
+                              phoneMatches = [];
+                              setStateDialog(() {});
+                            },
+                          ),
+                        ),
+                  ],
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'SĐT (tuỳ chọn)'),
+                    onChanged: (value) {
+                      if (value.isEmpty) {
+                        phoneMatches = [];
+                      } else {
+                        phoneMatches = allContacts.where((c) {
+                          return c.phones.any((p) => p.number.contains(value));
+                        }).toList();
+                      }
+                      setStateDialog(() {});
+                    },
+                  ),
+                  if (phoneMatches.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    ...phoneMatches.take(5).map(
+                          (contact) => ListTile(
+                            dense: true,
+                            leading: contact.photo != null
+                                ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
+                                : const CircleAvatar(child: Icon(Icons.person)),
+                            title: Text(contact.displayName),
+                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
+                            onTap: () {
+                              phoneCtrl.text = contact.phones.isNotEmpty ? contact.phones.first.number : '';
+                              nameCtrl.text = contact.displayName;
+                              phoneMatches = [];
+                              nameMatches = [];
+                              setStateDialog(() {});
+                            },
+                          ),
+                        ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
+              ],
+            );
+          },
+        );
+      },
     );
     if (ok == true && nameCtrl.text.trim().isEmpty == false) {
       final c = Customer(
@@ -745,7 +844,7 @@ class _SaleScreenState extends State<SaleScreen> {
                         onChanged: (v) {
                           final val = double.tryParse(v.replaceAll(',', '.')) ?? 0;
                           setState(() {
-                            _discount = math.max(0, math.min(subtotal, val)).toDouble();
+                            _discount = val.clamp(0, subtotal).toDouble();
                             if (!_paidEdited) {
                               final total2 = (subtotal - _discount).clamp(0, double.infinity).toDouble();
                               _paid = total2;
@@ -771,7 +870,7 @@ class _SaleScreenState extends State<SaleScreen> {
                           final val = double.tryParse(v.replaceAll(',', '.')) ?? 0;
                           setState(() {
                             _paidEdited = true;
-                            _paid = math.max(0, math.min(total, val)).toDouble();
+                            _paid = val.clamp(0, total).toDouble();
                           });
                         },
                         controller: TextEditingController(text: _paid == 0 ? '' : _paid.toStringAsFixed(0))
