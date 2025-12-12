@@ -27,6 +27,9 @@ class _ReportScreenState extends State<ReportScreen> {
     end: DateTime.now(),
   );
 
+  final PageController _chartPageController = PageController(initialPage: 0);
+  int _chartPageIndex = 0;
+
   Future<void> _selectDateRange(BuildContext context) async {
     final DateTimeRange? picked = await showDateRangePicker(
       context: context,
@@ -75,6 +78,12 @@ class _ReportScreenState extends State<ReportScreen> {
     }
     if (maxY == 0) return 100;
     return maxY * 1.1;
+  }
+
+  @override
+  void dispose() {
+    _chartPageController.dispose();
+    super.dispose();
   }
 
   @override
@@ -271,26 +280,55 @@ class _ReportScreenState extends State<ReportScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            // Daily Chart
-            _buildChartCard(
-              title: 'Theo ngày (${_dateRange.start.day}/${_dateRange.start.month} - ${_dateRange.end.day}/${_dateRange.end.month})',
-              points: dailyData,
-              currency: currency,
+            SizedBox(
+              height: 360,
+              child: PageView(
+                controller: _chartPageController,
+                onPageChanged: (index) {
+                  if (!mounted) return;
+                  setState(() {
+                    _chartPageIndex = index;
+                  });
+                },
+                children: [
+                  // Daily Chart
+                  _buildChartCard(
+                    title: 'Theo ngày (${_dateRange.start.day}/${_dateRange.start.month} - ${_dateRange.end.day}/${_dateRange.end.month})',
+                    points: dailyData,
+                    currency: currency,
+                  ),
+                  // Monthly Chart
+                  _buildChartCard(
+                    title: 'Theo tháng (${now.year})',
+                    points: monthlyDataPoints,
+                    currency: currency,
+                  ),
+                  // Yearly Chart
+                  _buildChartCard(
+                    title: 'Theo năm',
+                    points: yearlyDataPoints,
+                    currency: currency,
+                    isYearly: true,
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            // Monthly Chart
-            _buildChartCard(
-              title: 'Theo tháng (${now.year})',
-              points: monthlyDataPoints,
-              currency: currency,
-            ),
-            const SizedBox(height: 16),
-            // Yearly Chart
-            _buildChartCard(
-              title: 'Theo năm',
-              points: yearlyDataPoints,
-              currency: currency,
-              isYearly: true,
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(3, (i) {
+                final isActive = i == _chartPageIndex;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: isActive ? 16 : 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: isActive ? Colors.blue : Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                );
+              }),
             ),
           ],
         ),
@@ -313,7 +351,7 @@ class _ReportScreenState extends State<ReportScreen> {
             Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             SizedBox(
-              height: 300,
+              height: 280,
               child: BarChart(
                 BarChartData(
                   alignment: BarChartAlignment.spaceAround,

@@ -589,7 +589,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               }
                             : null,
                         icon: const Icon(Icons.download),
-                        label: const Text('Tải xuống'),
+                        label: const Text('Khôi phục'),
                       ),
                     ),
         ]),
