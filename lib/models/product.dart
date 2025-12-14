@@ -5,6 +5,7 @@ class Product {
   String name;
   double price;
   double costPrice; // Giá vốn
+  double currentStock; // Tồn hiện tại
   String unit; // e.g., kg, cái, bó
   String? barcode;
   bool isActive;
@@ -14,6 +15,7 @@ class Product {
     required this.name,
     required this.price,
     this.costPrice = 0, // Giá vốn mặc định là 0
+    this.currentStock = 0, // Tồn hiện tại mặc định là 0
     required this.unit,
     this.barcode,
     this.isActive = true,
@@ -22,8 +24,9 @@ class Product {
   factory Product.fromMap(Map<String, dynamic> map) => Product(
         id: map['id'],
         name: map['name'],
-        price: (map['price'] as num).toDouble(),
-        costPrice: map['costPrice'] != null ? (map['costPrice'] as num).toDouble() : 0,
+        price: (map['price'] as num?)?.toDouble() ?? 0,
+        costPrice: (map['costPrice'] as num?)?.toDouble() ?? 0,
+        currentStock: (map['currentStock'] as num?)?.toDouble() ?? 0,
         unit: map['unit'],
         barcode: map['barcode'],
         isActive: map['isActive'] == 1 || map['isActive'] == true,
@@ -34,6 +37,7 @@ class Product {
         'name': name,
         'price': price,
         'costPrice': costPrice,
+        'currentStock': currentStock,
         'unit': unit,
         'barcode': barcode,
         'isActive': isActive ? 1 : 0,

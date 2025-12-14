@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:developer' as developer;
+import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -115,6 +116,79 @@ class DatabaseService {
     }
     
     await batch.commit(noResult: true);
+  }
+
+  Future<void> insertPurchaseHistory({
+    required String productId,
+    required String productName,
+    required double quantity,
+    required double unitCost,
+    String? supplierName,
+    String? supplierPhone,
+    String? note,
+    DateTime? createdAt,
+  }) async {
+    final now = DateTime.now();
+    final created = createdAt ?? now;
+    final id = _uuid.v4();
+    final totalCost = quantity * unitCost;
+
+    await db.transaction((txn) async {
+      await txn.insert(
+        'purchase_history',
+        {
+          'id': id,
+          'createdAt': created.toIso8601String(),
+          'productId': productId,
+          'productName': productName,
+          'quantity': quantity,
+          'unitCost': unitCost,
+          'totalCost': totalCost,
+          'supplierName': supplierName,
+          'supplierPhone': supplierPhone,
+          'note': note,
+          'updatedAt': now.toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      await txn.rawUpdate(
+        'UPDATE products SET currentStock = currentStock + ?, updatedAt = ? WHERE id = ?',
+        [quantity, now.toIso8601String(), productId],
+      );
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getPurchaseHistory({
+    DateTimeRange? range,
+    String? query,
+  }) async {
+    String? where;
+    final whereArgs = <Object?>[];
+
+    if (range != null) {
+      final start = DateTime(range.start.year, range.start.month, range.start.day);
+      final end = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
+      where = 'createdAt >= ? AND createdAt <= ?';
+      whereArgs.addAll([start.toIso8601String(), end.toIso8601String()]);
+    }
+
+    if (query != null && query.trim().isNotEmpty) {
+      final q = '%${query.trim()}%';
+      if (where == null) {
+        where = '(productName LIKE ? OR note LIKE ? OR supplierName LIKE ? OR supplierPhone LIKE ?)';
+      } else {
+        where = '$where AND (productName LIKE ? OR note LIKE ? OR supplierName LIKE ? OR supplierPhone LIKE ?)';
+      }
+      whereArgs.addAll([q, q, q, q]);
+    }
+
+    return await db.query(
+      'purchase_history',
+      where: where,
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
+      orderBy: 'createdAt DESC',
+    );
   }
   
   // Reinitialize the database
@@ -331,6 +405,67 @@ class DatabaseService {
         print('Lỗi khi cập nhật bảng sales: $e');
       }
     }
+
+    // Migration từ version 9 lên 10: Thêm cột currentStock vào bảng products
+    if (oldVersion < 10) {
+      try {
+        print('Đang thêm cột currentStock vào bảng products...');
+        await safeAddColumn(db, 'products', 'currentStock', 'REAL NOT NULL DEFAULT 0');
+        print('Đã cập nhật bảng products (currentStock) thành công');
+      } catch (e) {
+        print('Lỗi khi cập nhật bảng products (currentStock): $e');
+      }
+    }
+
+    // Migration từ version 10 lên 11: Thêm bảng tồn đầu kỳ theo tháng/năm
+    if (oldVersion < 11) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS product_opening_stocks(
+            productId TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            openingStock REAL NOT NULL DEFAULT 0,
+            updatedAt TEXT NOT NULL,
+            PRIMARY KEY (productId, year, month)
+          )
+        ''');
+      } catch (e) {
+        print('Lỗi khi tạo bảng product_opening_stocks: $e');
+      }
+    }
+
+    // Migration từ version 11 lên 12: Thêm bảng lịch sử nhập hàng
+    if (oldVersion < 12) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS purchase_history(
+            id TEXT PRIMARY KEY,
+            createdAt TEXT NOT NULL,
+            productId TEXT NOT NULL,
+            productName TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            unitCost REAL NOT NULL DEFAULT 0,
+            totalCost REAL NOT NULL DEFAULT 0,
+            supplierName TEXT,
+            supplierPhone TEXT,
+            note TEXT,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        print('Lỗi khi tạo bảng purchase_history: $e');
+      }
+    }
+
+    if (oldVersion < 13) {
+      try {
+        await db.execute('ALTER TABLE purchase_history ADD COLUMN supplierName TEXT');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE purchase_history ADD COLUMN supplierPhone TEXT');
+      } catch (_) {}
+    }
   }
 
   Future<void> init() async {
@@ -339,7 +474,7 @@ class DatabaseService {
     
     _db = await openDatabase(
       path,
-      version: 9, // Tăng version để áp dụng migration cho costPrice
+      version: 13, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -348,6 +483,7 @@ class DatabaseService {
             name TEXT NOT NULL,
             price REAL NOT NULL,
             costPrice REAL NOT NULL DEFAULT 0,
+            currentStock REAL NOT NULL DEFAULT 0,
             unit TEXT NOT NULL,
             barcode TEXT,
             isActive INTEGER NOT NULL DEFAULT 1,
@@ -462,6 +598,33 @@ class DatabaseService {
             details TEXT
           )
         ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS product_opening_stocks(
+            productId TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            openingStock REAL NOT NULL DEFAULT 0,
+            updatedAt TEXT NOT NULL,
+            PRIMARY KEY (productId, year, month)
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS purchase_history(
+            id TEXT PRIMARY KEY,
+            createdAt TEXT NOT NULL,
+            productId TEXT NOT NULL,
+            productName TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            unitCost REAL NOT NULL DEFAULT 0,
+            totalCost REAL NOT NULL DEFAULT 0,
+            supplierName TEXT,
+            supplierPhone TEXT,
+            note TEXT,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
       },
       onUpgrade: _migrateDatabase,
     );
@@ -471,8 +634,39 @@ class DatabaseService {
 
   // Products
   Future<List<Product>> getProducts() async {
-    final rows = await db.query('products', orderBy: 'name ASC');
+    final rows = await db.query(
+      'products',
+      where: 'isActive = 1',
+      orderBy: 'name ASC',
+    );
     return rows.map(Product.fromMap).toList();
+  }
+
+  Future<bool> isProductUsed(String productId) async {
+    final saleCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(1) FROM sale_items WHERE productId = ?',
+            [productId],
+          ),
+        ) ??
+        0;
+    if (saleCount > 0) return true;
+
+    final purchaseCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(1) FROM purchase_history WHERE productId = ?',
+            [productId],
+          ),
+        ) ??
+        0;
+    return purchaseCount > 0;
+  }
+
+  Future<void> deleteProductHard(String productId) async {
+    await db.transaction((txn) async {
+      await txn.delete('product_opening_stocks', where: 'productId = ?', whereArgs: [productId]);
+      await txn.delete('products', where: 'id = ?', whereArgs: [productId]);
+    });
   }
 
   Future<void> insertProduct(Product p) async {
@@ -494,6 +688,44 @@ class DatabaseService {
       ...p.toMap(),
       'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, double>> getOpeningStocksForMonth(int year, int month) async {
+    final rows = await db.query(
+      'product_opening_stocks',
+      columns: ['productId', 'openingStock'],
+      where: 'year = ? AND month = ?',
+      whereArgs: [year, month],
+    );
+    final map = <String, double>{};
+    for (final r in rows) {
+      final pid = r['productId'] as String;
+      map[pid] = (r['openingStock'] as num?)?.toDouble() ?? 0;
+    }
+    return map;
+  }
+
+  Future<void> upsertOpeningStocksForMonth({
+    required int year,
+    required int month,
+    required Map<String, double> openingByProductId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final batch = db.batch();
+    openingByProductId.forEach((productId, openingStock) {
+      batch.insert(
+        'product_opening_stocks',
+        {
+          'productId': productId,
+          'year': year,
+          'month': month,
+          'openingStock': openingStock,
+          'updatedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+    await batch.commit(noResult: true);
   }
 
   // Customers
@@ -635,6 +867,20 @@ class DatabaseService {
             'isSynced': 0, // Chưa đồng bộ
           });
         }
+
+        // Trừ tồn hiện tại theo số lượng bán
+        final qtyByProductId = <String, double>{};
+        for (final it in s.items) {
+          final pid = it.productId;
+          qtyByProductId[pid] = (qtyByProductId[pid] ?? 0) + it.quantity;
+        }
+        for (final entry in qtyByProductId.entries) {
+          await txn.rawUpdate(
+            'UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ?',
+            [entry.value, DateTime.now().toIso8601String(), entry.key],
+          );
+        }
+
         await _addAuditTxn(txn, 'sale', s.id, 'create', {
           'total': s.total,
           'discount': s.discount,
@@ -1129,6 +1375,53 @@ class DatabaseService {
       }));
     } catch (e) {
       developer.log('Error getting debt payments:', error: e);
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getDebtPaymentsForSync({DateTimeRange? range}) async {
+    try {
+      await EncryptionService.instance.init();
+
+      String? where;
+      List<Object?>? whereArgs;
+      if (range != null) {
+        final start = DateTime(range.start.year, range.start.month, range.start.day);
+        final end = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
+        where = 'p.createdAt >= ? AND p.createdAt <= ?';
+        whereArgs = [start.toIso8601String(), end.toIso8601String()];
+      }
+
+      final rows = await db.rawQuery(
+        '''
+        SELECT
+          p.id as paymentId,
+          p.debtId as debtId,
+          p.amount as amount,
+          p.note as note,
+          p.createdAt as createdAt,
+          p.isSynced as isSynced,
+          d.type as debtType,
+          d.partyId as partyId,
+          d.partyName as partyName
+        FROM debt_payments p
+        LEFT JOIN debts d ON d.id = p.debtId
+        ${where != null ? 'WHERE $where' : ''}
+        ORDER BY p.createdAt DESC
+        ''',
+        whereArgs,
+      );
+
+      return await Future.wait(rows.map((m) async {
+        final note = m['note'] as String?;
+        final decryptedNote = note != null ? await EncryptionService.instance.decrypt(note) : null;
+        return {
+          ...m,
+          'note': decryptedNote,
+        };
+      }));
+    } catch (e) {
+      developer.log('Error getting debt payments for sync:', error: e);
       rethrow;
     }
   }

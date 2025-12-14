@@ -44,6 +44,23 @@ class FileStoragePlugin : FlutterPlugin, MethodCallHandler {
                     result.error("SAVE_FAILED", "Failed to save file: ${e.message}", null)
                 }
             }
+            "saveBytes" -> {
+                val bytes = call.argument<ByteArray>("bytes")
+                val fileName = call.argument<String>("fileName")
+                val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
+
+                if (bytes == null || fileName == null) {
+                    result.error("INVALID_ARGUMENTS", "Bytes or fileName is null", null)
+                    return
+                }
+
+                try {
+                    val filePath = saveBytes(bytes, fileName, mimeType)
+                    result.success(filePath)
+                } catch (e: Exception) {
+                    result.error("SAVE_FAILED", "Failed to save file: ${e.message}", null)
+                }
+            }
             else -> result.notImplemented()
         }
     }
@@ -77,6 +94,36 @@ class FileStoragePlugin : FlutterPlugin, MethodCallHandler {
             val file = File(downloadsDir, fileName)
             FileOutputStream(file).use { outputStream ->
                 outputStream.write(content.toByteArray())
+            }
+            return file.absolutePath
+        }
+    }
+
+    private fun saveBytes(bytes: ByteArray, fileName: String, mimeType: String): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+
+            val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                ?: throw IOException("Failed to create new MediaStore record")
+
+            context.contentResolver.openOutputStream(uri)?.use { outputStream: OutputStream ->
+                outputStream.write(bytes)
+            } ?: throw IOException("Failed to open output stream")
+
+            return "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)}/$fileName"
+        } else {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!downloadsDir.exists()) {
+                downloadsDir.mkdirs()
+            }
+
+            val file = File(downloadsDir, fileName)
+            FileOutputStream(file).use { outputStream ->
+                outputStream.write(bytes)
             }
             return file.absolutePath
         }

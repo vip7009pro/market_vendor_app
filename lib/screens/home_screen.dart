@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/theme_provider.dart'; // Import theme_provider
 import 'debt_screen.dart';
+import 'purchase_history_screen.dart';
 import 'report_screen.dart';
 import 'settings_screen.dart';
 import 'sale_screen.dart';
@@ -100,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const SaleScreen(),
       const SalesHistoryScreen(),
       const DebtScreen(),
+      const PurchaseHistoryScreen(),
       const ReportScreen(),
       const SettingsScreen(),
     ];
@@ -256,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Bán hàng'),
           NavigationDestination(icon: Icon(Icons.history), label: 'Lịch sử'),
           NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Ghi nợ'),
+          NavigationDestination(icon: Icon(Icons.inventory), label: 'Nhập hàng'),
           NavigationDestination(icon: Icon(Icons.insights), label: 'Báo cáo'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Cài đặt'),
         ],

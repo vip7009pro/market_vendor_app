@@ -30,6 +30,12 @@ class ProductProvider with ChangeNotifier {
     }
   }
 
+  Future<void> delete(String productId) async {
+    _products.removeWhere((p) => p.id == productId);
+    notifyListeners();
+    await DatabaseService.instance.deleteProductHard(productId);
+  }
+
   Product? findByBarcode(String barcode) {
     try {
       return _products.firstWhere((e) => e.barcode == barcode);

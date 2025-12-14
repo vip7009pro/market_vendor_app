@@ -11,6 +11,7 @@ import '../models/sale.dart';
 import '../utils/file_helper.dart';
 // Import file mới
 import 'receipt_preview_screen.dart'; // Thêm dòng này
+import 'sales_item_history_screen.dart';
 
 // Vietnamese diacritics removal (accent-insensitive search)
 String _vn(String s) {
@@ -87,6 +88,18 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       appBar: AppBar(
         title: const Text('Lịch sử bán hàng'),
         actions: [
+          IconButton(
+            tooltip: 'Bán hàng chi tiết',
+            icon: const Icon(Icons.view_list),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SalesItemHistoryScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: () async {

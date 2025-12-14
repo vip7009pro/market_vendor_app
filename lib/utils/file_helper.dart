@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -56,6 +57,74 @@ class FileHelper {
       if (!context.mounted) return false;
       _showErrorMessage(context, 'Lỗi khi xuất file: $e');
       return false;
+    }
+  }
+
+  static Future<String?> saveBytesToDownloads({
+    required List<int> bytes,
+    required String fileName,
+  }) async {
+    try {
+      if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+        final dir = await getDownloadsDirectory();
+        final targetDir = dir ?? await getApplicationDocumentsDirectory();
+        final file = File('${targetDir.path}/$fileName');
+        await file.writeAsBytes(bytes, flush: true);
+        return file.path;
+      }
+
+      if (Platform.isAndroid) {
+        final deviceInfo = DeviceInfoPlugin();
+        final androidInfo = await deviceInfo.androidInfo;
+        final sdkInt = androidInfo.version.sdkInt;
+
+        // Với Android 10+ dùng MediaStore plugin để file hiện đúng trong Downloads
+        if (sdkInt >= 29) {
+          try {
+            const platform = MethodChannel('com.marketvendor.market_vendor_app/file_storage');
+            final result = await platform.invokeMethod('saveBytes', {
+              'bytes': Uint8List.fromList(bytes),
+              'fileName': fileName,
+              'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+            return result as String?;
+          } catch (e) {
+            print('Lỗi khi sử dụng FileStoragePlugin (bytes): $e');
+          }
+        }
+
+        if (await Permission.storage.request().isGranted) {
+          Directory? directory;
+          final downloadDir = Directory('/storage/emulated/0/Download');
+          if (await downloadDir.exists()) {
+            directory = downloadDir;
+          } else {
+            final externalDir = await getExternalStorageDirectory();
+            if (externalDir != null) {
+              final List<String> paths = externalDir.path.split('/');
+              final basePath = paths.sublist(0, paths.indexOf('Android')).join('/');
+              final downloadPath = '$basePath/Download';
+              directory = Directory(downloadPath);
+              if (!await directory.exists()) {
+                await directory.create(recursive: true);
+              }
+            }
+          }
+          if (directory != null) {
+            final file = File('${directory.path}/$fileName');
+            await file.writeAsBytes(bytes, flush: true);
+            return file.path;
+          }
+        }
+      }
+
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes, flush: true);
+      return file.path;
+    } catch (e) {
+      print('Lỗi khi lưu bytes: $e');
+      return null;
     }
   }
   
