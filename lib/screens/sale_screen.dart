@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../models/sale.dart';
 import '../providers/product_provider.dart';
+import 'voice_order_screen.dart';
 import '../providers/sale_provider.dart';
 import '../widgets/quantity_stepper.dart';
 import '../models/customer.dart';
@@ -618,6 +619,17 @@ class _SaleScreenState extends State<SaleScreen> {
       appBar: AppBar(
         title: const Text('Bán hàng'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.mic),
+            tooltip: 'Đặt hàng bằng giọng nói',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const VoiceOrderScreen(),
+                ),
+              );
+            },
+          ),
           // FIX: Wrap IconButton trong Builder để lấy fresh context có Overlay cho Tooltip (fix lỗi No Overlay)
           Builder(
             builder: (ctx) => IconButton(
