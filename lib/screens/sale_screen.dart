@@ -332,10 +332,7 @@ class _SaleScreenState extends State<SaleScreen> {
     }
   }
 
-  Future<void> _addQuickCustomerDialog() async {
-    final nameCtrl = TextEditingController(text: _customerCtrl.text);
-    final phoneCtrl = TextEditingController();
-    // Load contacts từ cache / hệ thống để gợi ý giống CustomerFormScreen
+  Future<Contact?> _showContactPicker() async {
     List<Contact> allContacts = await ContactSerializer.loadContactsFromPrefs();
     if (allContacts.isEmpty) {
       try {
@@ -345,153 +342,266 @@ class _SaleScreenState extends State<SaleScreen> {
           await ContactSerializer.saveContactsToPrefs(allContacts);
         }
       } catch (e) {
-        debugPrint('Error getting contacts in quick dialog: $e');
+        debugPrint('Error getting contacts: $e');
       }
     }
 
-    final ok = await showDialog<bool>(
+    return await showModalBottomSheet<Contact>(
       context: context,
-      builder: (_) {
-        List<Contact> nameMatches = [];
-        List<Contact> phoneMatches = [];
+      isScrollControlled: true,
+      builder: (context) {
+        final TextEditingController searchController = TextEditingController();
+        List<Contact> filteredContacts = List.from(allContacts);
 
         return StatefulBuilder(
-          builder: (dialogContext, setStateDialog) {
-            return AlertDialog(
-              title: const Text('Thêm khách hàng'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+          builder: (context, setState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              height: MediaQuery.of(context).size.height * 0.8,
+              child: Column(
                 children: [
                   TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Tên'),
-                    onChanged: (value) {
-                      if (value.isEmpty) {
-                        nameMatches = [];
-                      } else {
-                        final valueLower = value.toLowerCase();
-                        final normalizedQuery = removeDiacritics(valueLower);
-                        nameMatches = allContacts.where((c) {
-                          if (c.displayName.isEmpty) return false;
-                          final displayNameLower = c.displayName.toLowerCase();
-                          final normalizedName = removeDiacritics(displayNameLower);
-                          return displayNameLower.contains(valueLower) || normalizedName.contains(normalizedQuery);
-                        }).toList();
-                      }
-                      // Khi đang tìm theo tên thì ẩn toàn bộ gợi ý theo SĐT
-                      phoneMatches = [];
-                      setStateDialog(() {});
-                    },
-                  ),
-                  if (nameMatches.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      height: 216,
-                      child: ListView.builder(
-                        itemExtent: 72,
-                        itemCount: nameMatches.length,
-                        itemBuilder: (context, idx) {
-                          final contact = nameMatches[idx];
-                          return ListTile(
-                            dense: true,
-                            leading: contact.photo != null
-                                ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
-                                : const CircleAvatar(child: Icon(Icons.person)),
-                            title: Text(contact.displayName),
-                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
-                            onTap: () {
-                              nameCtrl.text = contact.displayName;
-                              if (contact.phones.isNotEmpty) {
-                                phoneCtrl.text = contact.phones.first.number;
-                              }
-                              nameMatches = [];
-                              phoneMatches = [];
-                              setStateDialog(() {});
-                            },
-                          );
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Tìm kiếm liên hệ',
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          searchController.clear();
+                          setState(() {
+                            filteredContacts = List.from(allContacts);
+                          });
                         },
                       ),
                     ),
-                  ],
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: phoneCtrl,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(labelText: 'SĐT (tuỳ chọn)'),
                     onChanged: (value) {
                       if (value.isEmpty) {
-                        phoneMatches = [];
+                        setState(() {
+                          filteredContacts = List.from(allContacts);
+                        });
                       } else {
-                        phoneMatches = allContacts.where((c) {
-                          return c.phones.any((p) => p.number.contains(value));
-                        }).toList();
+                        final query = value.toLowerCase();
+                        setState(() {
+                          filteredContacts = allContacts.where((contact) {
+                            final nameMatch = contact.displayName.toLowerCase().contains(query);
+                            final phoneMatch = contact.phones.any(
+                              (phone) => phone.number.contains(query),
+                            );
+                            return nameMatch || phoneMatch;
+                          }).toList();
+                        });
                       }
-                      // Khi đang tìm theo SĐT thì ẩn toàn bộ gợi ý theo tên
-                      nameMatches = [];
-                      setStateDialog(() {});
                     },
                   ),
-                  if (phoneMatches.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      height: 216,
-                      child: ListView.builder(
-                        itemExtent: 72,
-                        itemCount: phoneMatches.length,
-                        itemBuilder: (context, idx) {
-                          final contact = phoneMatches[idx];
-                          return ListTile(
-                            dense: true,
-                            leading: contact.photo != null
-                                ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
-                                : const CircleAvatar(child: Icon(Icons.person)),
-                            title: Text(contact.displayName),
-                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
-                            onTap: () {
-                              phoneCtrl.text = contact.phones.isNotEmpty ? contact.phones.first.number : '';
-                              nameCtrl.text = contact.displayName;
-                              phoneMatches = [];
-                              nameMatches = [];
-                              setStateDialog(() {});
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: filteredContacts.isEmpty
+                        ? const Center(
+                            child: Text('Không tìm thấy liên hệ nào'),
+                          )
+                        : ListView.builder(
+                            itemCount: filteredContacts.length,
+                            itemBuilder: (context, index) {
+                              final contact = filteredContacts[index];
+                              return ListTile(
+                                leading: contact.photo != null
+                                    ? CircleAvatar(
+                                        backgroundImage: MemoryImage(contact.photo!),
+                                        radius: 20,
+                                      )
+                                    : const CircleAvatar(
+                                        child: Icon(Icons.person),
+                                        radius: 20,
+                                      ),
+                                title: Text(contact.displayName),
+                                subtitle: Text(
+                                  contact.phones.isNotEmpty
+                                      ? contact.phones.first.number
+                                      : 'Không có SĐT',
+                                ),
+                                onTap: () {
+                                  Navigator.of(context).pop(contact);
+                                },
+                              );
                             },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
+                          ),
+                  ),
                 ],
               ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
-              ],
             );
           },
         );
       },
     );
-    if (ok == true && nameCtrl.text.trim().isEmpty == false) {
+  }
+
+  Future<Product?> _showProductPicker() async {
+    final products = context.read<ProductProvider>().products;
+    return await showModalBottomSheet<Product>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        final TextEditingController searchController = TextEditingController();
+        List<Product> filteredProducts = List.from(products);
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              height: MediaQuery.of(context).size.height * 0.8,
+              child: Column(
+                children: [
+                  TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Tìm kiếm sản phẩm',
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          searchController.clear();
+                          setState(() {
+                            filteredProducts = List.from(products);
+                          });
+                        },
+                      ),
+                    ),
+                    onChanged: (value) {
+                      if (value.isEmpty) {
+                        setState(() {
+                          filteredProducts = List.from(products);
+                        });
+                      } else {
+                        final query = value.toLowerCase();
+                        setState(() {
+                          filteredProducts = products.where((product) {
+                            final nameMatch = product.name.toLowerCase().contains(query);
+                            final barcodeMatch = product.barcode?.toLowerCase().contains(query) ?? false;
+                            return nameMatch || barcodeMatch;
+                          }).toList();
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: filteredProducts.isEmpty
+                        ? const Center(
+                            child: Text('Không tìm thấy sản phẩm nào'),
+                          )
+                        : ListView.builder(
+                            itemCount: filteredProducts.length,
+                            itemBuilder: (context, index) {
+                              final product = filteredProducts[index];
+                              return ListTile(
+                                leading: const CircleAvatar(
+                                  child: Icon(Icons.shopping_bag),
+                                  radius: 20,
+                                ),
+                                title: Text(product.name),
+                                subtitle: Text('${NumberFormat('#,##0').format(product.price)} đ'),
+                                trailing: Text('Tồn: ${product.currentStock} ${product.unit}'),
+                                onTap: () {
+                                  Navigator.of(context).pop(product);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _addQuickCustomerDialog() async {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Thêm khách hàng mới'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Tên khách hàng',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: 'Số điện thoại (tuỳ chọn)',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.contacts),
+                  onPressed: () async {
+                    final contact = await _showContactPicker();
+                    if (contact != null) {
+                      nameCtrl.text = contact.displayName;
+                      if (contact.phones.isNotEmpty) {
+                        phoneCtrl.text = contact.phones.first.number;
+                      }
+                    }
+                  },
+                  tooltip: 'Chọn từ danh bạ',
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (nameCtrl.text.trim().isNotEmpty) {
+                Navigator.pop(context, true);
+              }
+            },
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true && nameCtrl.text.trim().isNotEmpty) {
+      final name = nameCtrl.text.trim();
+      final phone = phoneCtrl.text.trim();
+      
       final provider = context.read<CustomerProvider>();
-      final newName = TextNormalizer.normalize(nameCtrl.text);
+      final newName = TextNormalizer.normalize(name);
       final duplicated = provider.customers.any((c) => TextNormalizer.normalize(c.name) == newName);
+      
       if (duplicated) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tồn tại khách hàng cùng tên')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã tồn tại khách hàng cùng tên')),
+        );
         return;
       }
 
-      final c = Customer(
-        name: nameCtrl.text.trim(),
-        phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
+      final customer = Customer(
+        name: name,
+        phone: phone.isEmpty ? null : phone,
       );
-      await provider.add(c);
+      
+      await provider.add(customer);
+      if (!mounted) return;
       setState(() {
-        _customerId = c.id;
-        _customerName = c.name;
-        _customerCtrl.text = c.name;
+        _customerId = customer.id;
+        _customerName = customer.name;
+        _customerCtrl.text = customer.name;
       });
-      await _saveRecentCustomer(c);
+      await _saveRecentCustomer(customer);
     }
   }
 
@@ -608,56 +718,108 @@ class _SaleScreenState extends State<SaleScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: DropdownSearch<Customer>(
-                      items: customers,
-                      dropdownDecoratorProps: const DropDownDecoratorProps(
-                        dropdownSearchDecoration: InputDecoration(
-                          labelText: 'Khách hàng (tuỳ chọn)',
-                        ),
+                    child: TextField(
+                      controller: _customerCtrl,
+                      readOnly: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Chọn khách hàng (tuỳ chọn)',
                       ),
-                      onChanged: (c) async {
-                        if (c != null) {
+                      onTap: () async {
+                        final customer = await showModalBottomSheet<Customer>(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (context) {
+                            final TextEditingController searchController = TextEditingController();
+                            List<Customer> filteredCustomers = List.from(customers);
+
+                            return StatefulBuilder(
+                              builder: (context, setState) {
+                                return Container(
+                                  padding: const EdgeInsets.all(16),
+                                  height: MediaQuery.of(context).size.height * 0.8,
+                                  child: Column(
+                                    children: [
+                                      TextField(
+                                        controller: searchController,
+                                        decoration: InputDecoration(
+                                          labelText: 'Tìm kiếm khách hàng',
+                                          suffixIcon: IconButton(
+                                            icon: const Icon(Icons.clear),
+                                            onPressed: () {
+                                              searchController.clear();
+                                              setState(() {
+                                                filteredCustomers = List.from(customers);
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                        onChanged: (value) {
+                                          if (value.isEmpty) {
+                                            setState(() {
+                                              filteredCustomers = List.from(customers);
+                                            });
+                                          } else {
+                                            final query = value.toLowerCase();
+                                            setState(() {
+                                              filteredCustomers = customers.where((customer) {
+                                                final nameMatch = customer.name.toLowerCase().contains(query);
+                                                final phoneMatch = customer.phone?.toLowerCase().contains(query) ?? false;
+                                                return nameMatch || phoneMatch;
+                                              }).toList();
+                                            });
+                                          }
+                                        },
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Expanded(
+                                        child: filteredCustomers.isEmpty
+                                            ? const Center(
+                                                child: Text('Không tìm thấy khách hàng nào'),
+                                              )
+                                            : ListView.builder(
+                                                itemCount: filteredCustomers.length,
+                                                itemBuilder: (context, index) {
+                                                  final customer = filteredCustomers[index];
+                                                  return ListTile(
+                                                    leading: const CircleAvatar(
+                                                      child: Icon(Icons.person),
+                                                    ),
+                                                    title: Text(customer.name),
+                                                    subtitle: Text(customer.phone ?? 'Không có SĐT'),
+                                                    onTap: () {
+                                                      Navigator.of(context).pop(customer);
+                                                    },
+                                                  );
+                                                },
+                                              ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        );
+
+                        if (customer != null) {
                           setState(() {
-                            _customerId = c.id;
-                            _customerName = c.name;
-                            _customerCtrl.text = c.name;
+                            _customerId = customer.id;
+                            _customerName = customer.name;
+                            _customerCtrl.text = customer.name;
                           });
-                          await _saveRecentCustomer(c);
-                        } else {
-                          setState(() {
-                            _customerId = null;
-                            _customerName = null;
-                            _customerCtrl.text = '';
-                          });
+                          await _saveRecentCustomer(customer);
                         }
                       },
-                      selectedItem: _customerId != null
-                          ? customers.firstWhere((c) => c.id == _customerId, orElse: () => Customer(name: _customerName ?? ''))
-                          : null,
-                      itemAsString: (c) => c.name,
-                      filterFn: (c, query) {
-                        final normalizedQuery = removeDiacritics(query).toLowerCase();
-                        final normalizedName = removeDiacritics(c.name).toLowerCase();
-                        final initials = getInitials(c.name);
-                        return normalizedName.contains(normalizedQuery) || initials.contains(normalizedQuery);
-                      },
-                      popupProps: const PopupProps.menu(
-                        showSearchBox: true,
-                        fit: FlexFit.loose,
-                        searchDelay: Duration.zero,
-                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   SizedBox(
                     height: 56,
                     width: 48,
-                    child: Builder(
-                      builder: (ctx) => IconButton(
-                        icon: const Icon(Icons.person_add_alt),
-                        onPressed: _addQuickCustomerDialog,
-                        tooltip: 'Thêm khách hàng mới',
-                      ),
+                    child: IconButton(
+                      icon: const Icon(Icons.person_add_alt),
+                      onPressed: _addQuickCustomerDialog,
+                      tooltip: 'Thêm khách hàng mới',
                     ),
                   ),
                 ],
@@ -689,25 +851,25 @@ class _SaleScreenState extends State<SaleScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: DropdownSearch<Product>(
-                      items: products,
-                      dropdownDecoratorProps: const DropDownDecoratorProps(
-                        dropdownSearchDecoration: InputDecoration(
-                          labelText: 'Thêm sản phẩm nhanh',
-                        ),
+                    child: TextField(
+                      readOnly: true,
+                      controller: _productCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Chọn sản phẩm',
                       ),
-                      onChanged: (p) async {
-                        if (p != null) {
+                      onTap: () async {
+                        final product = await _showProductPicker();
+                        if (product != null) {
                           setState(() {
                             final existingItem = _items.firstWhere(
-                              (item) => item.productId == p.id,
+                              (item) => item.productId == product.id,
                               orElse: () => SaleItem(
-                                productId: p.id,
-                                name: p.name,
-                                unitPrice: p.price,
-                                unitCost: p.costPrice,
+                                productId: product.id,
+                                name: product.name,
+                                unitPrice: product.price,
+                                unitCost: product.costPrice,
                                 quantity: 0,
-                                unit: p.unit,
+                                unit: product.unit,
                               ),
                             );
                             if (_items.contains(existingItem)) {
@@ -715,10 +877,10 @@ class _SaleScreenState extends State<SaleScreen> {
                             } else {
                               _items.add(existingItem..quantity = 1);
                             }
-                            _productCtrl.text = p.name;
+                            _productCtrl.text = product.name;
                           });
-                          await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
-                          await _saveRecentProduct(p);
+                          await _applyLastUnitTo(_items.lastWhere((item) => item.productId == product.id));
+                          await _saveRecentProduct(product);
                           if (!_paidEdited) {
                             final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
                             final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
@@ -728,18 +890,6 @@ class _SaleScreenState extends State<SaleScreen> {
                           _unfocusProductField?.call();
                         }
                       },
-                      itemAsString: (p) => p.name,
-                      filterFn: (p, query) {
-                        final normalizedQuery = removeDiacritics(query).toLowerCase();
-                        final normalizedName = removeDiacritics(p.name).toLowerCase();
-                        final initials = getInitials(p.name);
-                        return normalizedName.contains(normalizedQuery) || initials.contains(normalizedQuery);
-                      },
-                      popupProps: const PopupProps.menu(
-                        showSearchBox: true,
-                        fit: FlexFit.loose,
-                        searchDelay: Duration.zero,
-                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1081,7 +1231,7 @@ class _SaleScreenState extends State<SaleScreen> {
                 child: OutlinedButton(
                   onPressed: () {
                     setState(() {
-                      _paidEdited = true;
+                      //_paidEdited = true;
                       _paid = 0;
                     });
                   },

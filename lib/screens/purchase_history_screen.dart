@@ -35,6 +35,96 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     return result;
   }
 
+  Future<Contact?> _showContactPicker(BuildContext context, List<Contact> contacts) async {
+    final TextEditingController searchController = TextEditingController();
+    List<Contact> filteredContacts = List.from(contacts);
+
+    return await showModalBottomSheet<Contact>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              height: MediaQuery.of(context).size.height * 0.8,
+              child: Column(
+                children: [
+                  TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Tìm kiếm liên hệ',
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          searchController.clear();
+                          setState(() {
+                            filteredContacts = List.from(contacts);
+                          });
+                        },
+                      ),
+                    ),
+                    onChanged: (value) {
+                      if (value.isEmpty) {
+                        setState(() {
+                          filteredContacts = List.from(contacts);
+                        });
+                      } else {
+                        final query = value.toLowerCase();
+                        setState(() {
+                          filteredContacts = contacts.where((contact) {
+                            final nameMatch = contact.displayName.toLowerCase().contains(query);
+                            final phoneMatch = contact.phones.any(
+                              (phone) => phone.number.contains(query),
+                            );
+                            return nameMatch || phoneMatch;
+                          }).toList();
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: filteredContacts.isEmpty
+                        ? const Center(
+                            child: Text('Không tìm thấy liên hệ nào'),
+                          )
+                        : ListView.builder(
+                            itemCount: filteredContacts.length,
+                            itemBuilder: (context, index) {
+                              final contact = filteredContacts[index];
+                              return ListTile(
+                                leading: contact.photo != null
+                                    ? CircleAvatar(
+                                        backgroundImage: MemoryImage(contact.photo!), 
+                                        radius: 20,
+                                      )
+                                    : const CircleAvatar(
+                                        child: Icon(Icons.person),
+                                        radius: 20,
+                                      ),
+                                title: Text(contact.displayName),
+                                subtitle: Text(
+                                  contact.phones.isNotEmpty
+                                      ? contact.phones.first.number
+                                      : 'Không có SĐT',
+                                ),
+                                onTap: () {
+                                  Navigator.of(context).pop(contact);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<Product?> _addNewProductDialog() async {
     final nameCtrl = TextEditingController();
     final unitCtrl = TextEditingController(text: 'cái');
@@ -143,92 +233,40 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: supplierNameCtrl,
-                decoration: const InputDecoration(labelText: 'Nhà cung cấp (tuỳ chọn)'),
-                onChanged: (_) => setStateDialog(() {}),
-              ),
-              if (supplierNameCtrl.text.trim().isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Builder(
-                  builder: (_) {
-                    final matches = allContacts.where((c) {
-                      if (c.displayName.isEmpty) return false;
-                      final q = supplierNameCtrl.text.trim().toLowerCase();
-                      final nq = removeDiacritics(q);
-                      final name = c.displayName.toLowerCase();
-                      final nname = removeDiacritics(name);
-                      return name.contains(q) || nname.contains(nq);
-                    }).toList();
-                    if (matches.isEmpty) return const SizedBox.shrink();
-                    return SizedBox(
-                      height: 216,
-                      child: ListView.builder(
-                        itemExtent: 72,
-                        itemCount: matches.length,
-                        itemBuilder: (context, idx) {
-                          final contact = matches[idx];
-                          return ListTile(
-                            dense: true,
-                            leading: contact.photo != null
-                                ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
-                                : const CircleAvatar(child: Icon(Icons.person)),
-                            title: Text(contact.displayName),
-                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
-                            onTap: () {
-                              supplierNameCtrl.text = contact.displayName;
-                              if (contact.phones.isNotEmpty) {
-                                supplierPhoneCtrl.text = contact.phones.first.number;
-                              }
-                              setStateDialog(() {});
-                            },
-                          );
-                        },
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: supplierNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nhà cung cấp (tuỳ chọn)',
                       ),
-                    );
-                  },
-                ),
-              ],
+                      readOnly: true,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.contacts),
+                    onPressed: () async {
+                      final contact = await _showContactPicker(context, allContacts);
+                      if (contact != null && mounted) {
+                        supplierNameCtrl.text = contact.displayName;
+                        supplierPhoneCtrl.text = contact.phones.isNotEmpty ? contact.phones.first.number : '';
+                        setStateDialog(() {});
+                      }
+                    },
+                    tooltip: 'Chọn từ danh bạ',
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
               TextField(
                 controller: supplierPhoneCtrl,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: 'SĐT nhà cung cấp (tuỳ chọn)'),
-                onChanged: (_) => setStateDialog(() {}),
-              ),
-              if (supplierPhoneCtrl.text.trim().isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Builder(
-                  builder: (_) {
-                    final q = supplierPhoneCtrl.text.trim();
-                    final matches = allContacts.where((c) => c.phones.any((p) => p.number.contains(q))).toList();
-                    if (matches.isEmpty) return const SizedBox.shrink();
-                    return SizedBox(
-                      height: 216,
-                      child: ListView.builder(
-                        itemExtent: 72,
-                        itemCount: matches.length,
-                        itemBuilder: (context, idx) {
-                          final contact = matches[idx];
-                          return ListTile(
-                            dense: true,
-                            leading: contact.photo != null
-                                ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
-                                : const CircleAvatar(child: Icon(Icons.person)),
-                            title: Text(contact.displayName),
-                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
-                            onTap: () {
-                              supplierPhoneCtrl.text = contact.phones.isNotEmpty ? contact.phones.first.number : '';
-                              supplierNameCtrl.text = contact.displayName;
-                              setStateDialog(() {});
-                            },
-                          );
-                        },
-                      ),
-                    );
-                  },
+                decoration: const InputDecoration(
+                  labelText: 'SĐT nhà cung cấp (tuỳ chọn)',
                 ),
-              ],
+                readOnly: true,
+              ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: selectedProductId,
