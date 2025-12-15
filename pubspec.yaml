@@ -30,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
+    
   # UI Components
   cupertino_icons: ^1.0.8
   flutter_svg: ^2.0.10+1

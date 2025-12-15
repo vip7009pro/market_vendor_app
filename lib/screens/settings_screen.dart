@@ -727,8 +727,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-class _AboutCard extends StatelessWidget {
+class _AboutCard extends StatefulWidget {
   const _AboutCard();
+
+  @override
+  _AboutCardState createState() => _AboutCardState();
+}
+
+class _AboutCardState extends State<_AboutCard> {
+  String _appVersion = 'Đang tải...';
+
+  @override
+  void initState() {
+    super.initState();
+    _getAppVersion();
+  }
+
+  Future<void> _getAppVersion() async {
+    try {
+      final info = await package_info.PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _appVersion = 'Phiên bản: ${info.version} (${info.buildNumber})';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _appVersion = 'Không thể tải phiên bản';
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -737,10 +767,19 @@ class _AboutCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text('Ứng dụng quản lý bán hàng cho tiểu thương', style: TextStyle(fontWeight: FontWeight.bold)),
-            SizedBox(height: 8),
-            Text('• Ghi bán nhanh, quản lý công nợ, báo cáo đơn giản\n• Hoạt động offline, đồng bộ khi có mạng'),
+          children: [
+            const Text('Ứng dụng quản lý bán hàng cho tiểu thương', 
+              style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('• Ghi bán nhanh, quản lý công nợ, báo cáo đơn giản\n• Hoạt động offline, đồng bộ khi có mạng'),
+            const SizedBox(height: 8),
+            Text(
+              _appVersion,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).hintColor,
+              ),
+            ),
           ],
         ),
       ),
