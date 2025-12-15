@@ -58,6 +58,18 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ghi nợ'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Thêm công nợ',
+            onPressed: () async {
+              final type = _tabController.index == 0 ? DebtType.othersOweMe : DebtType.oweOthers;
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => DebtFormScreen(initialType: type)),
+              );
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -143,21 +155,6 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
           ),
         ],
       ),
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 0),
-        child: FloatingActionButton.extended(
-          extendedPadding: const EdgeInsets.symmetric(horizontal: 14),
-          onPressed: () async {
-            final type = _tabController.index == 0 ? DebtType.othersOweMe : DebtType.oweOthers;
-            await Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => DebtFormScreen(initialType: type)),
-            );
-          },
-          label: const Text('Thêm', style: TextStyle(color: Colors.white, fontSize: 16)),
-          icon: const Icon(Icons.add),
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 

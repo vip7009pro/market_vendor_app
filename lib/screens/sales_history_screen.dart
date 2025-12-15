@@ -318,6 +318,24 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
+                              if (s.discount > 0)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Giảm: ${currency.format(s.discount)}',
+                                    style: const TextStyle(
+                                      color: Colors.deepOrange,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                )
+                              else
                               if (s.debt > 0)
                                 Container(
                                   padding: const EdgeInsets.symmetric(

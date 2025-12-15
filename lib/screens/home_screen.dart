@@ -5,6 +5,11 @@ import 'package:market_vendor_app/screens/sales_history_screen.dart';
 import 'package:market_vendor_app/utils/contact_serializer.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../providers/product_provider.dart';
+import '../providers/customer_provider.dart';
+import '../providers/sale_provider.dart';
+import '../providers/debt_provider.dart';
+import '../services/database_service.dart';
 import '../providers/theme_provider.dart'; // Import theme_provider
 import 'debt_screen.dart';
 import 'purchase_history_screen.dart';
@@ -80,6 +85,34 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
   late final List<Widget> _pages;
+
+  Future<void> _refreshAllProviders() async {
+    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+    final customerProvider = Provider.of<CustomerProvider>(context, listen: false);
+    final saleProvider = Provider.of<SaleProvider>(context, listen: false);
+    final debtProvider = Provider.of<DebtProvider>(context, listen: false);
+    await Future.wait([
+      productProvider.load(),
+      customerProvider.load(),
+      saleProvider.load(),
+      debtProvider.load(),
+    ]);
+  }
+
+  Future<void> _handleAccountAfterLogin(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastUid = prefs.getString('last_uid');
+    if (lastUid != null && lastUid.isNotEmpty && lastUid != uid) {
+      await DatabaseService.instance.close();
+      await DatabaseService.instance.resetLocalDatabase();
+      await DatabaseService.instance.reinitialize();
+    }
+    await prefs.setString('last_uid', uid);
+    if (!mounted) return;
+    await _refreshAllProviders();
+    if (!mounted) return;
+    setState(() => _index = 0);
+  }
 
   Future<void> _loadAndCacheContacts() async {
     try {
@@ -269,7 +302,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _handleSignIn(BuildContext context, AuthProvider auth) async {
     try {
       await auth.signIn();
-      // After successful sign in, the UI will update automatically
+      final uid = auth.firebaseUser?.uid;
+      if (uid != null && uid.isNotEmpty && context.mounted) {
+        await _handleAccountAfterLogin(uid);
+      }
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -8,6 +8,8 @@ import '../models/product.dart';
 import '../providers/product_provider.dart';
 import '../services/database_service.dart';
 import '../utils/contact_serializer.dart';
+import '../utils/number_input_formatter.dart';
+import '../utils/text_normalizer.dart';
 
 class PurchaseHistoryScreen extends StatefulWidget {
   const PurchaseHistoryScreen({super.key});
@@ -52,12 +54,14 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             TextField(
               controller: priceCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
               decoration: const InputDecoration(labelText: 'Giá bán'),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: costPriceCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
               decoration: const InputDecoration(labelText: 'Giá vốn'),
             ),
             const SizedBox(height: 8),
@@ -77,15 +81,24 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     final name = nameCtrl.text.trim();
     if (name.isEmpty) return null;
 
+    final provider = context.read<ProductProvider>();
+    final newName = TextNormalizer.normalize(name);
+    final duplicated = provider.products.any((p) => TextNormalizer.normalize(p.name) == newName);
+    if (duplicated) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tồn tại sản phẩm cùng tên')));
+      return null;
+    }
+
     final p = Product(
       name: name,
-      price: double.tryParse(priceCtrl.text.trim().replaceAll(',', '.')) ?? 0,
-      costPrice: double.tryParse(costPriceCtrl.text.trim().replaceAll(',', '.')) ?? 0,
+      price: NumberInputFormatter.tryParse(priceCtrl.text) ?? 0,
+      costPrice: NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0,
       unit: unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim(),
       barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
       currentStock: 0,
     );
-    await context.read<ProductProvider>().add(p);
+    await provider.add(p);
     await context.read<ProductProvider>().load();
     return p;
   }
@@ -137,33 +150,44 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               ),
               if (supplierNameCtrl.text.trim().isNotEmpty) ...[
                 const SizedBox(height: 4),
-                ...allContacts
-                    .where((c) {
+                Builder(
+                  builder: (_) {
+                    final matches = allContacts.where((c) {
                       if (c.displayName.isEmpty) return false;
                       final q = supplierNameCtrl.text.trim().toLowerCase();
                       final nq = removeDiacritics(q);
                       final name = c.displayName.toLowerCase();
                       final nname = removeDiacritics(name);
                       return name.contains(q) || nname.contains(nq);
-                    })
-                    .take(5)
-                    .map(
-                      (contact) => ListTile(
-                        dense: true,
-                        leading: contact.photo != null
-                            ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
-                            : const CircleAvatar(child: Icon(Icons.person)),
-                        title: Text(contact.displayName),
-                        subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
-                        onTap: () {
-                          supplierNameCtrl.text = contact.displayName;
-                          if (contact.phones.isNotEmpty) {
-                            supplierPhoneCtrl.text = contact.phones.first.number;
-                          }
-                          setStateDialog(() {});
+                    }).toList();
+                    if (matches.isEmpty) return const SizedBox.shrink();
+                    return SizedBox(
+                      height: 216,
+                      child: ListView.builder(
+                        itemExtent: 72,
+                        itemCount: matches.length,
+                        itemBuilder: (context, idx) {
+                          final contact = matches[idx];
+                          return ListTile(
+                            dense: true,
+                            leading: contact.photo != null
+                                ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
+                                : const CircleAvatar(child: Icon(Icons.person)),
+                            title: Text(contact.displayName),
+                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
+                            onTap: () {
+                              supplierNameCtrl.text = contact.displayName;
+                              if (contact.phones.isNotEmpty) {
+                                supplierPhoneCtrl.text = contact.phones.first.number;
+                              }
+                              setStateDialog(() {});
+                            },
+                          );
                         },
                       ),
-                    ),
+                    );
+                  },
+                ),
               ],
               const SizedBox(height: 8),
               TextField(
@@ -174,24 +198,36 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               ),
               if (supplierPhoneCtrl.text.trim().isNotEmpty) ...[
                 const SizedBox(height: 4),
-                ...allContacts
-                    .where((c) => c.phones.any((p) => p.number.contains(supplierPhoneCtrl.text.trim())))
-                    .take(5)
-                    .map(
-                      (contact) => ListTile(
-                        dense: true,
-                        leading: contact.photo != null
-                            ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
-                            : const CircleAvatar(child: Icon(Icons.person)),
-                        title: Text(contact.displayName),
-                        subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
-                        onTap: () {
-                          supplierPhoneCtrl.text = contact.phones.isNotEmpty ? contact.phones.first.number : '';
-                          supplierNameCtrl.text = contact.displayName;
-                          setStateDialog(() {});
+                Builder(
+                  builder: (_) {
+                    final q = supplierPhoneCtrl.text.trim();
+                    final matches = allContacts.where((c) => c.phones.any((p) => p.number.contains(q))).toList();
+                    if (matches.isEmpty) return const SizedBox.shrink();
+                    return SizedBox(
+                      height: 216,
+                      child: ListView.builder(
+                        itemExtent: 72,
+                        itemCount: matches.length,
+                        itemBuilder: (context, idx) {
+                          final contact = matches[idx];
+                          return ListTile(
+                            dense: true,
+                            leading: contact.photo != null
+                                ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
+                                : const CircleAvatar(child: Icon(Icons.person)),
+                            title: Text(contact.displayName),
+                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT'),
+                            onTap: () {
+                              supplierPhoneCtrl.text = contact.phones.isNotEmpty ? contact.phones.first.number : '';
+                              supplierNameCtrl.text = contact.displayName;
+                              setStateDialog(() {});
+                            },
+                          );
                         },
                       ),
-                    ),
+                    );
+                  },
+                ),
               ],
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -214,6 +250,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               TextField(
                 controller: qtyCtrl,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
                 decoration: InputDecoration(
                   labelText: () {
                     try {
@@ -229,6 +266,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
               TextField(
                 controller: unitCostCtrl,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
                 decoration: const InputDecoration(labelText: 'Giá nhập / đơn vị'),
               ),
               const SizedBox(height: 8),
@@ -271,8 +309,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
     if (ok != true) return;
 
-    final qty = double.tryParse(qtyCtrl.text.trim().replaceAll(',', '.')) ?? 0;
-    final unitCost = double.tryParse(unitCostCtrl.text.trim().replaceAll(',', '.')) ?? 0;
+    final qty = NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0;
+    final unitCost = NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0;
     if (qty <= 0) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Số lượng không hợp lệ')));
@@ -320,6 +358,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       appBar: AppBar(
         title: const Text('Lịch sử nhập hàng'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Nhập hàng',
+            onPressed: _addPurchaseDialog,
+          ),
           IconButton(
             icon: const Icon(Icons.filter_list),
             tooltip: 'Chọn khoảng ngày',
@@ -407,10 +450,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addPurchaseDialog,
-        child: const Icon(Icons.add),
       ),
     );
   }

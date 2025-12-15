@@ -5,15 +5,34 @@ import '../models/product.dart';
 import 'package:intl/intl.dart';
 import 'scan_screen.dart';
 import '../services/database_service.dart';
+import '../utils/number_input_formatter.dart';
+import '../utils/text_normalizer.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class ProductListScreen extends StatelessWidget {
+class ProductListScreen extends StatefulWidget {
   const ProductListScreen({super.key});
+
+  @override
+  State<ProductListScreen> createState() => _ProductListScreenState();
+}
+
+class _ProductListScreenState extends State<ProductListScreen> {
+  String _query = '';
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ProductProvider>();
     final products = provider.products;
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+
+    final qn = TextNormalizer.normalize(_query);
+    final filtered = qn.isEmpty
+        ? products
+        : products.where((p) {
+            final name = TextNormalizer.normalize(p.name);
+            final barcode = (p.barcode ?? '').trim();
+            return name.contains(qn) || (barcode.isNotEmpty && barcode.contains(_query.trim()));
+          }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -31,49 +50,63 @@ class ProductListScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: ListView.separated(
-        itemCount: products.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
-        itemBuilder: (context, i) {
-          final p = products[i];
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Colors.blue.withValues(alpha: 0.12),
-              foregroundColor: Colors.blue,
-              child: Icon(
-                (p.barcode != null && p.barcode!.trim().isNotEmpty)
-                    ? Icons.qr_code
-                    : Icons.inventory_2_outlined,
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Tìm theo tên / mã vạch',
+                isDense: true,
+                prefixIcon: Icon(Icons.search),
               ),
+              onChanged: (v) => setState(() => _query = v),
             ),
-            title: Text(p.name),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Giá bán: ${currency.format(p.price)} / ${p.unit}'),
-                Text('Giá vốn: ${currency.format(p.costPrice)}'),
-                Text('Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}'),
-              ],
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final p = filtered[i];
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blue.withValues(alpha: 0.12),
+                    foregroundColor: Colors.blue,
+                    child: Icon(
+                      (p.barcode != null && p.barcode!.trim().isNotEmpty)
+                          ? Icons.qr_code
+                          : Icons.inventory_2_outlined,
+                    ),
+                  ),
+                  title: Text(p.name),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Giá bán: ${currency.format(p.price)} / ${p.unit}'),
+                      Text('Giá vốn: ${currency.format(p.costPrice)}'),
+                      Text('Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}'),
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit),
+                        onPressed: () => _showProductDialog(context, existing: p),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () => _confirmDelete(context, p),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () => _showProductDialog(context, existing: p),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () => _confirmDelete(context, p),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showProductDialog(context),
-        child: const Icon(Icons.add),
+          ),
+        ],
       ),
     );
   }
@@ -107,12 +140,14 @@ class ProductListScreen extends StatelessWidget {
   }
 
   Future<void> _showProductDialog(BuildContext context, {Product? existing}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastUnit = prefs.getString('last_product_unit') ?? 'cái';
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final priceCtrl = TextEditingController(text: existing?.price.toStringAsFixed(0) ?? '0');
     final costPriceCtrl = TextEditingController(text: existing?.costPrice.toStringAsFixed(0) ?? '0');
     final existingStock = existing?.currentStock ?? 0;
     final stockCtrl = TextEditingController(text: existingStock.toStringAsFixed(existingStock % 1 == 0 ? 0 : 2));
-    final unitCtrl = TextEditingController(text: existing?.unit ?? 'cái');
+    final unitCtrl = TextEditingController(text: existing?.unit ?? lastUnit);
     final barcodeCtrl = TextEditingController(text: existing?.barcode ?? '');
 
     final ok = await showDialog<bool>(
@@ -124,11 +159,26 @@ class ProductListScreen extends StatelessWidget {
           children: [
             TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên')), 
             const SizedBox(height: 8),
-            TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá bán')), 
+            TextField(
+              controller: priceCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: false),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+              decoration: const InputDecoration(labelText: 'Giá bán'),
+            ), 
             const SizedBox(height: 8),
-            TextField(controller: costPriceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá vốn')), 
+            TextField(
+              controller: costPriceCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: false),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+              decoration: const InputDecoration(labelText: 'Giá vốn'),
+            ), 
             const SizedBox(height: 8),
-            TextField(controller: stockCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Tồn hiện tại')), 
+            TextField(
+              controller: stockCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+              decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
+            ), 
             const SizedBox(height: 8),
             TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')), 
             const SizedBox(height: 8),
@@ -162,23 +212,43 @@ class ProductListScreen extends StatelessWidget {
 
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
       final provider = context.read<ProductProvider>();
+      final newName = TextNormalizer.normalize(nameCtrl.text);
+      final duplicated = provider.products.any((p) {
+        if (existing != null && p.id == existing.id) return false;
+        return TextNormalizer.normalize(p.name) == newName;
+      });
+      if (duplicated) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tồn tại sản phẩm cùng tên')));
+        return;
+      }
+
+      final unitToSave = unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim();
+      await prefs.setString('last_product_unit', unitToSave);
       if (existing == null) {
-        await provider.add(Product(
+        final newProduct = Product(
           name: nameCtrl.text.trim(),
-          price: double.tryParse(priceCtrl.text.trim()) ?? 0,
-          costPrice: double.tryParse(costPriceCtrl.text.trim()) ?? 0,
-          currentStock: double.tryParse(stockCtrl.text.trim().replaceAll(',', '.')) ?? 0,
-          unit: unitCtrl.text.trim(),
+          price: NumberInputFormatter.tryParse(priceCtrl.text) ?? 0,
+          costPrice: NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0,
+          currentStock: NumberInputFormatter.tryParse(stockCtrl.text) ?? 0,
+          unit: unitToSave,
           barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
-        ));
+        );
+        await provider.add(newProduct);
+        final now = DateTime.now();
+        await DatabaseService.instance.upsertOpeningStocksForMonth(
+          year: now.year,
+          month: now.month,
+          openingByProductId: {newProduct.id: newProduct.currentStock},
+        );
       } else {
         await provider.update(Product(
           id: existing.id,
           name: nameCtrl.text.trim(),
-          price: double.tryParse(priceCtrl.text.trim()) ?? 0,
-          costPrice: double.tryParse(costPriceCtrl.text.trim()) ?? 0,
-          currentStock: double.tryParse(stockCtrl.text.trim().replaceAll(',', '.')) ?? 0,
-          unit: unitCtrl.text.trim(),
+          price: NumberInputFormatter.tryParse(priceCtrl.text) ?? 0,
+          costPrice: NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0,
+          currentStock: NumberInputFormatter.tryParse(stockCtrl.text) ?? 0,
+          unit: unitToSave,
           barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
           isActive: existing.isActive,
         ));
@@ -289,6 +359,7 @@ class ProductListScreen extends StatelessWidget {
                           child: TextField(
                             controller: ctrl,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
                             decoration: const InputDecoration(
                               labelText: 'Tồn',
                               isDense: true,
@@ -313,7 +384,7 @@ class ProductListScreen extends StatelessWidget {
     if (ok == true) {
       final map = <String, double>{};
       controllers.forEach((productId, ctrl) {
-        final v = double.tryParse(ctrl.text.trim().replaceAll(',', '.')) ?? 0;
+        final v = NumberInputFormatter.tryParse(ctrl.text) ?? 0;
         map[productId] = v;
       });
       await DatabaseService.instance.upsertOpeningStocksForMonth(year: year, month: month, openingByProductId: map);

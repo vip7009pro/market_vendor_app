@@ -104,4 +104,25 @@ class CustomerProvider with ChangeNotifier {
       _notifyListenersSafely();
     }
   }
+
+  Future<void> delete(String customerId) async {
+    try {
+      _isLoading = true;
+      _notifyListenersSafely();
+
+      final idx = _customers.indexWhere((e) => e.id == customerId);
+      if (idx == -1) return;
+      _customers.removeAt(idx);
+
+      await DatabaseService.instance.deleteCustomerHard(customerId);
+
+      _notifyListenersSafely();
+    } catch (e) {
+      debugPrint('Error deleting customer: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      _notifyListenersSafely();
+    }
+  }
 }

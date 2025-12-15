@@ -16,6 +16,9 @@ import 'dart:convert';
 import 'package:dropdown_search/dropdown_search.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../utils/contact_serializer.dart';
+import '../utils/number_input_formatter.dart';
+import '../utils/text_normalizer.dart';
+import '../services/database_service.dart';
 
 class SaleScreen extends StatefulWidget {
   const SaleScreen({super.key});
@@ -204,7 +207,9 @@ class _SaleScreenState extends State<SaleScreen> {
     final priceCtrl = TextEditingController(text: '0');
     final costPriceCtrl = TextEditingController(text: '0');
     final stockCtrl = TextEditingController(text: '0');
-    final unitCtrl = TextEditingController(text: 'cái');
+    final prefs = await SharedPreferences.getInstance();
+    final lastUnit = prefs.getString('last_product_unit') ?? 'cái';
+    final unitCtrl = TextEditingController(text: lastUnit);
     final barcodeCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
@@ -215,11 +220,26 @@ class _SaleScreenState extends State<SaleScreen> {
           children: [
             TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên sản phẩm')),
             const SizedBox(height: 8),
-            TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá bán')),
+            TextField(
+              controller: priceCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: false),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+              decoration: const InputDecoration(labelText: 'Giá bán'),
+            ),
             const SizedBox(height: 8),
-            TextField(controller: costPriceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Giá vốn')),
+            TextField(
+              controller: costPriceCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: false),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+              decoration: const InputDecoration(labelText: 'Giá vốn'),
+            ),
             const SizedBox(height: 8),
-            TextField(controller: stockCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Tồn hiện tại')),
+            TextField(
+              controller: stockCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+              decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
+            ),
             const SizedBox(height: 8),
             TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')),
             const SizedBox(height: 8),
@@ -233,12 +253,12 @@ class _SaleScreenState extends State<SaleScreen> {
                     tooltip: 'Quét mã vạch',
                     icon: const Icon(Icons.qr_code_scanner),
                     onPressed: () async {
-                      final code = await Navigator.of(context).push<String>(
+                      final code = await Navigator.of(ctx).push<String>(
                         MaterialPageRoute(builder: (_) => const ScanScreen()),
                       );
                       if (code != null && code.isNotEmpty) {
                         barcodeCtrl.text = code;
-                        FocusScope.of(context).unfocus();
+                        FocusScope.of(ctx).unfocus();
                       }
                     },
                   ),
@@ -254,15 +274,34 @@ class _SaleScreenState extends State<SaleScreen> {
       ),
     );
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {
+      final provider = context.read<ProductProvider>();
+      final newName = TextNormalizer.normalize(nameCtrl.text);
+      final duplicated = provider.products.any((p) => TextNormalizer.normalize(p.name) == newName);
+      if (duplicated) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tồn tại sản phẩm cùng tên')));
+        return;
+      }
+
       final p = Product(
         name: nameCtrl.text.trim(),
-        price: double.tryParse(priceCtrl.text.trim()) ?? 0,
-        costPrice: double.tryParse(costPriceCtrl.text.trim()) ?? 0,
-        currentStock: double.tryParse(stockCtrl.text.trim().replaceAll(',', '.')) ?? 0,
+        price: NumberInputFormatter.tryParse(priceCtrl.text) ?? 0,
+        costPrice: NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0,
+        currentStock: NumberInputFormatter.tryParse(stockCtrl.text) ?? 0,
         unit: unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim(),
         barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
       );
-      await context.read<ProductProvider>().add(p);
+      final unitToSave = p.unit.trim();
+      if (unitToSave.isNotEmpty) {
+        await prefs.setString('last_product_unit', unitToSave);
+      }
+      await provider.add(p);
+      final now = DateTime.now();
+      await DatabaseService.instance.upsertOpeningStocksForMonth(
+        year: now.year,
+        month: now.month,
+        openingByProductId: {p.id: p.currentStock},
+      );
       setState(() {
         final existingItem = _items.firstWhere(
           (item) => item.productId == p.id,
@@ -347,8 +386,14 @@ class _SaleScreenState extends State<SaleScreen> {
                   ),
                   if (nameMatches.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    ...nameMatches.take(5).map(
-                          (contact) => ListTile(
+                    SizedBox(
+                      height: 216,
+                      child: ListView.builder(
+                        itemExtent: 72,
+                        itemCount: nameMatches.length,
+                        itemBuilder: (context, idx) {
+                          final contact = nameMatches[idx];
+                          return ListTile(
                             dense: true,
                             leading: contact.photo != null
                                 ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
@@ -364,8 +409,10 @@ class _SaleScreenState extends State<SaleScreen> {
                               phoneMatches = [];
                               setStateDialog(() {});
                             },
-                          ),
-                        ),
+                          );
+                        },
+                      ),
+                    ),
                   ],
                   const SizedBox(height: 8),
                   TextField(
@@ -387,8 +434,14 @@ class _SaleScreenState extends State<SaleScreen> {
                   ),
                   if (phoneMatches.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    ...phoneMatches.take(5).map(
-                          (contact) => ListTile(
+                    SizedBox(
+                      height: 216,
+                      child: ListView.builder(
+                        itemExtent: 72,
+                        itemCount: phoneMatches.length,
+                        itemBuilder: (context, idx) {
+                          final contact = phoneMatches[idx];
+                          return ListTile(
                             dense: true,
                             leading: contact.photo != null
                                 ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
@@ -402,8 +455,10 @@ class _SaleScreenState extends State<SaleScreen> {
                               nameMatches = [];
                               setStateDialog(() {});
                             },
-                          ),
-                        ),
+                          );
+                        },
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -417,11 +472,20 @@ class _SaleScreenState extends State<SaleScreen> {
       },
     );
     if (ok == true && nameCtrl.text.trim().isEmpty == false) {
+      final provider = context.read<CustomerProvider>();
+      final newName = TextNormalizer.normalize(nameCtrl.text);
+      final duplicated = provider.customers.any((c) => TextNormalizer.normalize(c.name) == newName);
+      if (duplicated) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tồn tại khách hàng cùng tên')));
+        return;
+      }
+
       final c = Customer(
         name: nameCtrl.text.trim(),
         phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
       );
-      await context.read<CustomerProvider>().add(c);
+      await provider.add(c);
       setState(() {
         _customerId = c.id;
         _customerName = c.name;
@@ -450,7 +514,7 @@ class _SaleScreenState extends State<SaleScreen> {
               tooltip: 'Quét mã vạch',
               icon: const Icon(Icons.qr_code_scanner),
               onPressed: () async {
-                final code = await Navigator.of(context).push<String>(
+                final code = await Navigator.of(ctx).push<String>(
                   MaterialPageRoute(builder: (_) => const ScanScreen()),
                 );
                 if (code == null || code.isEmpty) return;
@@ -541,50 +605,62 @@ class _SaleScreenState extends State<SaleScreen> {
             controller: _scrollCtrl,
             children: [
               // Customer selection
-              DropdownSearch<Customer>(
-                items: customers,
-                dropdownDecoratorProps: DropDownDecoratorProps(
-                  dropdownSearchDecoration: InputDecoration(
-                    labelText: 'Khách hàng (tuỳ chọn)',
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.person_add_alt),
-                      onPressed: _addQuickCustomerDialog,
-                      tooltip: 'Thêm khách hàng mới',
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownSearch<Customer>(
+                      items: customers,
+                      dropdownDecoratorProps: const DropDownDecoratorProps(
+                        dropdownSearchDecoration: InputDecoration(
+                          labelText: 'Khách hàng (tuỳ chọn)',
+                        ),
+                      ),
+                      onChanged: (c) async {
+                        if (c != null) {
+                          setState(() {
+                            _customerId = c.id;
+                            _customerName = c.name;
+                            _customerCtrl.text = c.name;
+                          });
+                          await _saveRecentCustomer(c);
+                        } else {
+                          setState(() {
+                            _customerId = null;
+                            _customerName = null;
+                            _customerCtrl.text = '';
+                          });
+                        }
+                      },
+                      selectedItem: _customerId != null
+                          ? customers.firstWhere((c) => c.id == _customerId, orElse: () => Customer(name: _customerName ?? ''))
+                          : null,
+                      itemAsString: (c) => c.name,
+                      filterFn: (c, query) {
+                        final normalizedQuery = removeDiacritics(query).toLowerCase();
+                        final normalizedName = removeDiacritics(c.name).toLowerCase();
+                        final initials = getInitials(c.name);
+                        return normalizedName.contains(normalizedQuery) || initials.contains(normalizedQuery);
+                      },
+                      popupProps: const PopupProps.menu(
+                        showSearchBox: true,
+                        fit: FlexFit.loose,
+                        searchDelay: Duration.zero,
+                      ),
                     ),
-                    suffixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                   ),
-                ),
-                onChanged: (c) async {
-                  if (c != null) {
-                    setState(() {
-                      _customerId = c.id;
-                      _customerName = c.name;
-                      _customerCtrl.text = c.name;
-                    });
-                    await _saveRecentCustomer(c);
-                  } else {
-                    setState(() {
-                      _customerId = null;
-                      _customerName = null;
-                      _customerCtrl.text = '';
-                    });
-                  }
-                },
-                selectedItem: _customerId != null
-                    ? customers.firstWhere((c) => c.id == _customerId, orElse: () => Customer(name: _customerName ?? ''))
-                    : null,
-                itemAsString: (c) => c.name,
-                filterFn: (c, query) {
-                  final normalizedQuery = removeDiacritics(query).toLowerCase();
-                  final normalizedName = removeDiacritics(c.name).toLowerCase();
-                  final initials = getInitials(c.name);
-                  return normalizedName.contains(normalizedQuery) || initials.contains(normalizedQuery);
-                },
-                popupProps: const PopupProps.menu(
-                  showSearchBox: true,
-                  fit: FlexFit.loose,
-                  searchDelay: Duration.zero,
-                ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 56,
+                    width: 48,
+                    child: Builder(
+                      builder: (ctx) => IconButton(
+                        icon: const Icon(Icons.person_add_alt),
+                        onPressed: _addQuickCustomerDialog,
+                        tooltip: 'Thêm khách hàng mới',
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -592,8 +668,10 @@ class _SaleScreenState extends State<SaleScreen> {
                 children: [
                   ..._recentCustomers.map(
                     (c) => ActionChip(
-                      side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                      backgroundColor: Colors.blue.withValues(alpha: 0.10),
+                      side: BorderSide(color: Colors.blue.withValues(alpha: 0.35)),
                       label: Text(c.name),
+                      labelStyle: const TextStyle(color: Colors.blue),
                       onPressed: () async {
                         setState(() {
                           _customerId = c.id;
@@ -604,77 +682,83 @@ class _SaleScreenState extends State<SaleScreen> {
                       },
                     ),
                   ),
-                  ActionChip(
-                    side: BorderSide(color: Theme.of(context).colorScheme.primary),
-                    label: const Text('Thêm'),
-                    avatar: const Icon(Icons.person_add_alt, size: 18),
-                    onPressed: _addQuickCustomerDialog,
-                  ),
                 ],
               ),
               const SizedBox(height: 12),
               // Product selection
-              DropdownSearch<Product>(
-                items: products,
-                dropdownDecoratorProps: DropDownDecoratorProps(
-                  dropdownSearchDecoration: InputDecoration(
-                    labelText: 'Thêm sản phẩm nhanh',
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.add),
-                      onPressed: () async {
-                        await _addQuickProductDialog(prefillName: _productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim());
-                        _productCtrl.clear();
-                        _unfocusProductField?.call();
-                      },
-                      tooltip: 'Thêm sản phẩm mới',
-                    ),
-                    suffixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                  ),
-                ),
-                onChanged: (p) async {
-                  if (p != null) {
-                    setState(() {
-                      final existingItem = _items.firstWhere(
-                        (item) => item.productId == p.id,
-                        orElse: () => SaleItem(
-                          productId: p.id,
-                          name: p.name,
-                          unitPrice: p.price,
-                          unitCost: p.costPrice,
-                          quantity: 0,
-                          unit: p.unit,
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownSearch<Product>(
+                      items: products,
+                      dropdownDecoratorProps: const DropDownDecoratorProps(
+                        dropdownSearchDecoration: InputDecoration(
+                          labelText: 'Thêm sản phẩm nhanh',
                         ),
-                      );
-                      if (_items.contains(existingItem)) {
-                        existingItem.quantity += 1;
-                      } else {
-                        _items.add(existingItem..quantity = 1);
-                      }
-                      _productCtrl.text = p.name;
-                    });
-                    await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
-                    await _saveRecentProduct(p);
-                    if (!_paidEdited) {
-                      final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
-                      final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
-                      setState(() => _paid = total2);
-                    }
-                    _clearProductField?.call();
-                    _unfocusProductField?.call();
-                  }
-                },
-                itemAsString: (p) => p.name,
-                filterFn: (p, query) {
-                  final normalizedQuery = removeDiacritics(query).toLowerCase();
-                  final normalizedName = removeDiacritics(p.name).toLowerCase();
-                  final initials = getInitials(p.name);
-                  return normalizedName.contains(normalizedQuery) || initials.contains(normalizedQuery);
-                },
-                popupProps: const PopupProps.menu(
-                  showSearchBox: true,
-                  fit: FlexFit.loose,
-                  searchDelay: Duration.zero,
-                ),
+                      ),
+                      onChanged: (p) async {
+                        if (p != null) {
+                          setState(() {
+                            final existingItem = _items.firstWhere(
+                              (item) => item.productId == p.id,
+                              orElse: () => SaleItem(
+                                productId: p.id,
+                                name: p.name,
+                                unitPrice: p.price,
+                                unitCost: p.costPrice,
+                                quantity: 0,
+                                unit: p.unit,
+                              ),
+                            );
+                            if (_items.contains(existingItem)) {
+                              existingItem.quantity += 1;
+                            } else {
+                              _items.add(existingItem..quantity = 1);
+                            }
+                            _productCtrl.text = p.name;
+                          });
+                          await _applyLastUnitTo(_items.lastWhere((item) => item.productId == p.id));
+                          await _saveRecentProduct(p);
+                          if (!_paidEdited) {
+                            final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                            final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                            setState(() => _paid = total2);
+                          }
+                          _clearProductField?.call();
+                          _unfocusProductField?.call();
+                        }
+                      },
+                      itemAsString: (p) => p.name,
+                      filterFn: (p, query) {
+                        final normalizedQuery = removeDiacritics(query).toLowerCase();
+                        final normalizedName = removeDiacritics(p.name).toLowerCase();
+                        final initials = getInitials(p.name);
+                        return normalizedName.contains(normalizedQuery) || initials.contains(normalizedQuery);
+                      },
+                      popupProps: const PopupProps.menu(
+                        showSearchBox: true,
+                        fit: FlexFit.loose,
+                        searchDelay: Duration.zero,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 56,
+                    width: 48,
+                    child: Builder(
+                      builder: (ctx) => IconButton(
+                        icon: const Icon(Icons.add),
+                        onPressed: () async {
+                          await _addQuickProductDialog(prefillName: _productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim());
+                          _productCtrl.clear();
+                          _unfocusProductField?.call();
+                        },
+                        tooltip: 'Thêm sản phẩm mới',
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -682,8 +766,10 @@ class _SaleScreenState extends State<SaleScreen> {
                 children: [
                   ..._recentProducts.map(
                     (p) => ActionChip(
-                      side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                      backgroundColor: Colors.green.withValues(alpha: 0.10),
+                      side: BorderSide(color: Colors.green.withValues(alpha: 0.35)),
                       label: Text(p.name),
+                      labelStyle: const TextStyle(color: Colors.green),
                       onPressed: () async {
                         setState(() {
                           final existingItem = _items.firstWhere(
@@ -715,16 +801,6 @@ class _SaleScreenState extends State<SaleScreen> {
                         _unfocusProductField?.call();
                       },
                     ),
-                  ),
-                  ActionChip(
-                    side: BorderSide(color: Theme.of(context).colorScheme.primary),
-                    label: const Text('Thêm'),
-                    avatar: const Icon(Icons.add, size: 18),
-                    onPressed: () async {
-                      await _addQuickProductDialog(prefillName: _productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim());
-                      _productCtrl.clear();
-                      _unfocusProductField?.call();
-                    },
                   ),
                 ],
               ),
@@ -789,6 +865,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                               content: TextField(
                                                 controller: ctrl,
                                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
                                                 decoration: const InputDecoration(labelText: 'Đơn giá'),
                                               ),
                                               actions: [
@@ -798,9 +875,17 @@ class _SaleScreenState extends State<SaleScreen> {
                                             ),
                                           );
                                           if (ok == true) {
-                                            final v = double.tryParse(ctrl.text.replaceAll(',', '.'));
+                                            final v = NumberInputFormatter.tryParse(ctrl.text);
                                             if (v != null && v >= 0) {
-                                              setState(() => it.unitPrice = v);
+                                              setState(() {
+                                                it.unitPrice = v;
+                                                if (!_paidEdited) {
+                                                  final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                                                  _discount = _discount.clamp(0, subtotal2).toDouble();
+                                                  final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                                                  _paid = total2;
+                                                }
+                                              });
                                             }
                                           }
                                         },
@@ -844,6 +929,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                       controller: qtyCtrl,
                                       focusNode: qtyFocus,
                                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                      inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
                                       decoration: const InputDecoration(
                                         labelText: 'Số lượng',
                                         isDense: true,
@@ -857,7 +943,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                         );
                                       },
                                       onChanged: (v) {
-                                        final val = double.tryParse(v.replaceAll(',', '.'));
+                                        final val = NumberInputFormatter.tryParse(v);
                                         if (val == null) return;
                                         setState(() {
                                           it.quantity = val <= 0 ? 0.0 : val;
@@ -869,7 +955,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                         });
                                       },
                                       onSubmitted: (v) {
-                                        final val = double.tryParse(v.replaceAll(',', '.'));
+                                        final val = NumberInputFormatter.tryParse(v);
                                         if (val == null) return;
                                         setState(() {
                                           it.quantity = val <= 0 ? 0.0 : val;
@@ -946,9 +1032,10 @@ class _SaleScreenState extends State<SaleScreen> {
                         const Text('Giảm'),
                         TextField(
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
                           decoration: const InputDecoration(hintText: '0', isDense: true),
                           onChanged: (v) {
-                            final val = double.tryParse(v.replaceAll(',', '.')) ?? 0;
+                            final val = NumberInputFormatter.tryParse(v) ?? 0;
                             setState(() {
                               _discount = val.clamp(0, subtotal).toDouble();
                               if (!_paidEdited) {
@@ -971,9 +1058,10 @@ class _SaleScreenState extends State<SaleScreen> {
                         const Text('Khách trả'),
                         TextField(
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
                           decoration: const InputDecoration(hintText: '0', isDense: true),
                           onChanged: (v) {
-                            final val = double.tryParse(v.replaceAll(',', '.')) ?? 0;
+                            final val = NumberInputFormatter.tryParse(v) ?? 0;
                             setState(() {
                               _paidEdited = true;
                               _paid = val.clamp(0, total).toDouble();
@@ -986,6 +1074,19 @@ class _SaleScreenState extends State<SaleScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton(
+                  onPressed: () {
+                    setState(() {
+                      _paidEdited = true;
+                      _paid = 0;
+                    });
+                  },
+                  child: const Text('Khách nợ tất'),
+                ),
               ),
               const SizedBox(height: 12),
               SizedBox(

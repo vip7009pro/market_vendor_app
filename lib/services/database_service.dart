@@ -50,6 +50,15 @@ class DatabaseService {
       _db = null;
     }
   }
+
+  Future<void> resetLocalDatabase() async {
+    final dbPath = await getDatabasesPath();
+    final filePath = p.join(dbPath, 'market_vendor.db');
+    final file = File(filePath);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
   
   // Lấy thời gian đồng bộ cuối cùng
   Future<DateTime?> getLastSyncTime(String table) async {
@@ -627,6 +636,11 @@ class DatabaseService {
         ''');
       },
       onUpgrade: _migrateDatabase,
+      onDowngrade: (db, oldVersion, newVersion) async {
+        // IMPORTANT: Tránh sqflite mặc định xóa DB khi downgrade (gây mất dữ liệu sau restore)
+        // Giữ nguyên database hiện tại và không thực hiện gì.
+        print('DB downgrade detected (old=$oldVersion, new=$newVersion). Skip downgrade to avoid data loss.');
+      },
     );
     
     print('Đã khởi tạo database thành công');
@@ -660,6 +674,30 @@ class DatabaseService {
         ) ??
         0;
     return purchaseCount > 0;
+  }
+
+  Future<bool> isCustomerUsed(String customerId) async {
+    final saleCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(1) FROM sales WHERE customerId = ?',
+            [customerId],
+          ),
+        ) ??
+        0;
+    if (saleCount > 0) return true;
+
+    final debtCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(1) FROM debts WHERE partyId = ?',
+            [customerId],
+          ),
+        ) ??
+        0;
+    return debtCount > 0;
+  }
+
+  Future<void> deleteCustomerHard(String customerId) async {
+    await db.delete('customers', where: 'id = ?', whereArgs: [customerId]);
   }
 
   Future<void> deleteProductHard(String productId) async {
@@ -1318,6 +1356,7 @@ class DatabaseService {
     final sales = await db.query('sales');
     final debts = await getDebtsForSync();
     final saleItems = await db.query('sale_items');
+    final purchaseHistory = await db.query('purchase_history');
     final deletedEntities = await db.query('deleted_entities');
     return {
       'products': products,
@@ -1325,6 +1364,7 @@ class DatabaseService {
       'sales': sales,
       'sale_items': saleItems,
       'debts': debts,
+      'purchase_history': purchaseHistory,
       'deleted_entities': deletedEntities,
     };
   }

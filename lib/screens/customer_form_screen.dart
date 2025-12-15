@@ -4,6 +4,7 @@ import '../providers/customer_provider.dart';
 import '../models/customer.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../utils/contact_serializer.dart'; // Import serializer (nếu có cache)
+import '../utils/text_normalizer.dart';
 
 class CustomerFormScreen extends StatefulWidget {
   final Customer? existing;
@@ -90,6 +91,16 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                 ? null
                 : () async {
                     final provider = context.read<CustomerProvider>();
+                    final newName = TextNormalizer.normalize(nameCtrl.text);
+                    final duplicated = provider.customers.any((c) {
+                      if (widget.existing != null && c.id == widget.existing!.id) return false;
+                      return TextNormalizer.normalize(c.name) == newName;
+                    });
+                    if (duplicated) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tồn tại khách hàng cùng tên')));
+                      return;
+                    }
                     if (widget.existing == null) {
                       await provider.add(Customer(
                         name: nameCtrl.text.trim(),
@@ -138,7 +149,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             ),
             if (nameMatches.isNotEmpty)
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 200), // Tăng height để hiển thị tất cả
+                constraints: const BoxConstraints(maxHeight: 216), // ~3 items, cho phép cuộn
                 child: ListView.builder(
                   shrinkWrap: true,
                   physics: const ClampingScrollPhysics(),
@@ -183,7 +194,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             ),
             if (phoneMatches.isNotEmpty)
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 200), // Tăng height để hiển thị tất cả
+                constraints: const BoxConstraints(maxHeight: 216), // ~3 items, cho phép cuộn
                 child: ListView.builder(
                   shrinkWrap: true,
                   physics: const ClampingScrollPhysics(),

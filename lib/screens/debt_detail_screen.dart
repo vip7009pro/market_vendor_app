@@ -10,6 +10,7 @@ import 'package:open_filex/open_filex.dart';
 import '../models/debt.dart';
 import '../providers/debt_provider.dart';
 import '../utils/file_helper.dart';
+import '../utils/number_input_formatter.dart';
 
 class DebtDetailScreen extends StatefulWidget {
   final Debt debt;
@@ -77,6 +78,7 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
             TextField(
               controller: amountCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
               decoration: const InputDecoration(labelText: 'Số tiền trả'),
             ),
             const SizedBox(height: 8),
@@ -93,8 +95,7 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       ),
     );
     if (ok == true) {
-      final raw = amountCtrl.text.replaceAll(',', '.');
-      final amount = double.tryParse(raw) ?? 0;
+      final amount = NumberInputFormatter.tryParse(amountCtrl.text) ?? 0;
       if (amount <= 0 || amount > _debt.amount) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Số tiền không hợp lệ')));
         return;
