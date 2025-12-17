@@ -3,6 +3,8 @@ import 'package:flutter/widgets.dart';
 import '../models/customer.dart';
 import '../services/database_service.dart';
 import '../services/encryption_service.dart';
+import 'package:string_similarity/string_similarity.dart';
+import '../utils/string_utils.dart';
 
 class CustomerProvider with ChangeNotifier {
   final List<Customer> _customers = [];
@@ -125,4 +127,38 @@ class CustomerProvider with ChangeNotifier {
       _notifyListenersSafely();
     }
   }
+
+  // Tìm khách hàng theo tên (không phân biệt hoa thường, dấu)
+Customer? findByName(String name, {double threshold = 0.5}) {
+  if (name.isEmpty) return null;
+    
+  final normalizedSearch = StringUtils.normalize(name);
+    
+  // Nếu tìm thấy kết quả chính xác thì trả về luôn
+  try {
+    return _customers.firstWhere(
+      (c) => StringUtils.normalize(c.name) == normalizedSearch,
+    );
+  } catch (_) {
+    // Nếu không tìm thấy chính xác, sử dụng fuzzy matching
+    if (_customers.isEmpty) return null;
+      
+    // Tìm khách hàng có tên giống nhất
+    final matches = _customers.map((c) {
+      final similarity = StringSimilarity.compareTwoStrings(
+        normalizedSearch, 
+        StringUtils.normalize(c.name)
+      );
+      return {'customer': c, 'similarity': similarity};
+    }).toList()
+      ..sort((a, b) => (b['similarity'] as double).compareTo(a['similarity'] as double));
+    // Lấy kết quả có độ tương đồng cao nhất
+    final bestMatch = matches.first;
+    if ((bestMatch['similarity'] as double) >= threshold) {
+      return bestMatch['customer'] as Customer;
+    }
+      
+    return null;
+  }
+}
 }

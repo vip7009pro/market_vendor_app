@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../providers/product_provider.dart';
+import '../providers/customer_provider.dart';
+import '../models/product.dart';
+import '../models/customer.dart';
 
 class VoiceOrderScreen extends StatefulWidget {
   const VoiceOrderScreen({Key? key}) : super(key: key);
@@ -116,8 +121,8 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   Future<void> _processWithAI(String text) async {
     if (text.isEmpty) return;
 
-    const String apiKey = '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'; // Thay bằng key của đại ca
-    const String model = 'nvidia/nemotron-3-nano-30b-a3b:free'; // Model miễn phí, thay nếu cần
+    const String apiKey = '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';
+    const String model = 'nvidia/nemotron-3-nano-30b-a3b:free';
 
     final String prompt = '''
 Phân tích lệnh giọng nói tiếng Việt này và trả về đúng một JSON object theo schema sau (không thêm text thừa):
@@ -191,7 +196,6 @@ Lệnh: $text
           ],
         }),
       );
-
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
         final String aiContent = jsonResponse['choices'][0]['message']['content'];
@@ -199,11 +203,75 @@ Lệnh: $text
         // Parse JSON từ AI
         final Map<String, dynamic> schema = jsonDecode(aiContent);
         
-        // Phân tích và cập nhật đơn hàng
+        // Lấy providers
+        final productProvider = context.read<ProductProvider>();
+        final customerProvider = context.read<CustomerProvider>();
+        
+        // Xử lý khách hàng nếu có
+        if (schema['customer'] != null && schema['customer'].toString().isNotEmpty) {
+          final customerName = schema['customer'].toString().trim();
+          final matchedCustomer = customerProvider.findByName(customerName, threshold: 0.6);
+          
+          setState(() {
+            _customer = matchedCustomer?.name ?? customerName;
+            if (matchedCustomer == null) {
+              _status = 'Không tìm thấy khách hàng chính xác, đã giữ nguyên tên: $customerName';
+            }
+          });
+        }
+        
+        // Xử lý các mục hàng
+        if (schema['items'] is List) {
+          final List<Map<String, dynamic>> matchedItems = [];
+          
+          for (var item in schema['items']) {
+            if (item is Map<String, dynamic> && item['item'] != null) {
+              final productName = item['item'].toString().trim();
+              final matchedProduct = productProvider.findByName(productName, threshold: 0.6);
+              
+              // Tạo bản sao của item để tránh thay đổi trực tiếp
+              final matchedItem = Map<String, dynamic>.from(item);
+              
+              if (matchedProduct != null) {
+                // Nếu tìm thấy sản phẩm tương tự, sử dụng thông tin từ database
+                matchedItem['item'] = matchedProduct.name;
+                matchedItem['price'] = matchedProduct.price.toDouble();
+                matchedItem['unit'] = matchedProduct.unit;
+                matchedItem['productId'] = matchedProduct.id;
+                
+                // Thêm thông báo nếu tên không khớp chính xác
+                if (matchedProduct.name.toLowerCase() != productName.toLowerCase()) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Đã tìm thấy sản phẩm tương tự: "${matchedProduct.name}"'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } else {
+                // Nếu không tìm thấy, giữ nguyên tên sản phẩm đã nhận dạng
+                matchedItem['item'] = productName;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Không tìm thấy sản phẩm: "$productName"'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+              
+              matchedItems.add(matchedItem);
+            }
+          }
+          
+          // Cập nhật schema với các mục đã được so khớp
+          schema['items'] = matchedItems;
+        }
+        
+        // Cập nhật đơn hàng
         _updateOrder(schema);
         
         setState(() {
-          _status = 'Đã xử lý đơn hàng từ AI';
+          _status = 'Đã xử lý đơn hàng';
         });
       } else {
         setState(() {
@@ -212,7 +280,7 @@ Lệnh: $text
       }
     } catch (e) {
       setState(() {
-        _status = 'Lỗi kết nối: $e';
+        _status = 'Lỗi: $e';
       });
     }
   }
