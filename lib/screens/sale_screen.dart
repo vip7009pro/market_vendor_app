@@ -1650,6 +1650,8 @@ class _SaleScreenState extends State<SaleScreen> {
                                   partyName: _customerName ?? 'Khách lẻ',
                                   amount: debtValue,
                                   description: details.toString(),
+                                  sourceType: 'sale',
+                                  sourceId: sale.id,
                                 ),
                               );
                             }

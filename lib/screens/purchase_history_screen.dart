@@ -5,6 +5,10 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/product.dart';
+import '../models/customer.dart';
+import '../models/debt.dart';
+import '../providers/customer_provider.dart';
+import '../providers/debt_provider.dart';
 import '../providers/product_provider.dart';
 import '../services/database_service.dart';
 import '../utils/contact_serializer.dart';
@@ -32,8 +36,110 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     for (int i = 0; i < withDiacritics.length; i++) {
       result = result.replaceAll(withDiacritics[i], withoutDiacritics[i]);
     }
+
     return result;
   }
+
+  Future<Product?> _showProductPicker() async {
+    final products = context.read<ProductProvider>().products;
+    return await showModalBottomSheet<Product>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        final TextEditingController searchController = TextEditingController();
+        List<Product> filteredProducts = List.from(products);
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              height: MediaQuery.of(context).size.height * 0.8,
+              child: Column(
+                children: [
+                  TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Tìm kiếm sản phẩm',
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          searchController.clear();
+                          setState(() {
+                            filteredProducts = List.from(products);
+                          });
+                        },
+                      ),
+                    ),
+                    onChanged: (value) {
+                      if (value.isEmpty) {
+                        setState(() {
+                          filteredProducts = List.from(products);
+                        });
+                      } else {
+                        final query = value.toLowerCase();
+                        setState(() {
+                          filteredProducts = products.where((product) {
+                            final nameMatch = product.name.toLowerCase().contains(query);
+                            final barcodeMatch = product.barcode?.toLowerCase().contains(query) ?? false;
+                            return nameMatch || barcodeMatch;
+                          }).toList();
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: filteredProducts.isEmpty
+                        ? const Center(child: Text('Không tìm thấy sản phẩm nào'))
+                        : ListView.builder(
+                            itemCount: filteredProducts.length,
+                            itemBuilder: (context, index) {
+                              final product = filteredProducts[index];
+                              return ListTile(
+                                leading: const CircleAvatar(
+                                  child: Icon(Icons.shopping_bag),
+                                  radius: 20,
+                                ),
+                                title: Text(product.name),
+                                subtitle: Text('${NumberFormat('#,##0').format(product.price)} đ'),
+                                trailing: Text('Tồn: ${product.currentStock} ${product.unit}'),
+                                onTap: () {
+                                  Navigator.of(context).pop(product);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<Customer?> _ensureSupplier({required String supplierName, String? supplierPhone}) async {
+    if (supplierName.trim().isEmpty) return null;
+    final provider = context.read<CustomerProvider>();
+    final normalized = TextNormalizer.normalize(supplierName);
+    try {
+      final existing = provider.customers.firstWhere(
+        (c) => c.isSupplier && TextNormalizer.normalize(c.name) == normalized,
+      );
+      return existing;
+    } catch (_) {
+      final created = Customer(
+        name: supplierName.trim(),
+        phone: supplierPhone?.trim().isEmpty == true ? null : supplierPhone?.trim(),
+        isSupplier: true,
+      );
+      await provider.add(created);
+      await provider.load();
+      return created;
+    }
+  }
+
 
   Future<Contact?> _showContactPicker(BuildContext context, List<Contact> contacts) async {
     final TextEditingController searchController = TextEditingController();
@@ -208,6 +314,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     String selectedProductId = products.first.id;
     final qtyCtrl = TextEditingController(text: '1');
     final unitCostCtrl = TextEditingController(text: products.first.costPrice.toStringAsFixed(0));
+    final paidAmountCtrl = TextEditingController(text: (1 * products.first.costPrice).toStringAsFixed(0));
+    bool oweAll = false;
     final noteCtrl = TextEditingController();
     final supplierNameCtrl = TextEditingController(text: lastSupplierName ?? '');
     final supplierPhoneCtrl = TextEditingController(text: lastSupplierPhone ?? '');
@@ -268,27 +376,53 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 readOnly: true,
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: selectedProductId,
-                decoration: const InputDecoration(labelText: 'Sản phẩm'),
-                items: products
-                    .map((p) => DropdownMenuItem(value: p.id, child: Text(p.name, overflow: TextOverflow.ellipsis)))
-                    .toList(),
-                onChanged: (id) {
-                  if (id == null) return;
-                  selectedProductId = id;
-                  try {
-                    final p = products.firstWhere((e) => e.id == selectedProductId);
-                    unitCostCtrl.text = p.costPrice.toStringAsFixed(0);
-                  } catch (_) {}
+              InkWell(
+                onTap: () async {
+                  final picked = await _showProductPicker();
+                  if (picked == null) return;
+                  selectedProductId = picked.id;
+                  unitCostCtrl.text = picked.costPrice.toStringAsFixed(0);
+                  if (!oweAll) {
+                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+                    paidAmountCtrl.text = (q * picked.costPrice).toStringAsFixed(0);
+                  }
                   setStateDialog(() {});
                 },
+                child: InputDecorator(
+                  decoration: const InputDecoration(labelText: 'Sản phẩm'),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          () {
+                            try {
+                              return products.firstWhere((e) => e.id == selectedProductId).name;
+                            } catch (_) {
+                              return '';
+                            }
+                          }(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const Icon(Icons.arrow_drop_down),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: qtyCtrl,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                onChanged: (_) {
+                  if (!oweAll) {
+                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+                    final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
+                    paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
+                  }
+                  setStateDialog(() {});
+                },
                 decoration: InputDecoration(
                   labelText: () {
                     try {
@@ -305,7 +439,50 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 controller: unitCostCtrl,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                onChanged: (_) {
+                  if (!oweAll) {
+                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+                    final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
+                    paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
+                  }
+                  setStateDialog(() {});
+                },
                 decoration: const InputDecoration(labelText: 'Giá nhập / đơn vị'),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: paidAmountCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                      decoration: const InputDecoration(labelText: 'Tiền thanh toán'),
+                      enabled: !oweAll,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Nợ tất'),
+                      Checkbox(
+                        value: oweAll,
+                        onChanged: (v) {
+                          oweAll = v ?? false;
+                          if (oweAll) {
+                            paidAmountCtrl.text = '0';
+                          } else {
+                            final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+                            final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
+                            paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
+                          }
+                          setStateDialog(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               TextField(
@@ -347,8 +524,9 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
     if (ok != true) return;
 
-    final qty = NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0;
-    final unitCost = NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0;
+    final qty = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+    final unitCost = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
+    final paidAmount = oweAll ? 0.0 : (NumberInputFormatter.tryParse(paidAmountCtrl.text) ?? 0).toDouble();
     if (qty <= 0) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Số lượng không hợp lệ')));
@@ -364,15 +542,49 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       return;
     }
 
-    await DatabaseService.instance.insertPurchaseHistory(
+    final totalCost = qty * unitCost;
+    final debtAmount = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
+    Customer? supplier;
+    if (debtAmount > 0) {
+      final supplierName = supplierNameCtrl.text.trim();
+      if (supplierName.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Vui lòng nhập nhà cung cấp khi có nợ')));
+        return;
+      }
+      final supplierPhone = supplierPhoneCtrl.text.trim();
+      supplier = await _ensureSupplier(
+        supplierName: supplierName,
+        supplierPhone: supplierPhone.isEmpty ? null : supplierPhone,
+      );
+    }
+
+    final purchaseId = await DatabaseService.instance.insertPurchaseHistory(
       productId: selected.id,
       productName: selected.name,
       quantity: qty,
       unitCost: unitCost,
+      paidAmount: paidAmount,
       supplierName: supplierNameCtrl.text.trim().isEmpty ? null : supplierNameCtrl.text.trim(),
       supplierPhone: supplierPhoneCtrl.text.trim().isEmpty ? null : supplierPhoneCtrl.text.trim(),
       note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
     );
+
+    if (debtAmount > 0) {
+      final supplierName = supplierNameCtrl.text.trim();
+      final debt = Debt(
+        type: DebtType.oweOthers,
+        partyId: supplier?.id ?? 'supplier_unknown',
+        partyName: supplier?.name ?? (supplierName.isEmpty ? 'Nhà cung cấp' : supplierName),
+        amount: debtAmount,
+        description:
+            'Nhập hàng: ${selected.name}, SL ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)} ${selected.unit}, Giá nhập ${unitCost.toStringAsFixed(0)}, Thành tiền ${totalCost.toStringAsFixed(0)}, Đã trả ${paidAmount.toStringAsFixed(0)}',
+        sourceType: 'purchase',
+        sourceId: purchaseId,
+      );
+      await context.read<DebtProvider>().add(debt);
+    }
 
     await prefs.setString(_prefLastSupplierName, supplierNameCtrl.text.trim());
     await prefs.setString(_prefLastSupplierPhone, supplierPhoneCtrl.text.trim());
@@ -381,6 +593,218 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     if (!mounted) return;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã nhập hàng')));
+  }
+
+  Future<void> _editPurchaseDialog(Map<String, dynamic> row) async {
+    var products = context.read<ProductProvider>().products;
+    if (products.isEmpty) return;
+
+    String selectedProductId = (row['productId'] as String?) ?? products.first.id;
+    final initialQty = (row['quantity'] as num?)?.toDouble() ?? 0;
+    final initialUnitCost = (row['unitCost'] as num?)?.toDouble() ?? 0;
+    final initialPaid = (row['paidAmount'] as num?)?.toDouble();
+    bool oweAll = (initialPaid ?? 0) == 0;
+
+    final qtyCtrl = TextEditingController(text: initialQty.toString());
+    final unitCostCtrl = TextEditingController(text: initialUnitCost.toStringAsFixed(0));
+    final paidAmountCtrl = TextEditingController(
+      text: oweAll
+          ? '0'
+          : ((initialPaid != null && initialPaid > 0) ? initialPaid : (initialQty * initialUnitCost)).toStringAsFixed(0),
+    );
+    final noteCtrl = TextEditingController(text: (row['note'] as String?) ?? '');
+    final supplierNameCtrl = TextEditingController(text: (row['supplierName'] as String?) ?? '');
+    final supplierPhoneCtrl = TextEditingController(text: (row['supplierPhone'] as String?) ?? '');
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (dialogContext, setStateDialog) => AlertDialog(
+          title: const Text('Sửa nhập hàng'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: supplierNameCtrl,
+                decoration: const InputDecoration(labelText: 'Nhà cung cấp (tuỳ chọn)'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: supplierPhoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'SĐT nhà cung cấp (tuỳ chọn)'),
+              ),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: () async {
+                  final picked = await _showProductPicker();
+                  if (picked == null) return;
+                  selectedProductId = picked.id;
+                  unitCostCtrl.text = picked.costPrice.toStringAsFixed(0);
+                  if (!oweAll) {
+                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+                    paidAmountCtrl.text = (q * picked.costPrice).toStringAsFixed(0);
+                  }
+                  setStateDialog(() {});
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(labelText: 'Sản phẩm'),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          () {
+                            try {
+                              return products.firstWhere((e) => e.id == selectedProductId).name;
+                            } catch (_) {
+                              return '';
+                            }
+                          }(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const Icon(Icons.arrow_drop_down),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: qtyCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                onChanged: (_) {
+                  if (!oweAll) {
+                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+                    final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
+                    paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
+                  }
+                  setStateDialog(() {});
+                },
+                decoration: const InputDecoration(labelText: 'Số lượng'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: unitCostCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                onChanged: (_) {
+                  if (!oweAll) {
+                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+                    final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
+                    paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
+                  }
+                  setStateDialog(() {});
+                },
+                decoration: const InputDecoration(labelText: 'Giá nhập / đơn vị'),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: paidAmountCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                      decoration: const InputDecoration(labelText: 'Tiền thanh toán'),
+                      enabled: !oweAll,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Nợ tất'),
+                      Checkbox(
+                        value: oweAll,
+                        onChanged: (v) {
+                          oweAll = v ?? false;
+                          if (oweAll) {
+                            paidAmountCtrl.text = '0';
+                          } else {
+                            final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+                            final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
+                            paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
+                          }
+                          setStateDialog(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(labelText: 'Ghi chú (tuỳ chọn)'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
+          ],
+        ),
+      ),
+    );
+
+    if (ok != true) return;
+
+    final qty = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
+    final unitCost = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
+    final paidAmount = oweAll ? 0.0 : (NumberInputFormatter.tryParse(paidAmountCtrl.text) ?? 0).toDouble();
+    if (qty <= 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Số lượng không hợp lệ')));
+      return;
+    }
+
+    late final Product selected;
+    try {
+      selected = products.firstWhere((p) => p.id == selectedProductId);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sản phẩm không hợp lệ')));
+      return;
+    }
+
+    await DatabaseService.instance.updatePurchaseHistory(
+      id: (row['id'] as String),
+      productId: selected.id,
+      productName: selected.name,
+      quantity: qty,
+      unitCost: unitCost,
+      paidAmount: paidAmount,
+      supplierName: supplierNameCtrl.text.trim().isEmpty ? null : supplierNameCtrl.text.trim(),
+      supplierPhone: supplierPhoneCtrl.text.trim().isEmpty ? null : supplierPhoneCtrl.text.trim(),
+      note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+    );
+
+    await context.read<ProductProvider>().load();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật nhập hàng')));
+  }
+
+  Future<void> _deletePurchase(Map<String, dynamic> row) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Xóa nhập hàng'),
+        content: Text('Bạn có chắc muốn xóa "${row['productName'] ?? ''}" không?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await DatabaseService.instance.deletePurchaseHistory(row['id'] as String);
+    await context.read<ProductProvider>().load();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa lịch sử nhập hàng')));
   }
 
   Future<List<Map<String, dynamic>>> _load() {
@@ -461,6 +885,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
                     final unitCost = (r['unitCost'] as num?)?.toDouble() ?? 0;
                     final totalCost = (r['totalCost'] as num?)?.toDouble() ?? (qty * unitCost);
+                    final paidAmount = (r['paidAmount'] as num?)?.toDouble() ?? 0;
+                    final remainDebt = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
                     final note = (r['note'] as String?)?.trim();
                     final supplierName = (r['supplierName'] as String?)?.trim();
 
@@ -476,9 +902,50 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         children: [
                           Text('SL: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}  |  Giá nhập: ${currency.format(unitCost)}'),
                           Text('Thành tiền: ${currency.format(totalCost)}'),
+                          Text('Thanh toán: ${currency.format(paidAmount)}'),
+                          if (remainDebt > 0)
+                            FutureBuilder(
+                              future: DatabaseService.instance.getDebtBySource(
+                                sourceType: 'purchase',
+                                sourceId: r['id'] as String,
+                              ),
+                              builder: (context, snap) {
+                                final d = snap.data;
+                                if (snap.connectionState != ConnectionState.done || d == null) {
+                                  return Text('Còn nợ: ${currency.format(remainDebt)}');
+                                }
+
+                                return FutureBuilder<double>(
+                                  future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                                  builder: (context, paidSnap) {
+                                    final paid = paidSnap.data ?? 0;
+                                    final remain = d.amount;
+                                    final settled = d.settled || remain <= 0;
+                                    final text = settled
+                                        ? 'Đã tất toán'
+                                        : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
+                                    return Text(text);
+                                  },
+                                );
+                              },
+                            ),
                           if (supplierName != null && supplierName.isNotEmpty) Text('NCC: $supplierName'),
                           Text(fmtDate.format(createdAt), style: const TextStyle(color: Colors.black54)),
                           if (note != null && note.isNotEmpty) Text('Ghi chú: $note'),
+                        ],
+                      ),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (v) async {
+                          if (v == 'edit') {
+                            await _editPurchaseDialog(r);
+                          }
+                          if (v == 'delete') {
+                            await _deletePurchase(r);
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                          PopupMenuItem(value: 'delete', child: Text('Xóa')),
                         ],
                       ),
                     );

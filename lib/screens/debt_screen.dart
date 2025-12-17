@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/debt.dart';
+import '../models/sale.dart';
 import '../providers/debt_provider.dart';
 import 'debt_form_screen.dart';
 import 'debt_detail_screen.dart';
@@ -272,6 +273,154 @@ class DebtList extends StatelessWidget {
   final Color color;
   const DebtList({required this.debts, required this.color});
 
+  Future<String?> _pickSaleId(BuildContext context) async {
+    final sales = await DatabaseService.instance.getSales();
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) {
+        final searchCtrl = TextEditingController();
+        List<Sale> filtered = List.from(sales);
+        final fmt = DateFormat('dd/MM/yyyy HH:mm');
+        final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: 12 + MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: searchCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'Tìm theo khách hàng / mặt hàng',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (v) {
+                      final q = v.trim().toLowerCase();
+                      setState(() {
+                        if (q.isEmpty) {
+                          filtered = List.from(sales);
+                        } else {
+                          filtered = sales.where((s) {
+                            final customer = (s.customerName ?? '').toLowerCase();
+                            final items = s.items.map((e) => e.name).join(', ').toLowerCase();
+                            return customer.contains(q) || items.contains(q);
+                          }).toList();
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        final s = filtered[i];
+                        final title = (s.customerName?.trim().isNotEmpty == true) ? s.customerName!.trim() : 'Khách lẻ';
+                        final subtitle = '${fmt.format(s.createdAt)} • ${currency.format(s.total)}';
+                        return ListTile(
+                          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          onTap: () => Navigator.of(context).pop(s.id),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<String?> _pickPurchaseId(BuildContext context) async {
+    final rows = await DatabaseService.instance.getPurchaseHistory();
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) {
+        final searchCtrl = TextEditingController();
+        List<Map<String, dynamic>> filtered = List.from(rows);
+        final fmt = DateFormat('dd/MM/yyyy HH:mm');
+        final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: 12 + MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: searchCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'Tìm theo sản phẩm / NCC',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (v) {
+                      final q = v.trim().toLowerCase();
+                      setState(() {
+                        if (q.isEmpty) {
+                          filtered = List.from(rows);
+                        } else {
+                          filtered = rows.where((r) {
+                            final name = (r['productName'] as String? ?? '').toLowerCase();
+                            final supplier = (r['supplierName'] as String? ?? '').toLowerCase();
+                            return name.contains(q) || supplier.contains(q);
+                          }).toList();
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        final r = filtered[i];
+                        final id = r['id'] as String;
+                        final createdAt = DateTime.tryParse(r['createdAt'] as String? ?? '') ?? DateTime.now();
+                        final name = (r['productName'] as String?) ?? '';
+                        final totalCost = (r['totalCost'] as num?)?.toDouble() ?? 0;
+                        final supplier = (r['supplierName'] as String?)?.trim();
+                        final subtitle = '${fmt.format(createdAt)} • ${currency.format(totalCost)}${(supplier != null && supplier.isNotEmpty) ? ' • $supplier' : ''}';
+                        return ListTile(
+                          title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          onTap: () => Navigator.of(context).pop(id),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
@@ -288,29 +437,77 @@ class DebtList extends StatelessWidget {
             await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DebtDetailScreen(debt: d)));
           },
           onLongPress: () async {
-            final ok = await showDialog<bool>(
+            final action = await showModalBottomSheet<String>(
               context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Xóa công nợ'),
-                content: const Text('Bạn có chắc muốn xóa công nợ này? Mọi lịch sử thanh toán sẽ bị xóa.'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Hủy'),
+              showDragHandle: true,
+              builder: (_) {
+                return SafeArea(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if ((d.sourceId == null || d.sourceId!.isEmpty))
+                        ListTile(
+                          leading: const Icon(Icons.link_outlined),
+                          title: const Text('Gán giao dịch'),
+                          subtitle: Text(d.type == DebtType.othersOweMe ? 'Chọn hóa đơn bán' : 'Chọn phiếu nhập'),
+                          onTap: () => Navigator.of(context).pop('link'),
+                        ),
+                      ListTile(
+                        leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                        title: const Text('Xóa công nợ'),
+                        onTap: () => Navigator.of(context).pop('delete'),
+                      ),
+                    ],
                   ),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Xóa'),
-                  ),
-                ],
-              ),
+                );
+              },
             );
-            if (ok == true) {
-              await context.read<DebtProvider>().deleteDebt(d.id);
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Đã xóa công nợ')),
+
+            if (action == 'link') {
+              String? picked;
+              String? type;
+              if (d.type == DebtType.othersOweMe) {
+                picked = await _pickSaleId(context);
+                type = 'sale';
+              } else {
+                picked = await _pickPurchaseId(context);
+                type = 'purchase';
+              }
+              if (picked != null && picked.isNotEmpty) {
+                d.sourceType = type;
+                d.sourceId = picked;
+                await context.read<DebtProvider>().update(d);
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã gán giao dịch cho công nợ')));
+              }
+              return;
+            }
+
+            if (action == 'delete') {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Xóa công nợ'),
+                  content: const Text('Bạn có chắc muốn xóa công nợ này? Mọi lịch sử thanh toán sẽ bị xóa.'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Hủy'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Xóa'),
+                    ),
+                  ],
+                ),
               );
+              if (ok == true) {
+                await context.read<DebtProvider>().deleteDebt(d.id);
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Đã xóa công nợ')),
+                );
+              }
             }
           },
           child: Container(

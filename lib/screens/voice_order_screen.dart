@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'dart:convert';
 import '../providers/product_provider.dart';
 import '../providers/customer_provider.dart';
-import '../models/product.dart';
-import '../models/customer.dart';
 
 class VoiceOrderScreen extends StatefulWidget {
   const VoiceOrderScreen({Key? key}) : super(key: key);
@@ -20,7 +19,7 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   bool _isListening = false;
   String _status = 'Nhấn vào nút micrô để bắt đầu nhận dạng giọng nói';
   String _recognizedText = '';
-  
+
   // State cho đơn hàng tự động
   List<Map<String, dynamic>> _orders = []; // List items: {'item': '', 'quantity': 0, 'price': 0}
   String _customer = ''; // Tên khách hàng
@@ -121,7 +120,15 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   Future<void> _processWithAI(String text) async {
     if (text.isEmpty) return;
 
-    const String apiKey = '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';
+    const apiKey = String.fromEnvironment('OPENROUTER_API_KEY');
+    
+    if (apiKey.trim().isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _status = 'Thiếu API key (OPENROUTER_API_KEY). Hãy build với --dart-define=OPENROUTER_API_KEY=...';
+      });
+      return;
+    }
     const String model = 'nvidia/nemotron-3-nano-30b-a3b:free';
 
     final String prompt = '''
@@ -235,7 +242,10 @@ Lệnh: $text
               if (matchedProduct != null) {
                 // Nếu tìm thấy sản phẩm tương tự, sử dụng thông tin từ database
                 matchedItem['item'] = matchedProduct.name;
-                matchedItem['price'] = matchedProduct.price.toDouble();
+                final rawPrice = matchedItem['price'];
+                final double aiPrice = rawPrice is num ? rawPrice.toDouble() : 0;
+                // Nếu AI không nói giá (0 hoặc thiếu) thì lấy giá DB, còn có giá thì dùng giá AI
+                matchedItem['price'] = aiPrice > 0 ? aiPrice : matchedProduct.price.toDouble();
                 matchedItem['unit'] = matchedProduct.unit;
                 matchedItem['productId'] = matchedProduct.id;
                 
@@ -251,6 +261,9 @@ Lệnh: $text
               } else {
                 // Nếu không tìm thấy, giữ nguyên tên sản phẩm đã nhận dạng
                 matchedItem['item'] = productName;
+                // Nếu AI không có giá hợp lệ thì để 0
+                final rawPrice = matchedItem['price'];
+                matchedItem['price'] = rawPrice is num ? rawPrice.toDouble() : 0.0;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Không tìm thấy sản phẩm: "$productName"'),
@@ -294,6 +307,16 @@ Lệnh: $text
     });
   }
 
+  double _orderLineTotal(Map<String, dynamic> order) {
+    final qty = (order['quantity'] as num?)?.toDouble() ?? 0;
+    final price = (order['price'] as num?)?.toDouble() ?? 0;
+    return qty * price;
+  }
+
+  double get _orderTotal {
+    return _orders.fold<double>(0, (sum, o) => sum + _orderLineTotal(o));
+  }
+
   // Hàm phân tích schema và cập nhật state đơn hàng
   void _updateOrder(Map<String, dynamic> schema) {
     // Xử lý thông tin khách hàng nếu có
@@ -313,14 +336,26 @@ Lệnh: $text
         if (item is Map<String, dynamic>) {
           final action = item['action']?.toString() ?? '';
           final itemName = item['item']?.toString() ?? '';
-          final quantity = item['quantity'] is num ? (item['quantity'] as num).toInt() : 0;
-          final price = item['price'] is num ? (item['price'] as num).toInt() : 0;
+          final quantity = item['quantity'] is num ? (item['quantity'] as num).toDouble() : 0.0;
+          final price = item['price'] is num ? (item['price'] as num).toDouble() : 0.0;
+          final unit = item['unit']?.toString();
+          final productId = item['productId']?.toString();
           
           if (action == 'add' && itemName.isNotEmpty && quantity > 0) {
             bool exists = false;
             for (var order in _orders) {
               if (order['item'] == itemName) {
-                order['quantity'] += quantity;
+                order['quantity'] = ((order['quantity'] as num?)?.toDouble() ?? 0) + quantity;
+                // Nếu có giá > 0 thì cập nhật giá (ưu tiên giá vừa parse)
+                if (price > 0) {
+                  order['price'] = price;
+                }
+                if (unit != null && unit.isNotEmpty) {
+                  order['unit'] = unit;
+                }
+                if (productId != null && productId.isNotEmpty) {
+                  order['productId'] = productId;
+                }
                 exists = true;
                 break;
               }
@@ -330,6 +365,8 @@ Lệnh: $text
                 'item': itemName,
                 'quantity': quantity,
                 'price': price,
+                if (unit != null && unit.isNotEmpty) 'unit': unit,
+                if (productId != null && productId.isNotEmpty) 'productId': productId,
               });
             }
           } else if (action == 'remove' && itemName.isNotEmpty) {
@@ -340,8 +377,9 @@ Lệnh: $text
               // Giảm số lượng nếu có chỉ định số lượng
               for (var order in _orders) {
                 if (order['item'] == itemName) {
-                  order['quantity'] = (order['quantity'] as int) - quantity;
-                  if (order['quantity'] <= 0) {
+                  final newQty = ((order['quantity'] as num?)?.toDouble() ?? 0) - quantity;
+                  order['quantity'] = newQty;
+                  if (newQty <= 0) {
                     _orders.remove(order);
                   }
                   break;
@@ -361,6 +399,8 @@ Lệnh: $text
 
   @override
   Widget build(BuildContext context) {
+    final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Đặt hàng bằng giọng nói'),
@@ -419,9 +459,79 @@ Lệnh: $text
                     ),
                     const SizedBox(height: 8),
                     if (_customer.isNotEmpty) Text('Khách hàng: $_customer'),
-                    ..._orders.map((order) => Text(
-                      '• ${order['item']}: ${order['quantity']} x ${order['price']} đ',
-                    )),
+                    if (_orders.isNotEmpty)
+                      const SizedBox(height: 8),
+                    ..._orders.map((order) {
+                      final name = order['item']?.toString() ?? '';
+                      final qty = (order['quantity'] as num?)?.toDouble() ?? 0;
+                      final price = (order['price'] as num?)?.toDouble() ?? 0;
+                      final unit = order['unit']?.toString();
+                      final lineTotal = _orderLineTotal(order);
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    name,
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'SL: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}${unit != null && unit.isNotEmpty ? ' $unit' : ''}  •  Đơn giá: ${currency.format(price)}',
+                                    style: const TextStyle(color: Colors.black54),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Thành tiền: ${currency.format(lineTotal)}',
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                              tooltip: 'Xóa dòng',
+                              onPressed: () {
+                                setState(() {
+                                  _orders.remove(order);
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    if (_orders.isNotEmpty) ...[
+                      const Divider(height: 16),
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Tổng tiền:',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          Text(
+                            currency.format(_orderTotal),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ],
                     if (_orders.isEmpty && _customer.isEmpty) const Text('Chưa có đơn hàng'),
                     if (_orders.isNotEmpty || _customer.isNotEmpty)
                       Padding(

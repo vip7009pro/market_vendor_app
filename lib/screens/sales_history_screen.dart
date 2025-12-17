@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/sale_provider.dart';
 import '../models/sale.dart';
+import '../services/database_service.dart';
 import '../utils/file_helper.dart';
 // Import file mới
 import 'receipt_preview_screen.dart'; // Thêm dòng này
@@ -337,21 +338,61 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                 )
                               else
                               if (s.debt > 0)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(4),
+                                FutureBuilder(
+                                  future: DatabaseService.instance.getDebtBySource(
+                                    sourceType: 'sale',
+                                    sourceId: s.id,
                                   ),
-                                  child: Text(
-                                    'Còn nợ: ${currency.format(s.debt)}',
-                                    style: const TextStyle(
-                                      color: Colors.red,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
+                                  builder: (context, snap) {
+                                    final d = snap.data;
+                                    if (snap.connectionState != ConnectionState.done || d == null) {
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          'Còn nợ: ${currency.format(s.debt)}',
+                                          style: const TextStyle(
+                                            color: Colors.red,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      );
+                                    }
+
+                                    return FutureBuilder<double>(
+                                      future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                                      builder: (context, paidSnap) {
+                                        final paid = paidSnap.data ?? 0;
+                                        final remain = d.amount;
+                                        final settled = d.settled || remain <= 0;
+                                        final bg = settled ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1);
+                                        final fg = settled ? Colors.green : Colors.red;
+                                        final text = settled
+                                            ? 'Đã tất toán'
+                                            : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
+
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: bg,
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            text,
+                                            style: TextStyle(
+                                              color: fg,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
                                 )
                               else
                                 Container(

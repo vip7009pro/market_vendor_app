@@ -127,11 +127,12 @@ class DatabaseService {
     await batch.commit(noResult: true);
   }
 
-  Future<void> insertPurchaseHistory({
+  Future<String> insertPurchaseHistory({
     required String productId,
     required String productName,
     required double quantity,
     required double unitCost,
+    double paidAmount = 0,
     String? supplierName,
     String? supplierPhone,
     String? note,
@@ -153,6 +154,7 @@ class DatabaseService {
           'quantity': quantity,
           'unitCost': unitCost,
           'totalCost': totalCost,
+          'paidAmount': paidAmount,
           'supplierName': supplierName,
           'supplierPhone': supplierPhone,
           'note': note,
@@ -165,6 +167,95 @@ class DatabaseService {
         'UPDATE products SET currentStock = currentStock + ?, updatedAt = ? WHERE id = ?',
         [quantity, now.toIso8601String(), productId],
       );
+    });
+
+    return id;
+  }
+
+  Future<void> updatePurchaseHistory({
+    required String id,
+    required String productId,
+    required String productName,
+    required double quantity,
+    required double unitCost,
+    required double paidAmount,
+    String? supplierName,
+    String? supplierPhone,
+    String? note,
+  }) async {
+    final now = DateTime.now();
+    final totalCost = quantity * unitCost;
+
+    await db.transaction((txn) async {
+      final oldRows = await txn.query(
+        'purchase_history',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (oldRows.isEmpty) {
+        throw Exception('Purchase history not found');
+      }
+      final old = oldRows.first;
+      final oldProductId = old['productId'] as String;
+      final oldQty = (old['quantity'] as num?)?.toDouble() ?? 0;
+
+      // Reverse old stock then apply new stock
+      if (oldQty != 0) {
+        await txn.rawUpdate(
+          'UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ?',
+          [oldQty, now.toIso8601String(), oldProductId],
+        );
+      }
+      if (quantity != 0) {
+        await txn.rawUpdate(
+          'UPDATE products SET currentStock = currentStock + ?, updatedAt = ? WHERE id = ?',
+          [quantity, now.toIso8601String(), productId],
+        );
+      }
+
+      await txn.update(
+        'purchase_history',
+        {
+          'productId': productId,
+          'productName': productName,
+          'quantity': quantity,
+          'unitCost': unitCost,
+          'totalCost': totalCost,
+          'paidAmount': paidAmount,
+          'supplierName': supplierName,
+          'supplierPhone': supplierPhone,
+          'note': note,
+          'updatedAt': now.toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  Future<void> deletePurchaseHistory(String id) async {
+    final now = DateTime.now();
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'purchase_history',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final r = rows.first;
+      final productId = r['productId'] as String;
+      final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
+
+      if (qty != 0) {
+        await txn.rawUpdate(
+          'UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ?',
+          [qty, now.toIso8601String(), productId],
+        );
+      }
+
+      await txn.delete('purchase_history', where: 'id = ?', whereArgs: [id]);
     });
   }
 
@@ -199,18 +290,18 @@ class DatabaseService {
       orderBy: 'createdAt DESC',
     );
   }
-  
+
   // Reinitialize the database
   Future<void> reinitialize() async {
     await close();
     await init();
   }
-  
+
   // Thêm bản ghi mới với thông tin đồng bộ
   Future<void> insertWithSync(String table, Map<String, dynamic> data) async {
     final now = DateTime.now().toIso8601String();
     final devId = await deviceId;
-    
+
     final newData = Map<String, dynamic>.from(data)
       ..addAll({
         'deviceId': devId,
@@ -218,51 +309,51 @@ class DatabaseService {
         'updatedAt': now,
         'isSynced': 0, // Chưa đồng bộ
       });
-    
+
     await db.insert(table, newData);
-    
+
     // Ghi log
     await _logSyncAction('create', table, newData['id'], devId, now);
   }
-  
+
   // Cập nhật bản ghi với thông tin đồng bộ
   Future<int> updateWithSync(String table, Map<String, dynamic> data, String id) async {
     final now = DateTime.now().toIso8601String();
     final devId = await deviceId;
-    
+
     final updatedData = Map<String, dynamic>.from(data)
       ..addAll({
         'updatedAt': now,
         'isSynced': 0, // Đánh dấu là chưa đồng bộ
       });
-    
+
     final count = await db.update(
       table,
       updatedData,
       where: 'id = ?',
       whereArgs: [id],
     );
-    
+
     // Ghi log
     if (count > 0) {
       await _logSyncAction('update', table, id, devId, now);
     }
-    
+
     return count;
   }
-  
+
   // Xóa bản ghi với thông tin đồng bộ
   Future<int> deleteWithSync(String table, String id) async {
     final now = DateTime.now().toIso8601String();
     final devId = await deviceId;
-    
+
     // Lấy dữ liệu trước khi xóa để lưu vào bảng deleted_entities
     final rows = await db.query(
       table,
       where: 'id = ?',
       whereArgs: [id],
     );
-    
+
     if (rows.isNotEmpty) {
       // Lưu vào bảng deleted_entities
       await db.insert('deleted_entities', {
@@ -272,11 +363,11 @@ class DatabaseService {
         'deviceId': devId,
         'isSynced': 0, // Chưa đồng bộ
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-      
+
       // Ghi log
       await _logSyncAction('delete', table, id, devId, now);
     }
-    
+
     // Thực hiện xóa
     return await db.delete(
       table,
@@ -284,11 +375,11 @@ class DatabaseService {
       whereArgs: [id],
     );
   }
-  
+
   // Ghi log hoạt động đồng bộ
   Future<void> _logSyncAction(
-    String action, 
-    String entityType, 
+    String action,
+    String entityType,
     String? entityId,
     String deviceId,
     String timestamp, {
@@ -303,7 +394,7 @@ class DatabaseService {
       'details': details,
     });
   }
-  
+
   // Helper function to safely add columns
   Future<void> safeAddColumn(Database db, String table, String column, String definition) async {
     try {
@@ -320,7 +411,7 @@ class DatabaseService {
   Future<void> _migrateDatabase(Database db, int oldVersion, int newVersion) async {
     print('Đang thực hiện migration từ phiên bản $oldVersion lên $newVersion');
     await EncryptionService.instance.init();
-    
+
     // Migration cho version 1 lên 2: Thêm cột updatedAt
     if (oldVersion < 2) {
       final now = DateTime.now().toIso8601String();
@@ -331,16 +422,15 @@ class DatabaseService {
       await safeAddColumn(db, 'sales', 'updatedAt', 'TEXT');
       await db.execute("UPDATE sales SET updatedAt = '$now' WHERE updatedAt IS NULL");
     }
-    
+
     // Migration từ version 4 lên 5: Thêm cột isSynced vào bảng deleted_entities
     if (oldVersion < 5) {
       try {
         print('Đang thêm cột isSynced vào bảng deleted_entities...');
-        
+
         // Kiểm tra xem bảng deleted_entities có tồn tại không
         final tables = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND name='deleted_entities'");
-          
         if (tables.isNotEmpty) {
           // Thêm cột isSynced nếu chưa tồn tại
           await safeAddColumn(db, 'deleted_entities', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
@@ -380,7 +470,7 @@ class DatabaseService {
         }
       }
     }
-    
+
     // Migration từ version 6 lên 7: Thêm cột isSynced vào bảng sale_items và debt_payments
     if (oldVersion < 7) {
       try {
@@ -392,7 +482,7 @@ class DatabaseService {
         print('Lỗi khi cập nhật bảng sale_items và debt_payments: $e');
       }
     }
-    
+
     // Migration từ version 7 lên 8: Thêm cột costPrice vào bảng products
     if (oldVersion < 8) {
       try {
@@ -403,7 +493,7 @@ class DatabaseService {
         print('Lỗi khi cập nhật bảng products: $e');
       }
     }
-    
+
     // Migration từ version 8 lên 9: Thêm cột totalCost vào bảng sales
     if (oldVersion < 9) {
       try {
@@ -475,15 +565,30 @@ class DatabaseService {
         await db.execute('ALTER TABLE purchase_history ADD COLUMN supplierPhone TEXT');
       } catch (_) {}
     }
+
+    if (oldVersion < 14) {
+      try {
+        await safeAddColumn(db, 'purchase_history', 'paidAmount', 'REAL NOT NULL DEFAULT 0');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 15) {
+      try {
+        await safeAddColumn(db, 'debts', 'sourceType', 'TEXT');
+      } catch (_) {}
+      try {
+        await safeAddColumn(db, 'debts', 'sourceId', 'TEXT');
+      } catch (_) {}
+    }
   }
 
   Future<void> init() async {
     final dbPath = await getDatabasesPath();
     final path = p.join(dbPath, 'market_vendor.db');
-    
+
     _db = await openDatabase(
       path,
-      version: 13, // Tăng version để áp dụng migration
+      version: 15, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -501,7 +606,7 @@ class DatabaseService {
             isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
-        
+
         await db.execute('''
           CREATE TABLE IF NOT EXISTS customers(
             id TEXT PRIMARY KEY,
@@ -514,7 +619,7 @@ class DatabaseService {
             isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
-        
+
         await db.execute('''
           CREATE TABLE IF NOT EXISTS sales(
             id TEXT PRIMARY KEY,
@@ -530,7 +635,7 @@ class DatabaseService {
             isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
-        
+
         await db.execute('''
           CREATE TABLE IF NOT EXISTS sale_items(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -544,7 +649,7 @@ class DatabaseService {
             FOREIGN KEY (saleId) REFERENCES sales(id) ON DELETE CASCADE
           )
         ''');
-        
+
         await db.execute('''
           CREATE TABLE IF NOT EXISTS debts(
             id TEXT PRIMARY KEY,
@@ -556,12 +661,14 @@ class DatabaseService {
             description TEXT,
             dueDate TEXT,
             settled INTEGER NOT NULL DEFAULT 0,
+            sourceType TEXT,
+            sourceId TEXT,
             updatedAt TEXT NOT NULL,
             deviceId TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
-        
+
         await db.execute('''
           CREATE TABLE IF NOT EXISTS deleted_entities(
             entityType TEXT NOT NULL,
@@ -572,7 +679,7 @@ class DatabaseService {
             PRIMARY KEY (entityType, entityId)
           )
         ''');
-        
+
         await db.execute('''
           CREATE TABLE IF NOT EXISTS debt_payments(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -584,7 +691,7 @@ class DatabaseService {
             FOREIGN KEY (debtId) REFERENCES debts(id) ON DELETE CASCADE
           )
         ''');
-        
+
         await db.execute('''
           CREATE TABLE IF NOT EXISTS audit_logs(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -595,7 +702,7 @@ class DatabaseService {
             payload TEXT
           )
         ''');
-        
+
         await db.execute('''
           CREATE TABLE IF NOT EXISTS sync_logs(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -628,6 +735,7 @@ class DatabaseService {
             quantity REAL NOT NULL,
             unitCost REAL NOT NULL DEFAULT 0,
             totalCost REAL NOT NULL DEFAULT 0,
+            paidAmount REAL NOT NULL DEFAULT 0,
             supplierName TEXT,
             supplierPhone TEXT,
             note TEXT,
@@ -1076,6 +1184,8 @@ class DatabaseService {
         'description': encryptedDescription,
         'dueDate': d.dueDate?.toIso8601String(),
         'settled': d.settled ? 1 : 0,
+        'sourceType': d.sourceType,
+        'sourceId': d.sourceId,
         'updatedAt': DateTime.now().toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       
@@ -1110,6 +1220,8 @@ class DatabaseService {
           'description': encryptedDescription,
           'dueDate': d.dueDate?.toIso8601String(),
           'settled': d.settled ? 1 : 0,
+          'sourceType': d.sourceType,
+          'sourceId': d.sourceId,
           'updatedAt': DateTime.now().toIso8601String(),
           'isSynced': 0, // Đánh dấu là chưa đồng bộ để đẩy lên Firestore
         },
@@ -1147,6 +1259,8 @@ class DatabaseService {
         'description': encryptedDescription,
         'dueDate': d.dueDate?.toIso8601String(),
         'settled': d.settled ? 1 : 0,
+        'sourceType': d.sourceType,
+        'sourceId': d.sourceId,
         'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     } catch (e) {
@@ -1179,6 +1293,8 @@ class DatabaseService {
           description: decryptedDescription,
           dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
           settled: (m['settled'] as int) == 1,
+          sourceType: m['sourceType'] as String?,
+          sourceId: m['sourceId'] as String?,
         );
       }));
     } catch (e) {
@@ -1296,6 +1412,36 @@ class DatabaseService {
     );
     final val = rows.isNotEmpty ? rows.first['total'] as num? : null;
     return (val ?? 0).toDouble();
+  }
+
+  Future<Debt?> getDebtBySource({required String sourceType, required String sourceId}) async {
+    await EncryptionService.instance.init();
+    final rows = await db.query(
+      'debts',
+      where: 'sourceType = ? AND sourceId = ?',
+      whereArgs: [sourceType, sourceId],
+      orderBy: 'createdAt DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final m = rows.first;
+    final description = m['description'] as String?;
+    final decryptedDescription =
+        description != null ? await EncryptionService.instance.decrypt(description) : null;
+
+    return Debt(
+      id: m['id'] as String,
+      createdAt: DateTime.parse(m['createdAt'] as String),
+      type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
+      partyId: m['partyId'] as String,
+      partyName: m['partyName'] as String,
+      amount: (m['amount'] as num).toDouble(),
+      description: decryptedDescription,
+      dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
+      settled: (m['settled'] as int) == 1,
+      sourceType: m['sourceType'] as String?,
+      sourceId: m['sourceId'] as String?,
+    );
   }
 
   Future<void> _markEntityAsDeletedTxn(Transaction txn, String table, String id) async {

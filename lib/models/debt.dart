@@ -15,6 +15,8 @@ class Debt {
   String? description;
   DateTime? dueDate;
   bool settled;
+  String? sourceType; // 'sale' | 'purchase'
+  String? sourceId; // id of sale or purchase_history
 
   Debt({
     String? id,
@@ -26,6 +28,8 @@ class Debt {
     this.description,
     this.dueDate,
     this.settled = false,
+    this.sourceType,
+    this.sourceId,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 }

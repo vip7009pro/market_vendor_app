@@ -8,6 +8,7 @@ import '../services/database_service.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'inventory_report_screen.dart';
 
 class ProductListScreen extends StatefulWidget {
   const ProductListScreen({super.key});
@@ -38,6 +39,16 @@ class _ProductListScreenState extends State<ProductListScreen> {
       appBar: AppBar(
         title: const Text('Sản phẩm'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.table_chart_outlined),
+            tooltip: 'Bảng kê tồn kho',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const InventoryReportScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.inventory_2_outlined),
             tooltip: 'Set tồn đầu kỳ (tháng hiện tại)',
