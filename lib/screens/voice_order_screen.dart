@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class VoiceOrderScreen extends StatefulWidget {
   const VoiceOrderScreen({Key? key}) : super(key: key);
@@ -13,6 +15,37 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   bool _isListening = false;
   String _status = 'Nhấn vào nút micrô để bắt đầu nhận dạng giọng nói';
   String _recognizedText = '';
+  
+  // State cho đơn hàng tự động
+  List<Map<String, dynamic>> _orders = []; // List items: {'item': '', 'quantity': 0, 'price': 0}
+  String _customer = ''; // Tên khách hàng
+
+  // Hàm thêm nhiều sản phẩm vào đơn hàng
+  void _addMultipleItems(List<dynamic> items) {
+    for (var item in items) {
+      if (item is Map<String, dynamic> && 
+          item.containsKey('item') && 
+          item.containsKey('quantity') && 
+          item['quantity'] > 0) {
+        
+        bool exists = false;
+        for (var order in _orders) {
+          if (order['item'] == item['item']) {
+            order['quantity'] += item['quantity'];
+            exists = true;
+            break;
+          }
+        }
+        if (!exists) {
+          _orders.add({
+            'item': item['item'],
+            'quantity': item['quantity'],
+            'price': item['price'] ?? 0,
+          });
+        }
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -61,7 +94,8 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
               _recognizedText = result.recognizedWords;
               if (result.finalResult) {
                 _isListening = false;
-                _status = 'Đã nhận dạng xong';
+                _status = 'Đã nhận dạng xong, đang gửi đến AI...';
+                _processWithAI(_recognizedText); // Tích hợp gửi đến OpenRouter
               }
             });
           },
@@ -78,6 +112,185 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     }
   }
 
+  // Hàm gửi đến OpenRouter AI và xử lý kết quả
+  Future<void> _processWithAI(String text) async {
+    if (text.isEmpty) return;
+
+    const String apiKey = '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'; // Thay bằng key của đại ca
+    const String model = 'nvidia/nemotron-3-nano-30b-a3b:free'; // Model miễn phí, thay nếu cần
+
+    final String prompt = '''
+Phân tích lệnh giọng nói tiếng Việt này và trả về đúng một JSON object theo schema sau (không thêm text thừa):
+{
+  "customer": "tên khách hàng (nếu có)",
+  "items": [
+    {
+      "action": "add" hoặc "remove",
+      "item": "tên sản phẩm",
+      "quantity": số lượng,
+      "price": giá tiền (nếu có)
+    }
+  ]
+}
+
+Ví dụ 1 (đơn hàng đơn giản):
+"Mua 2 chai nước ngọt giá 15000 đồng" 
+-> {
+  "items": [
+    {"action": "add", "item": "nước ngọt", "quantity": 2, "price": 15000}
+  ]
+}
+
+Ví dụ 2 (nhiều sản phẩm):
+"Mua 2 chai nước ngọt giá 15000, 3 bánh mì giá 20000"
+-> {
+  "items": [
+    {"action": "add", "item": "nước ngọt", "quantity": 2, "price": 15000},
+    {"action": "add", "item": "bánh mì", "quantity": 3, "price": 20000}
+  ]
+}
+
+Ví dụ 3 (kèm thông tin khách hàng):
+"Đặt hàng cho khách Nguyễn Văn A: 2 nước ngọt giá 15000, 1 bánh mì giá 20000"
+-> {
+  "customer": "Nguyễn Văn A",
+  "items": [
+    {"action": "add", "item": "nước ngọt", "quantity": 2, "price": 15000},
+    {"action": "add", "item": "bánh mì", "quantity": 1, "price": 20000}
+  ]
+}
+
+Ví dụ 4 (xoá sản phẩm):
+"Xoá 1 nước ngọt"
+-> {
+  "items": [
+    {"action": "remove", "item": "nước ngọt", "quantity": 1}
+  ]
+}
+
+Ví dụ 5 (xoá toàn bộ):
+"Xoá toàn bộ đơn hàng"
+-> {
+  "clear_all": true
+}
+
+Lệnh: $text
+''';
+
+    try {
+      final response = await http.post(
+        Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
+        headers: {
+          'Authorization': 'Bearer $apiKey',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'model': model,
+          'messages': [
+            {'role': 'user', 'content': prompt},
+          ],
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final jsonResponse = jsonDecode(response.body);
+        final String aiContent = jsonResponse['choices'][0]['message']['content'];
+        
+        // Parse JSON từ AI
+        final Map<String, dynamic> schema = jsonDecode(aiContent);
+        
+        // Phân tích và cập nhật đơn hàng
+        _updateOrder(schema);
+        
+        setState(() {
+          _status = 'Đã xử lý đơn hàng từ AI';
+        });
+      } else {
+        setState(() {
+          _status = 'Lỗi API: ${response.statusCode}';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _status = 'Lỗi kết nối: $e';
+      });
+    }
+  }
+
+  // Hàm xoá toàn bộ đơn hàng và thông tin khách hàng
+  void _clearOrder() {
+    setState(() {
+      _orders.clear();
+      _customer = '';
+      _status = 'Đã xoá đơn hàng hiện tại';
+    });
+  }
+
+  // Hàm phân tích schema và cập nhật state đơn hàng
+  void _updateOrder(Map<String, dynamic> schema) {
+    // Xử lý thông tin khách hàng nếu có
+    if (schema['customer'] != null && schema['customer'].toString().trim().isNotEmpty) {
+      _customer = schema['customer'].toString().trim();
+    }
+    
+    // Xử lý xoá toàn bộ đơn hàng
+    if (schema['clear_all'] == true) {
+      _clearOrder();
+      return;
+    }
+    
+    // Xử lý danh sách sản phẩm
+    if (schema['items'] is List) {
+      for (var item in schema['items']) {
+        if (item is Map<String, dynamic>) {
+          final action = item['action']?.toString() ?? '';
+          final itemName = item['item']?.toString() ?? '';
+          final quantity = item['quantity'] is num ? (item['quantity'] as num).toInt() : 0;
+          final price = item['price'] is num ? (item['price'] as num).toInt() : 0;
+          
+          if (action == 'add' && itemName.isNotEmpty && quantity > 0) {
+            bool exists = false;
+            for (var order in _orders) {
+              if (order['item'] == itemName) {
+                order['quantity'] += quantity;
+                exists = true;
+                break;
+              }
+            }
+            if (!exists) {
+              _orders.add({
+                'item': itemName,
+                'quantity': quantity,
+                'price': price,
+              });
+            }
+          } else if (action == 'remove' && itemName.isNotEmpty) {
+            if (quantity <= 0) {
+              // Nếu không chỉ định số lượng hoặc số lượng <= 0 thì xoá hết
+              _orders.removeWhere((order) => order['item'] == itemName);
+            } else {
+              // Giảm số lượng nếu có chỉ định số lượng
+              for (var order in _orders) {
+                if (order['item'] == itemName) {
+                  order['quantity'] = (order['quantity'] as int) - quantity;
+                  if (order['quantity'] <= 0) {
+                    _orders.remove(order);
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Cập nhật UI
+    setState(() {
+      _status = 'Đã cập nhật đơn hàng';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -85,9 +298,10 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
         title: const Text('Đặt hàng bằng giọng nói'),
         centerTitle: true,
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Status text
             Text(
@@ -98,25 +312,69 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
             const SizedBox(height: 20),
             
             // Recognized text display
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                _recognizedText.isNotEmpty 
+                    ? _recognizedText 
+                    : 'Nội dung đã nhận dạng sẽ hiển thị ở đây...',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: _recognizedText.isNotEmpty 
+                      ? Colors.black87 
+                      : Colors.grey,
                 ),
-                child: SingleChildScrollView(
-                  child: Text(
-                    _recognizedText.isNotEmpty 
-                        ? _recognizedText 
-                        : 'Nội dung đã nhận dạng sẽ hiển thị ở đây...',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: _recognizedText.isNotEmpty 
-                          ? Colors.black87 
-                          : Colors.grey,
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Hiển thị đơn hàng hiện tại
+            Card(
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Đơn hàng hiện tại:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    if (_customer.isNotEmpty) Text('Khách hàng: $_customer'),
+                    ..._orders.map((order) => Text(
+                      '• ${order['item']}: ${order['quantity']} x ${order['price']} đ',
+                    )),
+                    if (_orders.isEmpty && _customer.isEmpty) const Text('Chưa có đơn hàng'),
+                    if (_orders.isNotEmpty || _customer.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12.0),
+                        child: ElevatedButton.icon(
+                          onPressed: _clearOrder,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red[50],
+                            foregroundColor: Colors.red,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: BorderSide(color: Colors.red.shade200),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          label: const Text('Xoá đơn hàng'),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -128,7 +386,7 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
               child: Padding(
                 padding: EdgeInsets.all(12.0),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
                       'Ví dụ:',
@@ -140,8 +398,9 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
                     SizedBox(height: 8),
                     Text('• Mua 2 chai nước ngọt giá 15.000 đồng'),
                     Text('• Thêm 1 ký thịt heo giá 120.000 đồng'),
-                    Text('• Xoá sản phẩm nước ngọt'),
-                    Text('• Đặt hàng cho khách Nguyễn Văn A'),
+                    Text('• Xoá 1 nước ngọt'),
+                    Text('• Đặt hàng cho khách Nguyễn Văn A: 2 nước ngọt 15000, 1 bánh mì 20000'),
+                    Text('• Xoá toàn bộ đơn hàng'),
                   ],
                 ),
               ),
