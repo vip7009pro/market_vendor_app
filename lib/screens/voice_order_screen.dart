@@ -120,7 +120,7 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   Future<void> _processWithAI(String text) async {
     if (text.isEmpty) return;
 
-    const apiKey = String.fromEnvironment('OPENROUTER_API_KEY');
+    //const apiKey = String.fromEnvironment('OPENROUTER_API_KEY');
     
     if (apiKey.trim().isEmpty) {
       if (!mounted) return;
@@ -185,6 +185,7 @@ Ví dụ 5 (xoá toàn bộ):
 -> {
   "clear_all": true
 }
+Chú ý: nhớ trả về tên sản phẩm đầy đủ, ví dụ: "gạo khang dân" thì phải trả về gạo khang dân, chứ không phải trả về mỗi "gạo"
 
 Lệnh: $text
 ''';
