@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "794292505696-0aos5g5k0fovl5oroomojgj53qi8di5h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.marketvendor.market_vendor_app",
+            "certificate_hash": "a1f17b2a96a1c3787aae7c98cc1c94c87a161e0e"
+          }
+        },
+        {
           "client_id": "794292505696-40l6loammr7sebhhpomqt371tsed661k.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
@@ -27,6 +35,22 @@
           "android_info": {
             "package_name": "com.marketvendor.market_vendor_app",
             "certificate_hash": "0bf417c5d9fb42cbf5fa7f02187477794dd9aded"
+          }
+        },
+        {
+          "client_id": "794292505696-e53jkdufvnghpqt8b39pihetp0e2fh15.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.marketvendor.market_vendor_app",
+            "certificate_hash": "473b49ad5836f96dab9f23b266b562ead8a03883"
+          }
+        },
+        {
+          "client_id": "794292505696-s8je9ob5u9bejsrdrp66u1vd8la19q25.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.marketvendor.market_vendor_app",
+            "certificate_hash": "9ebfc157c5618734a3c68b165a674819486b557b"
           }
         },
         {

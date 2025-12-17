@@ -52,11 +52,15 @@ dependencies:
   path: ^1.8.3
   
   # Firebase
+  #firebase_core: ^4.3.0
+  #firebase_auth: ^6.1.3
+  #cloud_firestore: ^6.1.1
+  #google_sign_in: ^7.2.0
   firebase_core: ^2.24.2
   firebase_auth: ^4.15.3
   cloud_firestore: ^4.13.6
   google_sign_in: ^6.1.6
-  
+  googleapis: ^13.2.0
   # In-App Purchase
   in_app_purchase: ^3.1.13
   
@@ -70,7 +74,7 @@ dependencies:
   image_picker: ^1.0.7
   shared_preferences: ^2.2.2
   url_launcher: ^6.2.2
-  package_info_plus: ^6.0.0
+  package_info_plus: ^9.0.0
   connectivity_plus: ^5.0.2
   share_plus: ^7.2.1
   device_info_plus: ^9.1.2
@@ -87,6 +91,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   syncfusion_flutter_datepicker: ^31.1.19
+  speech_to_text: ^7.3.0
 
 dev_dependencies:
   flutter_test:

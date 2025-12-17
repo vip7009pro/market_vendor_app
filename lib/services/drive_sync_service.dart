@@ -38,6 +38,7 @@ class DriveSyncService {
       body: jsonEncode({
         'name': backupFolderName,
         'mimeType': 'application/vnd.google-apps.folder',
+        'parents': ['root'],
       }),
     );
     if (createResp.statusCode == 200 || createResp.statusCode == 201) {
