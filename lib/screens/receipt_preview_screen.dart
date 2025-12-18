@@ -786,7 +786,9 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
 
       final file = await File('${tempDir.path}/invoice.png').create();
       await file.writeAsBytes(imageBytes);
-      await Share.shareXFiles([XFile(file.path)], text: 'Hóa đơn bán hàng');
+      DateTime now = DateTime.now();
+      String formattedDate = DateFormat('dd/MM/yyyy HH:mm:ss').format(now);
+      await Share.shareXFiles([XFile(file.path)], text: 'Hóa đơn bán hàng ngày $formattedDate');
 
     } catch (e) {
       if (!mounted) return;
