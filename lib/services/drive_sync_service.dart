@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -8,11 +9,18 @@ import 'package:sqflite/sqflite.dart';
 
 class DriveSyncService {
   static const String backupFolderName = 'GhiNoBackUp';
+  static const String purchaseDocFolderName = 'NhapHangDauVao';
 
   /// Ensures the backup folder exists and returns its folderId.
   Future<String> _ensureBackupFolder({required String accessToken}) async {
+    return _ensureFolder(accessToken: accessToken, folderName: backupFolderName);
+  }
+
+  Future<String> _ensureFolder({required String accessToken, required String folderName}) async {
     // Search for existing folder by name
-    final q = Uri.encodeQueryComponent("name = '$backupFolderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+    final q = Uri.encodeQueryComponent(
+      "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+    );
     final listUri = Uri.parse('https://www.googleapis.com/drive/v3/files?q=$q&fields=files(id,name)');
     final listResp = await http.get(listUri, headers: {
       'Authorization': 'Bearer $accessToken',
@@ -36,7 +44,7 @@ class DriveSyncService {
         'Content-Type': 'application/json; charset=UTF-8',
       },
       body: jsonEncode({
-        'name': backupFolderName,
+        'name': folderName,
         'mimeType': 'application/vnd.google-apps.folder',
         'parents': ['root'],
       }),
@@ -45,7 +53,7 @@ class DriveSyncService {
       final data = jsonDecode(createResp.body) as Map<String, dynamic>;
       return data['id'] as String;
     }
-    throw Exception('Không thể tạo thư mục sao lưu trên Google Drive');
+    throw Exception('Không thể tạo thư mục trên Google Drive');
   }
 
   /// Uploads the local SQLite database file to the user's Google Drive backup folder.
@@ -101,6 +109,105 @@ class DriveSyncService {
 
     debugPrint('Drive upload failed: ${resp.statusCode} ${resp.body}');
     throw Exception('Tải lên Google Drive thất bại (${resp.statusCode})');
+  }
+
+  Future<Map<String, String>?> getPurchaseDocByName({
+    required String accessToken,
+    required String purchaseId,
+  }) async {
+    final folderId = await _ensureFolder(accessToken: accessToken, folderName: purchaseDocFolderName);
+    final fileName = '$purchaseId.jpg';
+
+    final q = Uri.encodeQueryComponent(
+      "name = '$fileName' and '$folderId' in parents and trashed = false",
+    );
+    final uri = Uri.parse(
+      'https://www.googleapis.com/drive/v3/files?q=$q&fields=files(id,name,webViewLink,webContentLink)',
+    );
+    final resp = await http.get(uri, headers: {'Authorization': 'Bearer $accessToken'});
+    if (resp.statusCode != 200) {
+      debugPrint('Drive list purchase doc failed: ${resp.statusCode} ${resp.body}');
+      return null;
+    }
+
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final files = (data['files'] as List<dynamic>? ?? []);
+    if (files.isEmpty) return null;
+    final f = files.first as Map<String, dynamic>;
+    return {
+      'id': (f['id'] as String?) ?? '',
+      'name': (f['name'] as String?) ?? '',
+      'webViewLink': (f['webViewLink'] as String?) ?? '',
+      'webContentLink': (f['webContentLink'] as String?) ?? '',
+    };
+  }
+
+  Future<Map<String, String>> uploadOrUpdatePurchaseDocJpg({
+    required String accessToken,
+    required String purchaseId,
+    required Uint8List bytes,
+  }) async {
+    final folderId = await _ensureFolder(accessToken: accessToken, folderName: purchaseDocFolderName);
+    final fileName = '$purchaseId.jpg';
+
+    final existing = await getPurchaseDocByName(accessToken: accessToken, purchaseId: purchaseId);
+    final boundary = 'drive_boundary_${DateTime.now().microsecondsSinceEpoch}';
+
+    final meta = jsonEncode({
+      'name': fileName,
+      'mimeType': 'image/jpeg',
+      'parents': [folderId],
+    });
+
+    final body = <int>[];
+    void writeString(String s) => body.addAll(utf8.encode(s));
+
+    writeString('--$boundary\r\n');
+    writeString('Content-Type: application/json; charset=UTF-8\r\n\r\n');
+    writeString('$meta\r\n');
+
+    writeString('--$boundary\r\n');
+    writeString('Content-Type: image/jpeg\r\n\r\n');
+    body.addAll(bytes);
+    writeString('\r\n');
+
+    writeString('--$boundary--\r\n');
+
+    final Uri uri;
+    final String method;
+    if (existing != null && (existing['id'] ?? '').isNotEmpty) {
+      method = 'PATCH';
+      uri = Uri.parse(
+        'https://www.googleapis.com/upload/drive/v3/files/${existing['id']}?uploadType=multipart&fields=id,name,webViewLink,webContentLink',
+      );
+    } else {
+      method = 'POST';
+      uri = Uri.parse(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink',
+      );
+    }
+
+    final req = http.Request(method, uri);
+    req.headers.addAll({
+      'Authorization': 'Bearer $accessToken',
+      'Content-Type': 'multipart/related; boundary=$boundary',
+    });
+    req.bodyBytes = Uint8List.fromList(body);
+    final streamed = await req.send();
+    final resp = await http.Response.fromStream(streamed);
+
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      return {
+        'id': (data['id'] as String?) ?? '',
+        'name': (data['name'] as String?) ?? '',
+        'webViewLink': (data['webViewLink'] as String?) ?? '',
+        'webContentLink': (data['webContentLink'] as String?) ?? '',
+      };
+    }
+
+    debugPrint('Drive upload purchase doc failed: ${resp.statusCode} ${resp.body}');
+    throw Exception('Tải chứng từ lên Google Drive thất bại (${resp.statusCode})');
   }
 
   /// Lists backup files in the backup folder (id, name, modifiedTime).

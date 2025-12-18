@@ -3,6 +3,11 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
 
 import '../models/product.dart';
 import '../models/customer.dart';
@@ -10,7 +15,9 @@ import '../models/debt.dart';
 import '../providers/customer_provider.dart';
 import '../providers/debt_provider.dart';
 import '../providers/product_provider.dart';
+import '../providers/auth_provider.dart';
 import '../services/database_service.dart';
+import '../services/drive_sync_service.dart';
 import '../utils/contact_serializer.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
@@ -811,6 +818,112 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     return DatabaseService.instance.getPurchaseHistory(range: _range, query: _query);
   }
 
+  Future<String?> _getDriveToken() async {
+    final token = await context.read<AuthProvider>().getAccessToken();
+    if (token == null || token.isEmpty) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không lấy được token Google. Vui lòng đăng nhập lại.')),
+      );
+      return null;
+    }
+    return token;
+  }
+
+  Future<void> _uploadPurchaseDoc({required String purchaseId}) async {
+    final token = await _getDriveToken();
+    if (token == null) return;
+
+    final picker = ImagePicker();
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Chụp ảnh'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Chọn ảnh trong máy'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (source == null) return;
+
+    final picked = await picker.pickImage(source: source, imageQuality: 85);
+    if (picked == null) return;
+
+    final bytes = await picked.readAsBytes();
+    await DriveSyncService().uploadOrUpdatePurchaseDocJpg(
+      accessToken: token,
+      purchaseId: purchaseId,
+      bytes: bytes,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã tải chứng từ lên Google Drive')),
+    );
+  }
+
+  Future<void> _openPurchaseDoc({required String purchaseId}) async {
+    final token = await _getDriveToken();
+    if (token == null) return;
+
+    final info = await DriveSyncService().getPurchaseDocByName(
+      accessToken: token,
+      purchaseId: purchaseId,
+    );
+    final url = (info?['webViewLink'] ?? '').trim();
+    if (url.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chưa có chứng từ cho phiếu nhập này')),
+      );
+      return;
+    }
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không mở được chứng từ')),
+      );
+    }
+  }
+
+  Future<void> _downloadPurchaseDoc({required String purchaseId}) async {
+    final token = await _getDriveToken();
+    if (token == null) return;
+
+    final info = await DriveSyncService().getPurchaseDocByName(
+      accessToken: token,
+      purchaseId: purchaseId,
+    );
+    final fileId = (info?['id'] ?? '').trim();
+    if (fileId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chưa có chứng từ để tải')),
+      );
+      return;
+    }
+
+    final bytes = await DriveSyncService().downloadFile(accessToken: token, fileId: fileId);
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/$purchaseId.jpg');
+    await file.writeAsBytes(bytes, flush: true);
+    await Share.shareXFiles([XFile(file.path)], text: 'Chứng từ nhập hàng: $purchaseId');
+  }
+
   @override
   Widget build(BuildContext context) {
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
@@ -912,7 +1025,10 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                               builder: (context, snap) {
                                 final d = snap.data;
                                 if (snap.connectionState != ConnectionState.done || d == null) {
-                                  return Text('Còn nợ: ${currency.format(remainDebt)}');
+                                  return Text(
+                                    'Còn nợ: ${currency.format(remainDebt)}',
+                                    style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600),
+                                  );
                                 }
 
                                 return FutureBuilder<double>(
@@ -924,28 +1040,56 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                     final text = settled
                                         ? 'Đã tất toán'
                                         : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
-                                    return Text(text);
+                                    final color = settled ? Colors.green : Colors.redAccent;
+                                    return Text(
+                                      text,
+                                      style: TextStyle(color: color, fontWeight: FontWeight.w600),
+                                    );
                                   },
                                 );
                               },
+                            ),
+                          if (remainDebt <= 0)
+                            const Text(
+                              'Đã tất toán',
+                              style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
                             ),
                           if (supplierName != null && supplierName.isNotEmpty) Text('NCC: $supplierName'),
                           Text(fmtDate.format(createdAt), style: const TextStyle(color: Colors.black54)),
                           if (note != null && note.isNotEmpty) Text('Ghi chú: $note'),
                         ],
                       ),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (v) async {
-                          if (v == 'edit') {
-                            await _editPurchaseDialog(r);
-                          }
-                          if (v == 'delete') {
-                            await _deletePurchase(r);
-                          }
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'edit', child: Text('Sửa')),
-                          PopupMenuItem(value: 'delete', child: Text('Xóa')),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Tải/chụp chứng từ',
+                            icon: const Icon(Icons.upload_file_outlined),
+                            onPressed: () => _uploadPurchaseDoc(purchaseId: r['id'] as String),
+                          ),
+                          IconButton(
+                            tooltip: 'Mở chứng từ',
+                            icon: const Icon(Icons.receipt_long_outlined),
+                            onPressed: () => _openPurchaseDoc(purchaseId: r['id'] as String),
+                          ),
+                          PopupMenuButton<String>(
+                            onSelected: (v) async {
+                              if (v == 'download_doc') {
+                                await _downloadPurchaseDoc(purchaseId: r['id'] as String);
+                              }
+                              if (v == 'edit') {
+                                await _editPurchaseDialog(r);
+                              }
+                              if (v == 'delete') {
+                                await _deletePurchase(r);
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(value: 'download_doc', child: Text('Tải chứng từ')),
+                              PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                              PopupMenuItem(value: 'delete', child: Text('Xóa')),
+                            ],
+                          ),
                         ],
                       ),
                     );

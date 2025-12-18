@@ -1590,6 +1590,15 @@ class _SaleScreenState extends State<SaleScreen> {
                       _items.isEmpty
                           ? null
                           : () async {
+                            if (debt > 0 && (_customerId == null || _customerId!.isEmpty)) {
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Có nợ thì bắt buộc phải chọn khách hàng'),
+                                ),
+                              );
+                              return;
+                            }
                             // Tính totalCost dựa trên unitCost của các SaleItem
                             double calculatedTotalCost = _items.fold(
                               0.0,

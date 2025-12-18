@@ -75,7 +75,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (_query.isNotEmpty) {
       final q = _vn(_query).toLowerCase();
       filtered = filtered.where((s) {
-        final customer = _vn(s.customerName ?? '').toLowerCase();
+        final rawCustomer = s.customerName?.trim();
+        final customer = _vn((rawCustomer != null && rawCustomer.isNotEmpty) ? rawCustomer : 'Khách lẻ').toLowerCase();
         final items = _vn(s.items.map((e) => e.name).join(', ')).toLowerCase();
         return customer.contains(q) || items.contains(q);
       }).toList();

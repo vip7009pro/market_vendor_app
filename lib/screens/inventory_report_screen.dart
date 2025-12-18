@@ -26,7 +26,29 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
   String _query = '';
   bool _loading = false;
 
-  _AmountMode _amountMode = _AmountMode.cost;
+  _AmountMode _amountMode = _AmountMode.sell;
+
+  late Future<List<_InventoryRow>> _rowsFuture;
+  final ScrollController _scrollCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _rowsFuture = _loadRows();
+  }
+
+  void _refreshRowsPreserveScroll() {
+    final offset = _scrollCtrl.hasClients ? _scrollCtrl.offset : 0.0;
+    setState(() {
+      _rowsFuture = _loadRows();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollCtrl.hasClients) return;
+      final max = _scrollCtrl.position.maxScrollExtent;
+      final target = offset.clamp(0.0, max);
+      _scrollCtrl.jumpTo(target);
+    });
+  }
 
   String _fmtQty(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
 
@@ -79,6 +101,71 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
               ],
             ),
             const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.calculate_outlined),
+                label: const Text('Tính tồn đầu kỳ'),
+                onPressed: () async {
+                  final start = DateTime(
+                    _range.start.year,
+                    _range.start.month,
+                    _range.start.day,
+                  );
+                  final end = DateTime(
+                    _range.end.year,
+                    _range.end.month,
+                    _range.end.day,
+                    23,
+                    59,
+                    59,
+                    999,
+                  );
+
+                  final db = DatabaseService.instance.db;
+
+                  final purchaseRows = await db.query(
+                    'purchase_history',
+                    columns: ['quantity'],
+                    where: 'productId = ? AND createdAt >= ? AND createdAt <= ?',
+                    whereArgs: [
+                      productId,
+                      start.toIso8601String(),
+                      end.toIso8601String(),
+                    ],
+                  );
+                  double importQty = 0;
+                  for (final r in purchaseRows) {
+                    importQty += (r['quantity'] as num?)?.toDouble() ?? 0;
+                  }
+
+                  final saleRows = await db.rawQuery(
+                    '''
+                    SELECT SUM(si.quantity) as qty
+                    FROM sale_items si
+                    JOIN sales s ON s.id = si.saleId
+                    WHERE si.productId = ?
+                      AND s.createdAt >= ? AND s.createdAt <= ?
+                  ''',
+                    [
+                      productId,
+                      start.toIso8601String(),
+                      end.toIso8601String(),
+                    ],
+                  );
+                  final exportQty =
+                      (saleRows.isNotEmpty
+                              ? (saleRows.first['qty'] as num?)?.toDouble()
+                              : null) ??
+                          0;
+
+                  final opening = currentStock + exportQty - importQty;
+                  ctrl.text = _fmtQty(opening);
+                  FocusScope.of(context).unfocus();
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
               'Tồn hiện tại: ${_fmtQty(currentStock)} $unit',
               style: const TextStyle(color: Colors.black54),
@@ -100,7 +187,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       openingByProductId: {productId: v},
     );
     if (!mounted) return;
-    setState(() {});
+    _refreshRowsPreserveScroll();
     messenger.showSnackBar(const SnackBar(content: Text('Đã cập nhật tồn đầu kỳ')));
   }
 
@@ -391,7 +478,10 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                 lastDate: DateTime(now.year + 1),
                 initialDateRange: _range,
               );
-              if (picked != null) setState(() => _range = picked);
+              if (picked != null) {
+                setState(() => _range = picked);
+                _refreshRowsPreserveScroll();
+              }
             },
           ),
         ],
@@ -406,7 +496,10 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                 isDense: true,
                 prefixIcon: Icon(Icons.search),
               ),
-              onChanged: (v) => setState(() => _query = v),
+              onChanged: (v) {
+                setState(() => _query = v);
+                _refreshRowsPreserveScroll();
+              },
             ),
           ),
           const SizedBox(height: 8),
@@ -439,7 +532,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
           const Divider(height: 16),
           Expanded(
             child: FutureBuilder<List<_InventoryRow>>(
-              future: _loadRows(),
+              future: _rowsFuture,
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -477,6 +570,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                 }
 
                 return ListView.builder(
+                  controller: _scrollCtrl,
+                  key: const PageStorageKey('inventory_report_list'),
                   itemCount: rows.length + 1,
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   itemBuilder: (context, i) {
