@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import '../providers/auth_provider.dart';
 import '../services/database_service.dart';
 import '../services/drive_sync_service.dart';
+import '../utils/number_input_formatter.dart';
 
 class ExpenseScreen extends StatefulWidget {
   const ExpenseScreen({super.key});
@@ -298,16 +299,17 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   }
 
   Future<void> _addOrEditExpense({Map<String, dynamic>? existing}) async {
-    DateTime occurredAt = DateTime.now();
-    if (existing != null) {
-      occurredAt = DateTime.tryParse(existing['occurredAt'] as String? ?? '') ?? DateTime.now();
-    }
-
     final amountCtrl = TextEditingController(
-      text: existing == null ? '' : ((existing['amount'] as num?)?.toDouble() ?? 0).toStringAsFixed(0),
+      text: existing == null
+          ? ''
+          : NumberFormat.decimalPattern('en_US').format(((existing['amount'] as num?)?.toDouble() ?? 0).round()),
     );
-    String category = existing == null ? 'Chi phí khác' : (existing['category'] as String? ?? 'Chi phí khác');
-    final noteCtrl = TextEditingController(text: (existing?['note'] as String?) ?? '');
+    final noteCtrl = TextEditingController(
+      text: existing == null ? '' : (existing['note'] as String? ?? ''),
+    );
+
+    var occurredAt = DateTime.tryParse(existing?['occurredAt'] as String? ?? '') ?? DateTime.now();
+    var category = (existing?['category'] as String?) ?? _categories.firstWhere((c) => c != 'all', orElse: () => 'Chi phí khác');
 
     final saved = await showDialog<bool>(
       context: context,
@@ -348,7 +350,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     ),
                     TextField(
                       controller: amountCtrl,
-                      keyboardType: TextInputType.number,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                      inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
                       decoration: const InputDecoration(
                         labelText: 'Số tiền',
                         prefixIcon: Icon(Icons.payments_outlined),
@@ -387,7 +390,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
                 FilledButton(
                   onPressed: () async {
-                    final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
+                    final amount = NumberInputFormatter.tryParse(amountCtrl.text) ?? 0;
                     if (amount <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Số tiền không hợp lệ')),
@@ -424,8 +427,10 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       },
     );
 
-    amountCtrl.dispose();
-    noteCtrl.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      amountCtrl.dispose();
+      noteCtrl.dispose();
+    });
 
     if (saved == true && mounted) {
       setState(() {});

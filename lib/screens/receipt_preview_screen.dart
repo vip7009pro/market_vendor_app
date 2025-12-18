@@ -9,9 +9,9 @@ import 'package:barcode/barcode.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/sale.dart';
+import '../services/database_service.dart';
 
 class ReceiptPreviewScreen extends StatefulWidget {
   final Sale sale;
@@ -38,14 +38,16 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
   }
 
   Future<void> _loadStoreInfo() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _storeName = prefs.getString('store_name') ?? 'CỬA HÀNG ABC';
-        _storeAddress = prefs.getString('store_address') ?? 'Địa chỉ: 123 Đường XYZ';
-        _storePhone = prefs.getString('store_phone') ?? 'Hotline: 090xxxxxxx';
-      });
-    }
+    final row = await DatabaseService.instance.getStoreInfo();
+    if (!mounted) return;
+    setState(() {
+      final name = (row?['name'] as String?)?.trim();
+      final address = (row?['address'] as String?)?.trim();
+      final phone = (row?['phone'] as String?)?.trim();
+      _storeName = (name != null && name.isNotEmpty) ? name : 'CỬA HÀNG ABC';
+      _storeAddress = (address != null && address.isNotEmpty) ? address : 'Địa chỉ: 123 Đường XYZ';
+      _storePhone = (phone != null && phone.isNotEmpty) ? phone : 'Hotline: 090xxxxxxx';
+    });
   }
 
   String _buildReceiptContent(Sale sale, NumberFormat currency, int columnWidth) {

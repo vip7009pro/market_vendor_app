@@ -27,13 +27,14 @@ class ReportScreen extends StatefulWidget {
 }
 
 class _ReportScreenState extends State<ReportScreen> {
+
   DateTimeRange _dateRange = DateTimeRange(
     start: DateTime.now().subtract(const Duration(days: 6)),
     end: DateTime.now(),
   );
 
   final PageController _chartPageController = PageController(initialPage: 0);
-  int _chartPageIndex = 0;
+  final ValueNotifier<int> _chartPageIndex = ValueNotifier<int>(0);
 
   ex.CellValue? _cv(Object? v) {
     if (v == null) return null;
@@ -538,6 +539,7 @@ class _ReportScreenState extends State<ReportScreen> {
   @override
   void dispose() {
     _chartPageController.dispose();
+    _chartPageIndex.dispose();
     super.dispose();
   }
 
@@ -838,10 +840,7 @@ class _ReportScreenState extends State<ReportScreen> {
               child: PageView(
                 controller: _chartPageController,
                 onPageChanged: (index) {
-                  if (!mounted) return;
-                  setState(() {
-                    _chartPageIndex = index;
-                  });
+                  _chartPageIndex.value = index;
                 },
                 children: [
                   // Daily Chart
@@ -867,21 +866,26 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(3, (i) {
-                final isActive = i == _chartPageIndex;
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  width: isActive ? 16 : 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: isActive ? Colors.blue : Colors.grey.shade400,
-                    borderRadius: BorderRadius.circular(99),
-                  ),
+            ValueListenableBuilder<int>(
+              valueListenable: _chartPageIndex,
+              builder: (context, pageIndex, _) {
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(3, (i) {
+                    final isActive = i == pageIndex;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      width: isActive ? 16 : 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: isActive ? Colors.blue : Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    );
+                  }),
                 );
-              }),
+              },
             ),
           ],
         ),

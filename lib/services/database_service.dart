@@ -59,6 +59,61 @@ class DatabaseService {
       await file.delete();
     }
   }
+
+  Future<bool> hasAnyData() async {
+    final tables = <String>[
+      'products',
+      'customers',
+      'sales',
+      'debts',
+      'purchase_history',
+      'expenses',
+    ];
+
+    for (final t in tables) {
+      try {
+        final r = await db.rawQuery('SELECT COUNT(1) as c FROM $t');
+        final c = (r.isNotEmpty ? r.first['c'] : 0) as int?;
+        if ((c ?? 0) > 0) return true;
+      } catch (_) {
+        continue;
+      }
+    }
+    return false;
+  }
+
+  Future<Map<String, dynamic>?> getStoreInfo() async {
+    final rows = await db.query('store_info', limit: 1);
+    if (rows.isEmpty) return null;
+    return rows.first;
+  }
+
+  Future<void> upsertStoreInfo({
+    required String name,
+    required String address,
+    required String phone,
+    String? taxCode,
+    String? email,
+    String? bankName,
+    String? bankAccount,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await db.insert(
+      'store_info',
+      {
+        'id': 1,
+        'name': name,
+        'address': address,
+        'phone': phone,
+        'taxCode': taxCode,
+        'email': email,
+        'bankName': bankName,
+        'bankAccount': bankAccount,
+        'updatedAt': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
   
   // Lấy thời gian đồng bộ cuối cùng
   Future<DateTime?> getLastSyncTime(String table) async {
@@ -790,6 +845,26 @@ class DatabaseService {
         print('Lỗi khi tạo bảng expenses: $e');
       }
     }
+
+    if (oldVersion < 18) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS store_info(
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            address TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            taxCode TEXT,
+            email TEXT,
+            bankName TEXT,
+            bankAccount TEXT,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        print('Lỗi khi tạo bảng store_info: $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -798,7 +873,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 17, // Tăng version để áp dụng migration
+      version: 18, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -966,6 +1041,20 @@ class DatabaseService {
             expenseDocUploaded INTEGER NOT NULL DEFAULT 0,
             expenseDocFileId TEXT,
             expenseDocUpdatedAt TEXT,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS store_info(
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            address TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            taxCode TEXT,
+            email TEXT,
+            bankName TEXT,
+            bankAccount TEXT,
             updatedAt TEXT NOT NULL
           )
         ''');

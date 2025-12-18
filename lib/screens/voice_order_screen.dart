@@ -4,11 +4,13 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/customer.dart';
 import '../models/debt.dart';
 import '../models/product.dart';
 import '../models/sale.dart';
+
 import '../providers/debt_provider.dart';
 import '../providers/product_provider.dart';
 import '../providers/customer_provider.dart';
@@ -39,14 +41,64 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   bool _customerExactMatched = false;
   double _paid = 0;
   bool _paidEdited = false;
+  final TextEditingController _paidCtrl = TextEditingController();
 
   final Map<Object, TextEditingController> _qtyCtrls = {};
   final Map<Object, TextEditingController> _priceCtrls = {};
+
+  Product? _getProductById(String id) {
+    final products = context.read<ProductProvider>().products;
+    for (final p in products) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  String _formatForInput(double v, {required int maxDecimalDigits, bool blankIfZero = false}) {
+    if (blankIfZero && v == 0) return '';
+
+    final abs = v.abs();
+    final sign = v < 0 ? '-' : '';
+    final intPart = abs.truncate();
+    final formattedInt = NumberFormat.decimalPattern('en_US').format(intPart);
+
+    if (maxDecimalDigits <= 0) return '$sign$formattedInt';
+
+    final hasDecimals = abs % 1 != 0;
+    if (!hasDecimals) return '$sign$formattedInt';
+
+    var dec = abs.toStringAsFixed(maxDecimalDigits).split('.').last;
+    dec = dec.replaceFirst(RegExp(r'0+$'), '');
+    if (dec.isEmpty) return '$sign$formattedInt';
+    return '$sign$formattedInt.$dec';
+  }
 
   @override
   void initState() {
     super.initState();
     _initSpeech();
+  }
+
+  void _syncPaidCtrlFromPaid() {
+    final t = _formatForInput(
+      _paid,
+      maxDecimalDigits: 0,
+      blankIfZero: true,
+    );
+    if (_paidCtrl.text == t) return;
+    _paidCtrl.text = t;
+    _paidCtrl.selection = TextSelection.collapsed(offset: _paidCtrl.text.length);
+  }
+
+  void _syncPaidWithTotalIfNotEdited(double total) {
+    if (_paidEdited) return;
+    final desired = total.clamp(0, double.infinity).toDouble();
+    if ((_paid - desired).abs() < 0.0001) {
+      _syncPaidCtrlFromPaid();
+      return;
+    }
+    _paid = desired;
+    _syncPaidCtrlFromPaid();
   }
 
   Future<Contact?> _showContactPicker() async {
@@ -74,7 +126,7 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12),
               height: MediaQuery.of(context).size.height * 0.8,
               child: Column(
                 children: [
@@ -93,20 +145,20 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
                       ),
                     ),
                     onChanged: (value) {
-                      if (value.isEmpty) {
+                      final q = value.trim().toLowerCase();
+                      if (q.isEmpty) {
                         setState(() {
                           filteredContacts = List.from(allContacts);
                         });
-                      } else {
-                        final query = value.toLowerCase();
-                        setState(() {
-                          filteredContacts = allContacts.where((contact) {
-                            final nameMatch = contact.displayName.toLowerCase().contains(query);
-                            final phoneMatch = contact.phones.any((phone) => phone.number.contains(query));
-                            return nameMatch || phoneMatch;
-                          }).toList();
-                        });
+                        return;
                       }
+                      setState(() {
+                        filteredContacts = allContacts.where((contact) {
+                          final nameMatch = contact.displayName.toLowerCase().contains(q);
+                          final phoneMatch = contact.phones.any((phone) => phone.number.contains(q));
+                          return nameMatch || phoneMatch;
+                        }).toList();
+                      });
                     },
                   ),
                   const SizedBox(height: 16),
@@ -211,8 +263,10 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     return _qtyCtrls.putIfAbsent(
       key,
       () => TextEditingController(
-        text: ((order['quantity'] as num?)?.toDouble() ?? 0)
-            .toStringAsFixed(((order['quantity'] as num?)?.toDouble() ?? 0) % 1 == 0 ? 0 : 2),
+        text: _formatForInput(
+          ((order['quantity'] as num?)?.toDouble() ?? 0),
+          maxDecimalDigits: 2,
+        ),
       ),
     );
   }
@@ -229,7 +283,7 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12),
               height: MediaQuery.of(context).size.height * 0.8,
               child: Column(
                 children: [
@@ -327,9 +381,11 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     return _priceCtrls.putIfAbsent(
       key,
       () => TextEditingController(
-        text: ((order['price'] as num?)?.toDouble() ?? 0) == 0
-            ? ''
-            : ((order['price'] as num?)?.toDouble() ?? 0).toStringAsFixed(0),
+        text: _formatForInput(
+          ((order['price'] as num?)?.toDouble() ?? 0),
+          maxDecimalDigits: 0,
+          blankIfZero: true,
+        ),
       ),
     );
   }
@@ -409,7 +465,9 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     final priceCtrl = TextEditingController(text: '0');
     final costPriceCtrl = TextEditingController(text: '0');
     final stockCtrl = TextEditingController(text: '0');
-    final unitCtrl = TextEditingController(text: 'cái');
+    final prefs = await SharedPreferences.getInstance();
+    final lastUnit = prefs.getString('last_product_unit') ?? 'cái';
+    final unitCtrl = TextEditingController(text: lastUnit);
     final barcodeCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
@@ -481,6 +539,11 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
       barcode: barcode,
       isActive: true,
     );
+
+    final unitToSave = p.unit.trim();
+    if (unitToSave.isNotEmpty) {
+      await prefs.setString('last_product_unit', unitToSave);
+    }
 
     await context.read<ProductProvider>().add(p);
     if (!mounted) return;
@@ -786,6 +849,7 @@ Lệnh: $text
       _customerExactMatched = false;
       _paid = 0;
       _paidEdited = false;
+      _paidCtrl.clear();
       _status = 'Đã xoá đơn hàng hiện tại';
     });
   }
@@ -811,6 +875,7 @@ Lệnh: $text
     final paidFromAi = rawPaid is num ? rawPaid.toDouble() : null;
     if (paidFromAi != null && paidFromAi >= 0 && !_paidEdited) {
       _paid = paidFromAi;
+      _syncPaidCtrlFromPaid();
     }
 
     // Xử lý xoá toàn bộ đơn hàng
@@ -885,7 +950,9 @@ Lệnh: $text
     }
 
     // Không set _status ở đây để tránh ghi đè flow trạng thái của AI
-    setState(() {});
+    setState(() {
+      _syncPaidWithTotalIfNotEdited(_orderTotal);
+    });
   }
 
   Future<void> _saveOrder() async {
@@ -981,6 +1048,7 @@ Lệnh: $text
       _customerExactMatched = false;
       _paid = 0;
       _paidEdited = false;
+      _paidCtrl.clear();
     });
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã lưu đơn hàng')));
   }
@@ -994,13 +1062,27 @@ Lệnh: $text
     final total = _orderTotal;
     final debt = (total - _paid).clamp(0, double.infinity).toDouble();
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_paidEdited) return;
+      final desired = total.clamp(0, double.infinity).toDouble();
+      if ((_paid - desired).abs() < 0.0001) {
+        _syncPaidCtrlFromPaid();
+        return;
+      }
+      setState(() {
+        _paid = desired;
+        _syncPaidCtrlFromPaid();
+      });
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Đặt hàng bằng giọng nói'),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(10.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1119,7 +1201,7 @@ Lệnh: $text
                         onPressed: () async {
                           final pickedProductId = await _showProductPicker();
                           if (pickedProductId == null) return;
-                          final picked = productsById[pickedProductId];
+                          final picked = productsById[pickedProductId] ?? _getProductById(pickedProductId);
                           if (picked == null) return;
                           setState(() {
                             _orders.add({
@@ -1130,6 +1212,7 @@ Lệnh: $text
                               'price': picked.price.toDouble(),
                               'dbExactMatched': true,
                             });
+                            _syncPaidWithTotalIfNotEdited(_orderTotal);
                           });
                         },
                       ),
@@ -1178,7 +1261,7 @@ Lệnh: $text
                                           onTap: () async {
                                             final pickedProductId = await _showProductPicker();
                                             if (pickedProductId == null) return;
-                                            final picked = productsById[pickedProductId];
+                                            final picked = productsById[pickedProductId] ?? _getProductById(pickedProductId);
                                             if (picked == null) return;
                                             setState(() {
                                               order['productId'] = picked.id;
@@ -1187,8 +1270,14 @@ Lệnh: $text
                                               order['price'] = picked.price.toDouble();
                                               order['dbExactMatched'] = true;
                                             });
-                                            _qtyCtrlFor(order).text = (order['quantity'] as num?)?.toDouble().toString() ?? '0';
-                                            _priceCtrlFor(order).text = picked.price.toStringAsFixed(0);
+                                            _qtyCtrlFor(order).text = _formatForInput(
+                                              (order['quantity'] as num?)?.toDouble() ?? 0,
+                                              maxDecimalDigits: 2,
+                                            );
+                                            _priceCtrlFor(order).text = _formatForInput(
+                                              picked.price.toDouble(),
+                                              maxDecimalDigits: 0,
+                                            );
                                           },
                                           child: Text(
                                             name,
@@ -1236,6 +1325,7 @@ Lệnh: $text
                                             if (val == null || val < 0) return;
                                             setState(() {
                                               order['quantity'] = val;
+                                              _syncPaidWithTotalIfNotEdited(_orderTotal);
                                             });
                                           },
                                         ),
@@ -1257,6 +1347,7 @@ Lệnh: $text
                                             if (val == null || val < 0) return;
                                             setState(() {
                                               order['price'] = val;
+                                              _syncPaidWithTotalIfNotEdited(_orderTotal);
                                             });
                                           },
                                         ),
@@ -1278,6 +1369,7 @@ Lệnh: $text
                               onPressed: () {
                                 setState(() {
                                   _orders.remove(order);
+                                  _syncPaidWithTotalIfNotEdited(_orderTotal);
                                 });
                               },
                             ),
@@ -1319,10 +1411,10 @@ Lệnh: $text
                                 setState(() {
                                   _paidEdited = true;
                                   _paid = val.clamp(0, total).toDouble();
+                                  _syncPaidCtrlFromPaid();
                                 });
                               },
-                              controller: TextEditingController(text: _paid == 0 ? '' : _paid.toStringAsFixed(0))
-                                ..selection = TextSelection.collapsed(offset: (_paid == 0 ? '' : _paid.toStringAsFixed(0)).length),
+                              controller: _paidCtrl,
                             ),
                           ),
                         ],
@@ -1333,8 +1425,9 @@ Lệnh: $text
                         child: OutlinedButton(
                           onPressed: () {
                             setState(() {
-                              _paidEdited = true;
+                              //_paidEdited = true;
                               _paid = 0;
+                              _syncPaidCtrlFromPaid();
                             });
                           },
                           child: const Text('Khách nợ tất'),
@@ -1420,6 +1513,7 @@ Lệnh: $text
   @override
   void dispose() {
     _speech.stop();
+    _paidCtrl.dispose();
     for (final c in _qtyCtrls.values) {
       c.dispose();
     }
