@@ -939,12 +939,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     final token = await _getDriveToken();
     if (token == null) return;
 
-    if (mounted) {
-      setState(() {
-        _docUploading.add(purchaseId);
-      });
-    }
-
     final picker = ImagePicker();
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
@@ -973,6 +967,12 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
     final picked = await picker.pickImage(source: source, imageQuality: 85);
     if (picked == null) return;
+
+    if (mounted) {
+      setState(() {
+        _docUploading.add(purchaseId);
+      });
+    }
 
     final bytes = await picked.readAsBytes();
     try {
