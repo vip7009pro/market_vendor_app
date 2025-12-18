@@ -17,6 +17,7 @@ import 'report_screen.dart';
 import 'settings_screen.dart';
 import 'sale_screen.dart';
 import 'sales_history_screen.dart';
+import 'expense_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -76,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const SalesHistoryScreen(),
       const DebtScreen(),
       const PurchaseHistoryScreen(),
+      const ExpenseScreen(),
       const ReportScreen(),
       const SettingsScreen(),
     ];
@@ -110,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(icon: Icon(Icons.history), label: 'Lịch sử'),
           NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Ghi nợ'),
           NavigationDestination(icon: Icon(Icons.inventory), label: 'Nhập hàng'),
+          NavigationDestination(icon: Icon(Icons.payments_outlined), label: 'Chi phí'),
           NavigationDestination(icon: Icon(Icons.insights), label: 'Báo cáo'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Cài đặt'),
         ],

@@ -90,6 +90,15 @@ class _ReportScreenState extends State<ReportScreen> {
         orderBy: 'createdAt DESC',
       );
 
+      final rangeStart = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
+      final rangeEnd = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
+      final expenses = await db.query(
+        'expenses',
+        where: 'occurredAt >= ? AND occurredAt <= ?',
+        whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+        orderBy: 'occurredAt DESC',
+      );
+
       final sales = await DatabaseService.instance.getSalesForSync();
       final saleItems = await db.query('sale_items');
       final saleById = <String, Map<String, dynamic>>{
@@ -192,36 +201,32 @@ class _ReportScreenState extends State<ReportScreen> {
       final debtsSheet = excel['list công nợ'];
       debtsSheet.appendRow([
         _cv('id'),
-        _cv('createdAt'),
-        _cv('type'),
-        _cv('partyId'),
-        _cv('partyName'),
+        _cv('customerId'),
+        _cv('customerName'),
         _cv('amount'),
-        _cv('description'),
+        _cv('createdAt'),
         _cv('dueDate'),
-        _cv('settled'),
+        _cv('note'),
+        _cv('isPaid'),
+        _cv('paidAt'),
+        _cv('updatedAt'),
         _cv('sourceType'),
         _cv('sourceId'),
-        _cv('updatedAt'),
-        _cv('deviceId'),
-        _cv('isSynced'),
       ]);
       for (final d in debts) {
         debtsSheet.appendRow([
           _cv(d['id']),
-          _cv(d['createdAt']),
-          _cv(d['type']),
-          _cv(d['partyId']),
-          _cv(d['partyName']),
+          _cv(d['customerId']),
+          _cv(d['customerName']),
           _cv(d['amount']),
-          _cv(d['description']),
+          _cv(d['createdAt']),
           _cv(d['dueDate']),
-          _cv(d['settled']),
+          _cv(d['note']),
+          _cv(d['isPaid']),
+          _cv(d['paidAt']),
+          _cv(d['updatedAt']),
           _cv(d['sourceType']),
           _cv(d['sourceId']),
-          _cv(d['updatedAt']),
-          _cv(d['deviceId']),
-          _cv(d['isSynced']),
         ]);
       }
 
@@ -248,6 +253,32 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(p['note']),
           _cv(p['createdAt']),
           _cv(p['isSynced']),
+        ]);
+      }
+
+      final expensesSheet = excel['list chi phí'];
+      expensesSheet.appendRow([
+        _cv('id'),
+        _cv('occurredAt'),
+        _cv('amount'),
+        _cv('category'),
+        _cv('note'),
+        _cv('expenseDocUploaded'),
+        _cv('expenseDocFileId'),
+        _cv('expenseDocUpdatedAt'),
+        _cv('updatedAt'),
+      ]);
+      for (final e in expenses) {
+        expensesSheet.appendRow([
+          _cv(e['id']),
+          _cv(e['occurredAt']),
+          _cv(e['amount']),
+          _cv(e['category']),
+          _cv(e['note']),
+          _cv(e['expenseDocUploaded']),
+          _cv(e['expenseDocFileId']),
+          _cv(e['expenseDocUpdatedAt']),
+          _cv(e['updatedAt']),
         ]);
       }
 
@@ -554,6 +585,14 @@ class _ReportScreenState extends State<ReportScreen> {
     final totalOweOthers = debtsProvider.totalOweOthers;
     final totalOthersOweMe = debtsProvider.totalOthersOweMe;
 
+    final start = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
+    final end = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
+    final rangeForQuery = DateTimeRange(start: start, end: end);
+
+    final periodRevenue = filteredSales.fold<double>(0, (p, s) => p + s.total);
+    final periodCost = filteredSales.fold<double>(0, (p, s) => p + s.totalCost);
+    final periodProfit = periodRevenue - periodCost;
+
     // Prepare data for charts
     final daysInRange = _dateRange.duration.inDays + 1;
     final dailyData = List.generate(daysInRange, (i) {
@@ -658,58 +697,127 @@ class _ReportScreenState extends State<ReportScreen> {
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ),
-                GridView.count(
-                  crossAxisCount: 2,
-                  childAspectRatio: 1.8,
-                  crossAxisSpacing: 1,
-                  mainAxisSpacing: 1,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  padding: const EdgeInsets.only(bottom: 4),
+                Column(
                   children: [
-                    _KpiCard(
-                      title: 'Hôm nay',
-                      revenue: todaySales,
-                      cost: todayCost,
-                      profit: todayProfit,
-                      currency: currency,
-                      color: Colors.blue,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _TripleKpi(
+                            title: 'Hôm nay',
+                            revenue: todaySales,
+                            cost: todayCost,
+                            profit: todayProfit,
+                            currency: currency,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _TripleKpi(
+                            title: 'Tuần này',
+                            revenue: weekSales,
+                            cost: weekCost,
+                            profit: weekProfit,
+                            currency: currency,
+                            color: Colors.green,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _TripleKpi(
+                            title: 'Tháng này',
+                            revenue: monthSales,
+                            cost: monthCost,
+                            profit: monthProfit,
+                            currency: currency,
+                            color: Colors.purple,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _TripleKpi(
+                            title: 'Năm nay',
+                            revenue: yearSales,
+                            cost: yearCost,
+                            profit: yearProfit,
+                            currency: currency,
+                            color: Colors.orange,
+                          ),
+                        ),
+                      ],
                     ),
-                    _KpiCard(
-                      title: 'Tuần này',
-                      revenue: weekSales,
-                      cost: weekCost,
-                      profit: weekProfit,
-                      currency: currency,
-                      color: Colors.green,
-                    ),
-                    _KpiCard(
-                      title: 'Tháng này',
-                      revenue: monthSales,
-                      cost: monthCost,
-                      profit: monthProfit,
-                      currency: currency,
-                      color: Colors.purple,
-                    ),
-                    _KpiCard(
-                      title: 'Năm nay',
-                      revenue: yearSales,
-                      cost: yearCost,
-                      profit: yearProfit,
-                      currency: currency,
-                      color: Colors.orange,
-                    ),
-                    _KpiCard(
-                      title: 'Tiền nợ tôi',
-                      value: totalOthersOweMe,
-                      currency: currency,
-                      color: Colors.red,
-                    ),
-                    _KpiCard(
-                      title: 'Tiền tôi nợ',
-                      value: totalOweOthers,
-                      currency: currency,
-                      color: Colors.amber,
+                    const SizedBox(height: 6),
+                    FutureBuilder<double>(
+                      future: DatabaseService.instance.getTotalExpensesInRange(rangeForQuery),
+                      builder: (context, snap) {
+                        final totalExpenses = snap.data ?? 0;
+                        final netProfit = periodProfit - totalExpenses;
+                        return Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Nợ tôi',
+                                    value: totalOthersOweMe,
+                                    currency: currency,
+                                    color: Colors.red,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Tôi nợ',
+                                    value: totalOweOthers,
+                                    currency: currency,
+                                    color: Colors.amber,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Chi phí',
+                                    value: totalExpenses,
+                                    currency: currency,
+                                    color: Colors.deepPurple,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'LN kỳ',
+                                    value: periodProfit,
+                                    currency: currency,
+                                    color: periodProfit >= 0 ? Colors.green : Colors.red,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Chi phí kỳ',
+                                    value: totalExpenses,
+                                    currency: currency,
+                                    color: Colors.deepPurple,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'LN ròng',
+                                    value: netProfit,
+                                    currency: currency,
+                                    color: netProfit >= 0 ? Colors.teal : Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -1095,125 +1203,150 @@ class _InventoryMetric extends StatelessWidget {
   }
 }
 
-class _KpiCard extends StatelessWidget {
+class _SingleKpi extends StatelessWidget {
   final String title;
-  final double? value;
-  final double? revenue;
-  final double? cost;
-  final double? profit;
+  final double value;
   final NumberFormat currency;
   final Color color;
 
-  const _KpiCard({
+  const _SingleKpi({
     required this.title,
-    this.value,
-    this.revenue,
-    this.cost,
-    this.profit,
+    required this.value,
     required this.currency,
     required this.color,
-  }) : assert(value != null || (revenue != null && cost != null && profit != null));
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (value != null) {
-      return _buildSimpleCard(context);
-    } else {
-      return _buildDetailedCard(context);
-    }
-  }
-
-  Widget _buildSimpleCard(BuildContext context) {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              title, 
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              currency.format(value),
               style: TextStyle(
-                color: color, 
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
+                color: color,
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
               ),
             ),
-            const SizedBox(height: 4),
-            FittedBox(
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TripleKpi extends StatelessWidget {
+  final String title;
+  final double revenue;
+  final double cost;
+  final double profit;
+  final NumberFormat currency;
+  final Color color;
+
+  const _TripleKpi({
+    required this.title,
+    required this.revenue,
+    required this.cost,
+    required this.profit,
+    required this.currency,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final profitColor = profit >= 0 ? Colors.green : Colors.red;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+          _TripleKpiRow(label: 'DT', value: revenue, currency: currency, valueColor: Colors.blue),
+          const SizedBox(height: 2),
+          _TripleKpiRow(label: 'Vốn', value: cost, currency: currency, valueColor: Colors.orange),
+          const SizedBox(height: 2),
+          _TripleKpiRow(label: 'LN', value: profit, currency: currency, valueColor: profitColor),
+        ],
+      ),
+    );
+  }
+}
+
+class _TripleKpiRow extends StatelessWidget {
+  final String label;
+  final double value;
+  final NumberFormat currency;
+  final Color valueColor;
+
+  const _TripleKpiRow({
+    required this.label,
+    required this.value,
+    required this.currency,
+    required this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 30,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
                 currency.format(value),
                 style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: valueColor,
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailedCard(BuildContext context) {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 4),
-            // Revenue
-            _buildMetricRow('Doanh thu', revenue!, Colors.blue),
-            const SizedBox(height: 4),
-            // Cost
-            _buildMetricRow('Chi phí', cost!, Colors.orange),
-            const SizedBox(height: 4),
-            // Profit
-            _buildMetricRow(
-              'Lợi nhuận',
-              profit!,
-              profit! >= 0 ? Colors.green : Colors.red,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMetricRow(String label, double value, Color color) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Flexible(
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 10, color: Colors.black87),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        const SizedBox(width: 4),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            currency.format(value),
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: color,
             ),
           ),
         ),

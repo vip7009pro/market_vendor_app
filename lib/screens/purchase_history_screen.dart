@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:io';
@@ -33,6 +32,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   DateTimeRange? _range;
   String _query = '';
 
+  final Set<String> _docUploading = <String>{};
+
   static const _prefLastSupplierName = 'purchase_last_supplier_name';
   static const _prefLastSupplierPhone = 'purchase_last_supplier_phone';
 
@@ -45,6 +46,110 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     }
 
     return result;
+  }
+
+  Future<void> _deletePurchaseDoc({required String purchaseId, String? fileIdFromDb}) async {
+    final token = await _getDriveToken();
+    if (token == null) return;
+
+    var fileId = (fileIdFromDb ?? '').trim();
+    if (fileId.isEmpty) {
+      final info = await DriveSyncService().getPurchaseDocByName(
+        accessToken: token,
+        purchaseId: purchaseId,
+      );
+      fileId = (info?['id'] ?? '').trim();
+    }
+
+    if (fileId.isEmpty) {
+      await DatabaseService.instance.clearPurchaseDoc(purchaseId: purchaseId);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không tìm thấy chứng từ để xóa')),
+      );
+      return;
+    }
+
+    await DriveSyncService().deleteFile(accessToken: token, fileId: fileId);
+    await DatabaseService.instance.clearPurchaseDoc(purchaseId: purchaseId);
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã xóa chứng từ')),
+    );
+  }
+
+  Future<void> _showDocActions({
+    required Map<String, dynamic> row,
+  }) async {
+    final purchaseId = row['id'] as String;
+    final uploaded = (row['purchaseDocUploaded'] as int?) == 1;
+    final fileId = (row['purchaseDocFileId'] as String?)?.trim();
+    final uploading = _docUploading.contains(purchaseId);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: uploading
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.upload_file_outlined),
+                title: Text(uploaded ? 'Up lại chứng từ' : 'Upload chứng từ'),
+                onTap: uploading
+                    ? null
+                    : () async {
+                        Navigator.pop(ctx);
+                        await _uploadPurchaseDoc(purchaseId: purchaseId);
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.visibility_outlined),
+                title: const Text('Xem chứng từ'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _openPurchaseDoc(purchaseId: purchaseId, fileIdFromDb: fileId);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.download_outlined),
+                title: const Text('Tải chứng từ'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _downloadPurchaseDoc(purchaseId: purchaseId);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                title: const Text('Xóa chứng từ', style: TextStyle(color: Colors.redAccent)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('Xóa chứng từ'),
+                      content: const Text('Bạn có chắc muốn xóa chứng từ này?'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+                        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    await _deletePurchaseDoc(purchaseId: purchaseId, fileIdFromDb: fileId);
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<Product?> _showProductPicker() async {
@@ -834,6 +939,12 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     final token = await _getDriveToken();
     if (token == null) return;
 
+    if (mounted) {
+      setState(() {
+        _docUploading.add(purchaseId);
+      });
+    }
+
     final picker = ImagePicker();
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
@@ -864,40 +975,64 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     if (picked == null) return;
 
     final bytes = await picked.readAsBytes();
-    await DriveSyncService().uploadOrUpdatePurchaseDocJpg(
-      accessToken: token,
-      purchaseId: purchaseId,
-      bytes: bytes,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Đã tải chứng từ lên Google Drive')),
-    );
+    try {
+      final meta = await DriveSyncService().uploadOrUpdatePurchaseDocJpg(
+        accessToken: token,
+        purchaseId: purchaseId,
+        bytes: bytes,
+      );
+      final fileId = (meta['id'] ?? '').trim();
+      if (fileId.isNotEmpty) {
+        await DatabaseService.instance.markPurchaseDocUploaded(purchaseId: purchaseId, fileId: fileId);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã tải chứng từ lên Google Drive')),
+      );
+      setState(() {});
+    } finally {
+      if (mounted) {
+        setState(() {
+          _docUploading.remove(purchaseId);
+        });
+      }
+    }
   }
 
-  Future<void> _openPurchaseDoc({required String purchaseId}) async {
+  Future<void> _openPurchaseDoc({required String purchaseId, String? fileIdFromDb}) async {
     final token = await _getDriveToken();
     if (token == null) return;
 
-    final info = await DriveSyncService().getPurchaseDocByName(
-      accessToken: token,
-      purchaseId: purchaseId,
-    );
-    final url = (info?['webViewLink'] ?? '').trim();
-    if (url.isEmpty) {
+    var fileId = (fileIdFromDb ?? '').trim();
+    if (fileId.isEmpty) {
+      final info = await DriveSyncService().getPurchaseDocByName(
+        accessToken: token,
+        purchaseId: purchaseId,
+      );
+      fileId = (info?['id'] ?? '').trim();
+      if (fileId.isNotEmpty) {
+        await DatabaseService.instance.markPurchaseDocUploaded(purchaseId: purchaseId, fileId: fileId);
+      }
+    }
+
+    if (fileId.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Chưa có chứng từ cho phiếu nhập này')),
       );
       return;
     }
-    final uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Không mở được chứng từ')),
-      );
-    }
+
+    final bytes = await DriveSyncService().downloadFile(accessToken: token, fileId: fileId);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        child: InteractiveViewer(
+          child: Image.memory(bytes, fit: BoxFit.contain),
+        ),
+      ),
+    );
   }
 
   Future<void> _downloadPurchaseDoc({required String purchaseId}) async {
@@ -1002,6 +1137,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     final remainDebt = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
                     final note = (r['note'] as String?)?.trim();
                     final supplierName = (r['supplierName'] as String?)?.trim();
+                    final docUploaded = (r['purchaseDocUploaded'] as int?) == 1;
+                    final docUploading = _docUploading.contains(r['id'] as String);
 
                     return ListTile(
                       leading: CircleAvatar(
@@ -1055,6 +1192,22 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                               style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
                             ),
                           if (supplierName != null && supplierName.isNotEmpty) Text('NCC: $supplierName'),
+                          Row(
+                            children: [
+                              const Text('Chứng từ: '),
+                              Text(
+                                docUploaded ? 'Đã upload' : 'Chưa upload',
+                                style: TextStyle(
+                                  color: docUploaded ? Colors.green : Colors.black54,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (docUploading) ...[
+                                const SizedBox(width: 8),
+                                const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                              ],
+                            ],
+                          ),
                           Text(fmtDate.format(createdAt), style: const TextStyle(color: Colors.black54)),
                           if (note != null && note.isNotEmpty) Text('Ghi chú: $note'),
                         ],
@@ -1063,20 +1216,15 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            tooltip: 'Tải/chụp chứng từ',
-                            icon: const Icon(Icons.upload_file_outlined),
-                            onPressed: () => _uploadPurchaseDoc(purchaseId: r['id'] as String),
-                          ),
-                          IconButton(
-                            tooltip: 'Mở chứng từ',
-                            icon: const Icon(Icons.receipt_long_outlined),
-                            onPressed: () => _openPurchaseDoc(purchaseId: r['id'] as String),
+                            tooltip: 'Chứng từ',
+                            onPressed: () => _showDocActions(row: r),
+                            icon: Icon(
+                              docUploaded ? Icons.verified_outlined : Icons.description_outlined,
+                              color: docUploaded ? Colors.green : null,
+                            ),
                           ),
                           PopupMenuButton<String>(
                             onSelected: (v) async {
-                              if (v == 'download_doc') {
-                                await _downloadPurchaseDoc(purchaseId: r['id'] as String);
-                              }
                               if (v == 'edit') {
                                 await _editPurchaseDialog(r);
                               }
@@ -1085,7 +1233,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                               }
                             },
                             itemBuilder: (_) => const [
-                              PopupMenuItem(value: 'download_doc', child: Text('Tải chứng từ')),
                               PopupMenuItem(value: 'edit', child: Text('Sửa')),
                               PopupMenuItem(value: 'delete', child: Text('Xóa')),
                             ],

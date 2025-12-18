@@ -158,6 +158,9 @@ class DatabaseService {
           'supplierName': supplierName,
           'supplierPhone': supplierPhone,
           'note': note,
+          'purchaseDocUploaded': 0,
+          'purchaseDocFileId': null,
+          'purchaseDocUpdatedAt': null,
           'updatedAt': now.toIso8601String(),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
@@ -289,6 +292,177 @@ class DatabaseService {
       whereArgs: whereArgs.isEmpty ? null : whereArgs,
       orderBy: 'createdAt DESC',
     );
+  }
+
+  Future<void> markPurchaseDocUploaded({
+    required String purchaseId,
+    required String fileId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'purchase_history',
+      {
+        'purchaseDocUploaded': 1,
+        'purchaseDocFileId': fileId,
+        'purchaseDocUpdatedAt': now,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [purchaseId],
+    );
+  }
+
+  Future<void> clearPurchaseDoc({required String purchaseId}) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'purchase_history',
+      {
+        'purchaseDocUploaded': 0,
+        'purchaseDocFileId': null,
+        'purchaseDocUpdatedAt': now,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [purchaseId],
+    );
+  }
+
+  Future<String> insertExpense({
+    required DateTime occurredAt,
+    required double amount,
+    required String category,
+    String? note,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final id = _uuid.v4();
+    await db.insert(
+      'expenses',
+      {
+        'id': id,
+        'occurredAt': occurredAt.toIso8601String(),
+        'amount': amount,
+        'category': category,
+        'note': note,
+        'expenseDocUploaded': 0,
+        'expenseDocFileId': null,
+        'expenseDocUpdatedAt': null,
+        'updatedAt': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return id;
+  }
+
+  Future<void> updateExpense({
+    required String id,
+    required DateTime occurredAt,
+    required double amount,
+    required String category,
+    String? note,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'expenses',
+      {
+        'occurredAt': occurredAt.toIso8601String(),
+        'amount': amount,
+        'category': category,
+        'note': note,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteExpense(String id) async {
+    await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<Map<String, dynamic>>> getExpenses({
+    DateTimeRange? range,
+    String? category,
+    String? query,
+  }) async {
+    String? where;
+    final whereArgs = <Object?>[];
+
+    if (range != null) {
+      final start = DateTime(range.start.year, range.start.month, range.start.day);
+      final end = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
+      where = 'occurredAt >= ? AND occurredAt <= ?';
+      whereArgs.addAll([start.toIso8601String(), end.toIso8601String()]);
+    }
+
+    if (category != null && category.trim().isNotEmpty && category.trim() != 'all') {
+      if (where == null) {
+        where = 'category = ?';
+      } else {
+        where = '$where AND category = ?';
+      }
+      whereArgs.add(category.trim());
+    }
+
+    if (query != null && query.trim().isNotEmpty) {
+      final q = '%${query.trim()}%';
+      if (where == null) {
+        where = '(note LIKE ?)';
+      } else {
+        where = '$where AND (note LIKE ?)';
+      }
+      whereArgs.add(q);
+    }
+
+    return await db.query(
+      'expenses',
+      where: where,
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
+      orderBy: 'occurredAt DESC',
+    );
+  }
+
+  Future<void> markExpenseDocUploaded({
+    required String expenseId,
+    required String fileId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'expenses',
+      {
+        'expenseDocUploaded': 1,
+        'expenseDocFileId': fileId,
+        'expenseDocUpdatedAt': now,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [expenseId],
+    );
+  }
+
+  Future<void> clearExpenseDoc({required String expenseId}) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'expenses',
+      {
+        'expenseDocUploaded': 0,
+        'expenseDocFileId': null,
+        'expenseDocUpdatedAt': now,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [expenseId],
+    );
+  }
+
+  Future<double> getTotalExpensesInRange(DateTimeRange range) async {
+    final start = DateTime(range.start.year, range.start.month, range.start.day);
+    final end = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
+    final rows = await db.rawQuery(
+      'SELECT SUM(amount) as total FROM expenses WHERE occurredAt >= ? AND occurredAt <= ?',
+      [start.toIso8601String(), end.toIso8601String()],
+    );
+    final total = rows.isNotEmpty ? rows.first['total'] : null;
+    return (total as num?)?.toDouble() ?? 0;
   }
 
   // Reinitialize the database
@@ -546,9 +720,13 @@ class DatabaseService {
             quantity REAL NOT NULL,
             unitCost REAL NOT NULL DEFAULT 0,
             totalCost REAL NOT NULL DEFAULT 0,
+            paidAmount REAL NOT NULL DEFAULT 0,
             supplierName TEXT,
             supplierPhone TEXT,
             note TEXT,
+            purchaseDocUploaded INTEGER NOT NULL DEFAULT 0,
+            purchaseDocFileId TEXT,
+            purchaseDocUpdatedAt TEXT,
             updatedAt TEXT NOT NULL
           )
         ''');
@@ -580,6 +758,38 @@ class DatabaseService {
         await safeAddColumn(db, 'debts', 'sourceId', 'TEXT');
       } catch (_) {}
     }
+
+    if (oldVersion < 16) {
+      try {
+        await safeAddColumn(db, 'purchase_history', 'purchaseDocUploaded', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (_) {}
+      try {
+        await safeAddColumn(db, 'purchase_history', 'purchaseDocFileId', 'TEXT');
+      } catch (_) {}
+      try {
+        await safeAddColumn(db, 'purchase_history', 'purchaseDocUpdatedAt', 'TEXT');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 17) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS expenses(
+            id TEXT PRIMARY KEY,
+            occurredAt TEXT NOT NULL,
+            amount REAL NOT NULL,
+            category TEXT NOT NULL,
+            note TEXT,
+            expenseDocUploaded INTEGER NOT NULL DEFAULT 0,
+            expenseDocFileId TEXT,
+            expenseDocUpdatedAt TEXT,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        print('Lỗi khi tạo bảng expenses: $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -588,7 +798,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 15, // Tăng version để áp dụng migration
+      version: 17, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -739,6 +949,23 @@ class DatabaseService {
             supplierName TEXT,
             supplierPhone TEXT,
             note TEXT,
+            purchaseDocUploaded INTEGER NOT NULL DEFAULT 0,
+            purchaseDocFileId TEXT,
+            purchaseDocUpdatedAt TEXT,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS expenses(
+            id TEXT PRIMARY KEY,
+            occurredAt TEXT NOT NULL,
+            amount REAL NOT NULL,
+            category TEXT NOT NULL,
+            note TEXT,
+            expenseDocUploaded INTEGER NOT NULL DEFAULT 0,
+            expenseDocFileId TEXT,
+            expenseDocUpdatedAt TEXT,
             updatedAt TEXT NOT NULL
           )
         ''');
