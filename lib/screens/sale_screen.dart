@@ -643,8 +643,7 @@ class _SaleScreenState extends State<SaleScreen> {
                       decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
                     ),
                     const SizedBox(height: 8),
-                    if (!isMix) ...[
-                      TextField(
+                    TextField(
                         controller: priceCtrl,
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: false,
@@ -653,6 +652,8 @@ class _SaleScreenState extends State<SaleScreen> {
                         decoration: const InputDecoration(labelText: 'Giá bán'),
                       ),
                       const SizedBox(height: 8),
+                    if (!isMix) ...[
+                      
                       TextField(
                         controller: costPriceCtrl,
                         keyboardType: const TextInputType.numberWithOptions(
@@ -672,6 +673,7 @@ class _SaleScreenState extends State<SaleScreen> {
                       ),
                       const SizedBox(height: 8),
                     ],
+                    
                     TextField(
                       controller: unitCtrl,
                       decoration: const InputDecoration(labelText: 'Đơn vị'),
@@ -736,7 +738,7 @@ class _SaleScreenState extends State<SaleScreen> {
       final unitValue = unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim();
       final p = Product(
         name: nameCtrl.text.trim(),
-        price: isMix ? 0 : (NumberInputFormatter.tryParse(priceCtrl.text) ?? 0),
+        price: NumberInputFormatter.tryParse(priceCtrl.text) ?? 0,
         costPrice: isMix ? 0 : (NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0),
         currentStock: isMix ? 0 : (NumberInputFormatter.tryParse(stockCtrl.text) ?? 0),
         unit: unitValue,
@@ -957,15 +959,16 @@ class _SaleScreenState extends State<SaleScreen> {
                               itemCount: filteredProducts.length,
                               itemBuilder: (context, index) {
                                 final product = filteredProducts[index];
+                                final iconColor = product.itemType == ProductItemType.mix ? const Color.fromARGB(255, 93, 197, 8) : const Color.fromARGB(255, 240, 157, 184);
                                 return ListTile(
-                                  leading: const CircleAvatar(
-                                    child: Icon(Icons.shopping_bag),
+                                  leading: CircleAvatar(
                                     radius: 20,
+                                    child: Icon(Icons.shopping_bag, color: iconColor),
                                   ),
                                   title: Text(product.name),
                                   subtitle: Text(
                                     product.itemType == ProductItemType.mix
-                                        ? 'MIX • ${product.unit}'
+                                        ? 'MIX • ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}'
                                         : '${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}',
                                   ),
                                   onTap: () {
