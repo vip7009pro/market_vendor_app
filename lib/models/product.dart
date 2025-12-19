@@ -1,5 +1,7 @@
 import 'package:uuid/uuid.dart';
 
+enum ProductItemType { raw, mix }
+
 class Product {
   final String id;
   String name;
@@ -9,6 +11,8 @@ class Product {
   String unit; // e.g., kg, cái, bó
   String? barcode;
   bool isActive;
+  ProductItemType itemType;
+  bool isStocked;
 
   Product({
     String? id,
@@ -19,7 +23,25 @@ class Product {
     required this.unit,
     this.barcode,
     this.isActive = true,
-  }) : id = id ?? const Uuid().v4();
+    this.itemType = ProductItemType.raw,
+    bool? isStocked,
+  })  : id = id ?? const Uuid().v4(),
+        isStocked = isStocked ?? true;
+
+  static ProductItemType _parseItemType(dynamic v) {
+    final s = (v?.toString() ?? '').toUpperCase().trim();
+    if (s == 'MIX') return ProductItemType.mix;
+    return ProductItemType.raw;
+  }
+
+  static String _itemTypeToDb(ProductItemType t) {
+    switch (t) {
+      case ProductItemType.mix:
+        return 'MIX';
+      case ProductItemType.raw:
+        return 'RAW';
+    }
+  }
 
   factory Product.fromMap(Map<String, dynamic> map) => Product(
         id: map['id'],
@@ -30,6 +52,8 @@ class Product {
         unit: map['unit'],
         barcode: map['barcode'],
         isActive: map['isActive'] == 1 || map['isActive'] == true,
+        itemType: _parseItemType(map['itemType']),
+        isStocked: map['isStocked'] == null ? true : (map['isStocked'] == 1 || map['isStocked'] == true),
       );
 
   Map<String, dynamic> toMap() => {
@@ -41,5 +65,7 @@ class Product {
         'unit': unit,
         'barcode': barcode,
         'isActive': isActive ? 1 : 0,
+        'itemType': _itemTypeToDb(itemType),
+        'isStocked': isStocked ? 1 : 0,
       };
 }

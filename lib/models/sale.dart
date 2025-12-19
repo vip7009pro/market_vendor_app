@@ -7,6 +7,9 @@ class SaleItem {
   double unitCost; // Add unit cost field
   double quantity;
   String unit;
+  String? itemType;
+  String? displayName;
+  String? mixItemsJson;
 
   SaleItem({
     required this.productId,
@@ -15,6 +18,9 @@ class SaleItem {
     required this.unitCost,
     required this.quantity,
     required this.unit,
+    this.itemType,
+    this.displayName,
+    this.mixItemsJson,
   });
 
   double get total => unitPrice * quantity;
@@ -27,6 +33,9 @@ class SaleItem {
         'unitCost': unitCost,
         'quantity': quantity,
         'unit': unit,
+        'itemType': itemType,
+        'displayName': displayName,
+        'mixItemsJson': mixItemsJson,
       };
 
   factory SaleItem.fromMap(Map<String, dynamic> map) => SaleItem(
@@ -36,6 +45,9 @@ class SaleItem {
         unitCost: (map['unitCost'] as num?)?.toDouble() ?? 0.0,
         quantity: (map['quantity'] as num).toDouble(),
         unit: map['unit'],
+        itemType: map['itemType']?.toString(),
+        displayName: map['displayName']?.toString(),
+        mixItemsJson: map['mixItemsJson']?.toString(),
       );
 }
 

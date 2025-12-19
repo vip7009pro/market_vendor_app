@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:excel/excel.dart' as ex;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -30,6 +32,54 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
 
   late Future<List<_InventoryRow>> _rowsFuture;
   final ScrollController _scrollCtrl = ScrollController();
+
+  List<Map<String, dynamic>> _decodeMixItems(String? raw) {
+    final s = (raw ?? '').trim();
+    if (s.isEmpty) return <Map<String, dynamic>>[];
+    try {
+      final decoded = jsonDecode(s);
+      if (decoded is List) {
+        return decoded.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    } catch (_) {}
+    return <Map<String, dynamic>>[];
+  }
+
+  Future<double> _exportQtyForProductInRange({
+    required String productId,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final db = DatabaseService.instance.db;
+
+    final rows = await db.rawQuery(
+      '''
+      SELECT si.productId, si.quantity, si.itemType, si.mixItemsJson
+      FROM sale_items si
+      JOIN sales s ON s.id = si.saleId
+      WHERE s.createdAt >= ? AND s.createdAt <= ?
+      ''',
+      [start.toIso8601String(), end.toIso8601String()],
+    );
+
+    double total = 0.0;
+    for (final r in rows) {
+      final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
+      if (itemType == 'MIX') {
+        final mixItems = _decodeMixItems(r['mixItemsJson']?.toString());
+        for (final m in mixItems) {
+          final rid = (m['rawProductId']?.toString() ?? '').trim();
+          if (rid != productId) continue;
+          total += (m['rawQty'] as num?)?.toDouble() ?? 0.0;
+        }
+      } else {
+        final pid = (r['productId']?.toString() ?? '').trim();
+        if (pid != productId) continue;
+        total += (r['quantity'] as num?)?.toDouble() ?? 0.0;
+      }
+    }
+    return total;
+  }
 
   @override
   void initState() {
@@ -139,25 +189,11 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                     importQty += (r['quantity'] as num?)?.toDouble() ?? 0;
                   }
 
-                  final saleRows = await db.rawQuery(
-                    '''
-                    SELECT SUM(si.quantity) as qty
-                    FROM sale_items si
-                    JOIN sales s ON s.id = si.saleId
-                    WHERE si.productId = ?
-                      AND s.createdAt >= ? AND s.createdAt <= ?
-                  ''',
-                    [
-                      productId,
-                      start.toIso8601String(),
-                      end.toIso8601String(),
-                    ],
+                  final exportQty = await _exportQtyForProductInRange(
+                    productId: productId,
+                    start: start,
+                    end: end,
                   );
-                  final exportQty =
-                      (saleRows.isNotEmpty
-                              ? (saleRows.first['qty'] as num?)?.toDouble()
-                              : null) ??
-                          0;
 
                   final opening = currentStock + exportQty - importQty;
                   ctrl.text = _fmtQty(opening);
@@ -229,19 +265,32 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       importAmountCostByProductId[pid] = (importAmountCostByProductId[pid] ?? 0) + (qty * unitCost);
     }
 
-    final saleItemsRows = await db.rawQuery('''
-      SELECT si.productId as productId, SUM(si.quantity) as qty
+    final exportQtyByProductId = <String, double>{};
+    final saleRows = await db.rawQuery(
+      '''
+      SELECT si.productId, si.quantity, si.itemType, si.mixItemsJson
       FROM sale_items si
       JOIN sales s ON s.id = si.saleId
       WHERE s.createdAt >= ? AND s.createdAt <= ?
-      GROUP BY si.productId
-    ''', [start.toIso8601String(), end.toIso8601String()]);
-
-    final exportQtyByProductId = <String, double>{};
-    for (final r in saleItemsRows) {
-      final pid = r['productId'] as String?;
-      if (pid == null) continue;
-      exportQtyByProductId[pid] = (r['qty'] as num?)?.toDouble() ?? 0;
+      ''',
+      [start.toIso8601String(), end.toIso8601String()],
+    );
+    for (final r in saleRows) {
+      final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
+      if (itemType == 'MIX') {
+        final mixItems = _decodeMixItems(r['mixItemsJson']?.toString());
+        for (final m in mixItems) {
+          final rid = (m['rawProductId']?.toString() ?? '').trim();
+          if (rid.isEmpty) continue;
+          final q = (m['rawQty'] as num?)?.toDouble() ?? 0.0;
+          exportQtyByProductId[rid] = (exportQtyByProductId[rid] ?? 0) + q;
+        }
+      } else {
+        final pid = (r['productId']?.toString() ?? '').trim();
+        if (pid.isEmpty) continue;
+        final q = (r['quantity'] as num?)?.toDouble() ?? 0.0;
+        exportQtyByProductId[pid] = (exportQtyByProductId[pid] ?? 0) + q;
+      }
     }
 
     final qn = TextNormalizer.normalize(_query);

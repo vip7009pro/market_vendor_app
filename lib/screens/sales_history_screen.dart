@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -225,7 +227,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   elevation: 1,
                   child: InkWell(
                     onTap: () {
-                      // Handle tap if needed
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => _SaleDetailScreen(sale: s),
+                        ),
+                      );
                     },
                     child: Padding(
                       padding: const EdgeInsets.all(12),
@@ -297,9 +304,27 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                             shape: BoxShape.circle,
                                           ),
                                         ),
+                                        if (((item.itemType ?? '').toUpperCase().trim()) == 'MIX')
+                                          Padding(
+                                            padding: const EdgeInsets.only(right: 6),
+                                            child: Icon(
+                                              Icons.blender,
+                                              size: 16,
+                                              color: Colors.deepPurple[400],
+                                            ),
+                                          )
+                                        else
+                                          Padding(
+                                            padding: const EdgeInsets.only(right: 6),
+                                            child: Icon(
+                                              Icons.inventory_2_outlined,
+                                              size: 16,
+                                              color: Colors.blueGrey[400],
+                                            ),
+                                          ),
                                         Expanded(
                                           child: Text(
-                                            '${item.name} x ${item.quantity} ${item.unit}',
+                                            '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}',
                                             style: const TextStyle(fontSize: 13),
                                           ),
                                         ),
@@ -516,6 +541,242 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       csvContent: buffer.toString(),
       fileName: 'sales_export',
       openAfterExport: false,
+    );
+  }
+}
+
+class _SaleDetailScreen extends StatelessWidget {
+  const _SaleDetailScreen({required this.sale});
+
+  final Sale sale;
+
+  List<Map<String, dynamic>> _decodeMixItems(String? raw) {
+    final s = (raw ?? '').trim();
+    if (s.isEmpty) return <Map<String, dynamic>>[];
+    try {
+      final decoded = jsonDecode(s);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    } catch (_) {}
+    return <Map<String, dynamic>>[];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
+    final currency =
+        NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+
+    final customer = sale.customerName?.trim().isNotEmpty == true
+        ? sale.customerName!.trim()
+        : 'Khách lẻ';
+
+    final paidAll = sale.debt <= 0;
+    final statusBg = paidAll ? Colors.green.withOpacity(0.12) : Colors.red.withOpacity(0.12);
+    final statusFg = paidAll ? Colors.green : Colors.red;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Chi tiết bán hàng'),
+        actions: [
+          IconButton(
+            tooltip: 'In hóa đơn',
+            icon: const Icon(Icons.print_outlined),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ReceiptPreviewScreen(
+                    sale: sale,
+                    currency: currency,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Card(
+            elevation: 0,
+            color: Theme.of(context).colorScheme.surface,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          customer,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: statusBg,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          paidAll ? 'Đã thanh toán' : 'Còn nợ',
+                          style: TextStyle(color: statusFg, fontWeight: FontWeight.w700, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    fmtDate.format(sale.createdAt),
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
+                  const Divider(height: 16),
+                  Row(
+                    children: [
+                      Expanded(child: Text('Tạm tính', style: TextStyle(color: Colors.grey[700]))),
+                      Text(currency.format(sale.subtotal), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(child: Text('Giảm', style: TextStyle(color: Colors.grey[700]))),
+                      Text(currency.format(sale.discount), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(child: Text('Khách trả', style: TextStyle(color: Colors.grey[700]))),
+                      Text(currency.format(sale.paidAmount), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(child: Text('Còn nợ', style: TextStyle(color: Colors.grey[700]))),
+                      Text(currency.format(sale.debt), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  const Divider(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('Tổng cộng', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      ),
+                      Text(currency.format(sale.total), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Text(
+              'Danh sách hàng (${sale.items.length})',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          ...sale.items.map((it) {
+            final t = (it.itemType ?? '').toUpperCase().trim();
+            final isMix = t == 'MIX';
+            final title = (isMix && it.displayName?.trim().isNotEmpty == true)
+                ? it.displayName!.trim()
+                : it.name;
+            final mixItems = isMix ? _decodeMixItems(it.mixItemsJson) : const <Map<String, dynamic>>[];
+
+            final leading = isMix
+                ? Icon(Icons.blender, color: Colors.deepPurple[400])
+                : Icon(Icons.inventory_2_outlined, color: Colors.blueGrey[400]);
+
+            if (!isMix) {
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: leading,
+                  title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: Text('${it.quantity} ${it.unit} × ${currency.format(it.unitPrice)}'),
+                  trailing: Text(currency.format(it.total), style: const TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              );
+            }
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ExpansionTile(
+                leading: leading,
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                    Text(currency.format(it.total), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                subtitle: Text('${it.quantity} ${it.unit} × ${currency.format(it.unitPrice)}'),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                children: [
+                  if (mixItems.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text('Không có nguyên liệu'),
+                    )
+                  else
+                    Column(
+                      children: mixItems.map((m) {
+                        final rawName = (m['rawName']?.toString() ?? '').trim();
+                        final rawUnit = (m['rawUnit']?.toString() ?? '').trim();
+                        final rawQty = (m['rawQty'] as num?)?.toDouble() ?? 0.0;
+                        final rawUnitCost = (m['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
+                        final lineTotal = rawQty * rawUnitCost;
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  rawName.isEmpty ? 'Nguyên liệu' : rawName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Text(
+                                '${rawQty.toStringAsFixed(rawQty % 1 == 0 ? 0 : 2)} ${rawUnit.isEmpty ? '' : rawUnit}',
+                                style: TextStyle(color: Colors.grey[700]),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                currency.format(rawUnitCost),
+                                style: TextStyle(color: Colors.grey[700]),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                currency.format(lineTotal),
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
+      ),
     );
   }
 }

@@ -273,6 +273,37 @@ class DebtList extends StatelessWidget {
   final Color color;
   const DebtList({required this.debts, required this.color});
 
+  Widget _buildAssignmentChip(Debt d) {
+    final isAssigned = (d.sourceId ?? '').trim().isNotEmpty;
+    final bg = isAssigned ? Colors.green.withOpacity(0.12) : Colors.orange.withOpacity(0.12);
+    final fg = isAssigned ? Colors.green.shade800 : Colors.orange.shade800;
+    final icon = isAssigned ? Icons.link : Icons.link_off;
+    final label = isAssigned ? 'Đã gán' : 'Chưa gán';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<String?> _pickSaleId(BuildContext context) async {
     final sales = await DatabaseService.instance.getSales();
     return showModalBottomSheet<String>(
@@ -565,28 +596,45 @@ class DebtList extends StatelessWidget {
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                           const SizedBox(width: 8),
-                          Expanded(
-                            child: FutureBuilder<double>(
-                              future: DatabaseService.instance.getTotalPaidForDebt(d.id),
-                              builder: (context, snap) {
-                                if (snap.connectionState == ConnectionState.waiting) {
-                                  return const SizedBox.shrink();
-                                }
-                                final paid = snap.data ?? 0;
-                                final initial = paid + d.amount;
-                                return Text(
-                                  'Nợ ban đầu: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(initial)}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black87,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                );
-                              },
+                          _buildAssignmentChip(d),
+                          if ((d.sourceType ?? '').trim().isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                d.sourceType == 'sale' ? 'Bán hàng' : (d.sourceType == 'purchase' ? 'Nhập hàng' : d.sourceType!),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
+                      ),
+
+                      const SizedBox(height: 2),
+
+                      FutureBuilder<double>(
+                        future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                        builder: (context, snap) {
+                          if (snap.connectionState == ConnectionState.waiting) {
+                            return const SizedBox.shrink();
+                          }
+                          final paid = snap.data ?? 0;
+                          final initial = paid + d.amount;
+                          return Text(
+                            'Nợ ban đầu: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(initial)}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black87,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          );
+                        },
                       ),
                       
                       // Description (if exists)

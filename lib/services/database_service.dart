@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:developer' as developer;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -865,6 +866,29 @@ class DatabaseService {
         print('Lỗi khi tạo bảng store_info: $e');
       }
     }
+
+    // Migration từ version 18 lên 19: Hỗ trợ sản phẩm MIX + dòng bán có nguyên liệu
+    if (oldVersion < 19) {
+      try {
+        await safeAddColumn(db, 'products', 'itemType', "TEXT NOT NULL DEFAULT 'RAW'");
+      } catch (_) {}
+      try {
+        await safeAddColumn(db, 'products', 'isStocked', 'INTEGER NOT NULL DEFAULT 1');
+      } catch (_) {}
+
+      try {
+        await safeAddColumn(db, 'sale_items', 'unitCost', 'REAL NOT NULL DEFAULT 0');
+      } catch (_) {}
+      try {
+        await safeAddColumn(db, 'sale_items', 'itemType', 'TEXT');
+      } catch (_) {}
+      try {
+        await safeAddColumn(db, 'sale_items', 'displayName', 'TEXT');
+      } catch (_) {}
+      try {
+        await safeAddColumn(db, 'sale_items', 'mixItemsJson', 'TEXT');
+      } catch (_) {}
+    }
   }
 
   Future<void> init() async {
@@ -873,7 +897,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 18, // Tăng version để áp dụng migration
+      version: 19, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -886,6 +910,8 @@ class DatabaseService {
             unit TEXT NOT NULL,
             barcode TEXT,
             isActive INTEGER NOT NULL DEFAULT 1,
+            itemType TEXT NOT NULL DEFAULT 'RAW',
+            isStocked INTEGER NOT NULL DEFAULT 1,
             updatedAt TEXT NOT NULL,
             deviceId TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0
@@ -928,8 +954,12 @@ class DatabaseService {
             productId TEXT,
             name TEXT NOT NULL,
             unitPrice REAL NOT NULL,
+            unitCost REAL NOT NULL DEFAULT 0,
             quantity REAL NOT NULL,
             unit TEXT NOT NULL,
+            itemType TEXT,
+            displayName TEXT,
+            mixItemsJson TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (saleId) REFERENCES sales(id) ON DELETE CASCADE
           )
@@ -1074,6 +1104,15 @@ class DatabaseService {
   Future<List<Product>> getProducts() async {
     final rows = await db.query(
       'products',
+      where: "isActive = 1 AND (itemType IS NULL OR itemType = 'RAW')",
+      orderBy: 'name ASC',
+    );
+    return rows.map(Product.fromMap).toList();
+  }
+
+  Future<List<Product>> getProductsForSale() async {
+    final rows = await db.query(
+      'products',
       where: 'isActive = 1',
       orderBy: 'name ASC',
     );
@@ -1152,6 +1191,18 @@ class DatabaseService {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  Future<void> updateProductUnit({required String productId, required String unit}) async {
+    await db.update(
+      'products',
+      {
+        'unit': unit,
+        'updatedAt': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [productId],
+    );
+  }
+
   Future<Map<String, double>> getOpeningStocksForMonth(int year, int month) async {
     final rows = await db.query(
       'product_opening_stocks',
@@ -1165,6 +1216,92 @@ class DatabaseService {
       map[pid] = (r['openingStock'] as num?)?.toDouble() ?? 0;
     }
     return map;
+  }
+
+  Future<double> getPurchasedQtyForMonth({
+    required String productId,
+    required int year,
+    required int month,
+  }) async {
+    final start = DateTime(year, month, 1);
+    final end = (month == 12) ? DateTime(year + 1, 1, 1) : DateTime(year, month + 1, 1);
+    final rows = await db.rawQuery(
+      'SELECT SUM(quantity) as q FROM purchase_history WHERE productId = ? AND createdAt >= ? AND createdAt < ?',
+      [productId, start.toIso8601String(), end.toIso8601String()],
+    );
+    final q = rows.isNotEmpty ? rows.first['q'] : null;
+    return (q as num?)?.toDouble() ?? 0.0;
+  }
+
+  Future<double> getSoldQtyForMonthIncludingMix({
+    required String productId,
+    required int year,
+    required int month,
+  }) async {
+    final start = DateTime(year, month, 1);
+    final end = (month == 12) ? DateTime(year + 1, 1, 1) : DateTime(year, month + 1, 1);
+
+    final saleIds = await db.rawQuery(
+      'SELECT id FROM sales WHERE createdAt >= ? AND createdAt < ?',
+      [start.toIso8601String(), end.toIso8601String()],
+    );
+    if (saleIds.isEmpty) return 0.0;
+    final ids = saleIds.map((e) => e['id'] as String).toList();
+    final placeholders = List.filled(ids.length, '?').join(',');
+    final items = await db.rawQuery(
+      'SELECT productId, quantity, itemType, mixItemsJson FROM sale_items WHERE saleId IN ($placeholders)',
+      ids,
+    );
+
+    double sold = 0.0;
+    for (final m in items) {
+      final itemType = (m['itemType']?.toString() ?? '').toUpperCase().trim();
+      if (itemType == 'MIX') {
+        final rawJson = (m['mixItemsJson']?.toString() ?? '').trim();
+        if (rawJson.isEmpty) continue;
+        try {
+          final decoded = jsonDecode(rawJson);
+          if (decoded is List) {
+            for (final e in decoded) {
+              if (e is Map) {
+                final rid = e['rawProductId']?.toString();
+                if (rid != productId) continue;
+                sold += (e['rawQty'] as num?)?.toDouble() ?? 0.0;
+              }
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      } else {
+        final pid = (m['productId']?.toString() ?? '');
+        if (pid == productId) {
+          sold += (m['quantity'] as num?)?.toDouble() ?? 0.0;
+        }
+      }
+    }
+    return sold;
+  }
+
+  Future<void> setCurrentStockAndRecalcOpeningStockForMonth({
+    required String productId,
+    required double newCurrentStock,
+    required int year,
+    required int month,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+
+    await db.update(
+      'products',
+      {'currentStock': newCurrentStock, 'updatedAt': now},
+      where: 'id = ?',
+      whereArgs: [productId],
+    );
+
+    final sold = await getSoldQtyForMonthIncludingMix(productId: productId, year: year, month: month);
+    final purchased = await getPurchasedQtyForMonth(productId: productId, year: year, month: month);
+    final opening = (newCurrentStock + sold - purchased).toDouble();
+    await upsertOpeningStocksForMonth(year: year, month: month, openingByProductId: {productId: opening});
   }
 
   Future<void> upsertOpeningStocksForMonth({
@@ -1292,16 +1429,32 @@ class DatabaseService {
           ? await EncryptionService.instance.encrypt(s.note!)
           : null;
       
-      // Tính totalCost dựa trên costPrice của các sale_items
+      // totalCost:
+      // - RAW: lấy costPrice hiện tại trong products
+      // - MIX: dùng unitCost/quantity đã được tính từ nguyên liệu
       double totalCost = 0.0;
-      final productIds = s.items.map((item) => item.productId).whereType<String>().toList();
-      if (productIds.isNotEmpty) {
-        final productRows = await db.query('products', where: 'id IN (${List.filled(productIds.length, '?').join(',')})', whereArgs: productIds);
-        final productMap = {for (var p in productRows) p['id'] as String: (p['costPrice'] as num).toDouble()};
-        
-        for (final item in s.items) {
-          final costPrice = productMap[item.productId]! * item.quantity;
-          totalCost += costPrice;
+      final rawProductIds = <String>[];
+      for (final it in s.items) {
+        final t = (it.itemType ?? '').toUpperCase().trim();
+        if (t != 'MIX') rawProductIds.add(it.productId);
+      }
+      final productMap = <String, double>{};
+      if (rawProductIds.isNotEmpty) {
+        final productRows = await db.query(
+          'products',
+          where: 'id IN (${List.filled(rawProductIds.length, '?').join(',')})',
+          whereArgs: rawProductIds,
+        );
+        for (final p in productRows) {
+          productMap[p['id'] as String] = (p['costPrice'] as num?)?.toDouble() ?? 0.0;
+        }
+      }
+      for (final it in s.items) {
+        final t = (it.itemType ?? '').toUpperCase().trim();
+        if (t == 'MIX') {
+          totalCost += (it.unitCost * it.quantity);
+        } else {
+          totalCost += ((productMap[it.productId] ?? it.unitCost) * it.quantity);
         }
       }
 
@@ -1324,17 +1477,44 @@ class DatabaseService {
             'productId': it.productId,
             'name': it.name,
             'unitPrice': it.unitPrice,
+            'unitCost': it.unitCost,
             'quantity': it.quantity,
             'unit': it.unit,
+            'itemType': it.itemType,
+            'displayName': it.displayName,
+            'mixItemsJson': it.mixItemsJson,
             'isSynced': 0, // Chưa đồng bộ
           });
         }
 
-        // Trừ tồn hiện tại theo số lượng bán
+        // Trừ tồn:
+        // - RAW: trừ theo số lượng bán
+        // - MIX: không trừ tồn MIX, trừ tồn các RAW theo mixItemsJson
         final qtyByProductId = <String, double>{};
         for (final it in s.items) {
-          final pid = it.productId;
-          qtyByProductId[pid] = (qtyByProductId[pid] ?? 0) + it.quantity;
+          final t = (it.itemType ?? '').toUpperCase().trim();
+          if (t == 'MIX') {
+            final raw = (it.mixItemsJson ?? '').trim();
+            if (raw.isEmpty) continue;
+            try {
+              final decoded = jsonDecode(raw);
+              if (decoded is List) {
+                for (final e in decoded) {
+                  if (e is Map) {
+                    final rid = e['rawProductId']?.toString();
+                    if (rid == null || rid.isEmpty) continue;
+                    final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
+                    qtyByProductId[rid] = (qtyByProductId[rid] ?? 0) + rq;
+                  }
+                }
+              }
+            } catch (_) {
+              continue;
+            }
+          } else {
+            final pid = it.productId;
+            qtyByProductId[pid] = (qtyByProductId[pid] ?? 0) + it.quantity;
+          }
         }
         for (final entry in qtyByProductId.entries) {
           await txn.rawUpdate(
@@ -1366,16 +1546,32 @@ class DatabaseService {
           ? await EncryptionService.instance.encrypt(s.note!)
           : null;
       
-      // Tính totalCost dựa trên costPrice của các sale_items
+      // totalCost:
+      // - RAW: lấy costPrice hiện tại trong products
+      // - MIX: dùng unitCost/quantity đã được tính từ nguyên liệu
       double totalCost = 0.0;
-      final productIds = s.items.map((item) => item.productId).whereType<String>().toList();
-      if (productIds.isNotEmpty) {
-        final productRows = await db.query('products', where: 'id IN (${List.filled(productIds.length, '?').join(',')})', whereArgs: productIds);
-        final productMap = {for (var p in productRows) p['id'] as String: (p['costPrice'] as num).toDouble()};
-        
-        for (final item in s.items) {
-          final costPrice = productMap[item.productId]! * item.quantity;
-          totalCost += costPrice;
+      final rawProductIds = <String>[];
+      for (final it in s.items) {
+        final t = (it.itemType ?? '').toUpperCase().trim();
+        if (t != 'MIX') rawProductIds.add(it.productId);
+      }
+      final productMap = <String, double>{};
+      if (rawProductIds.isNotEmpty) {
+        final productRows = await db.query(
+          'products',
+          where: 'id IN (${List.filled(rawProductIds.length, '?').join(',')})',
+          whereArgs: rawProductIds,
+        );
+        for (final p in productRows) {
+          productMap[p['id'] as String] = (p['costPrice'] as num?)?.toDouble() ?? 0.0;
+        }
+      }
+      for (final it in s.items) {
+        final t = (it.itemType ?? '').toUpperCase().trim();
+        if (t == 'MIX') {
+          totalCost += (it.unitCost * it.quantity);
+        } else {
+          totalCost += ((productMap[it.productId] ?? it.unitCost) * it.quantity);
         }
       }
 
@@ -1402,8 +1598,12 @@ class DatabaseService {
             'productId': it.productId,
             'name': it.name,
             'unitPrice': it.unitPrice,
+            'unitCost': it.unitCost,
             'quantity': it.quantity,
             'unit': it.unit,
+            'itemType': it.itemType,
+            'displayName': it.displayName,
+            'mixItemsJson': it.mixItemsJson,
             'isSynced': 0, // Chưa đồng bộ
           });
         }
@@ -1438,8 +1638,12 @@ class DatabaseService {
                     'productId': m['productId'],
                     'name': m['name'],
                     'unitPrice': m['unitPrice'],
+                    'unitCost': m['unitCost'],
                     'quantity': m['quantity'],
                     'unit': m['unit'],
+                    'itemType': m['itemType'],
+                    'displayName': m['displayName'],
+                    'mixItemsJson': m['mixItemsJson'],
                   }))
               .toList();
           
