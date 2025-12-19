@@ -351,77 +351,49 @@ class _SaleScreenState extends State<SaleScreen> {
     it.unitCost = qty <= 0 ? 0 : (totalCost / qty);
   }
 
-  Future<void> _createMixLine() async {
-    final nameCtrl = TextEditingController();
-    final priceCtrl = TextEditingController(text: '0');
+  void _addSelectedProductToSale(Product product) {
+    if (product.itemType == ProductItemType.mix) {
+      final exists = _items.any((e) => e.productId == product.id);
+      if (exists) {
+        _productCtrl.text = product.name;
+        return;
+      }
 
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Thêm hàng mix'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Tên mix (nội bộ)'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: priceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: false),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-              decoration: const InputDecoration(labelText: 'Giá bán / đơn vị'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Tạo')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-
-    final name = nameCtrl.text.trim();
-    if (name.isEmpty) return;
-    final price = (NumberInputFormatter.tryParse(priceCtrl.text) ?? 0).toDouble();
-
-    // Create a hidden MIX product in DB so it can be re-used/selectable for sales.
-    // Unit will be set later when user picks RAW (DB requires non-null unit).
-    final p = Product(
-      name: name,
-      price: price,
-      costPrice: 0,
-      currentStock: 0,
-      unit: '',
-      isActive: true,
-      itemType: ProductItemType.mix,
-      isStocked: false,
-    );
-    await DatabaseService.instance.insertProduct(p);
-
-    setState(() {
       _items.add(
         SaleItem(
-          productId: p.id,
-          name: p.name,
-          unitPrice: p.price,
+          productId: product.id,
+          name: product.name,
+          unitPrice: product.price,
           unitCost: 0,
           quantity: 0,
-          unit: p.unit,
+          unit: product.unit,
           itemType: 'MIX',
-          displayName: p.name,
+          displayName: product.name,
           mixItemsJson: '[]',
         ),
       );
-    });
-
-    if (!_paidEdited) {
-      final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
-      final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
-      setState(() => _paid = total2);
+      _productCtrl.text = product.name;
+      return;
     }
+
+    final existingItem = _items.firstWhere(
+      (item) => item.productId == product.id,
+      orElse:
+          () => SaleItem(
+            productId: product.id,
+            name: product.name,
+            unitPrice: product.price,
+            unitCost: product.costPrice,
+            quantity: 0,
+            unit: product.unit,
+          ),
+    );
+    if (_items.contains(existingItem)) {
+      existingItem.quantity += 1;
+    } else {
+      _items.add(existingItem..quantity = 1);
+    }
+    _productCtrl.text = product.name;
   }
 
   Future<Product?> _showRawPicker({String? requiredUnit}) async {
@@ -649,77 +621,91 @@ class _SaleScreenState extends State<SaleScreen> {
     final lastUnit = prefs.getString('last_product_unit') ?? 'cái';
     final unitCtrl = TextEditingController(text: lastUnit);
     final barcodeCtrl = TextEditingController();
+    var isMix = false;
     final ok = await showDialog<bool>(
       context: context,
       builder:
           (_) => AlertDialog(
             title: const Text('Thêm sản phẩm'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: priceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: false,
-                  ),
-                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                  decoration: const InputDecoration(labelText: 'Giá bán'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: costPriceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: false,
-                  ),
-                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                  decoration: const InputDecoration(labelText: 'Giá vốn'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: stockCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-                  decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: unitCtrl,
-                  decoration: const InputDecoration(labelText: 'Đơn vị'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: barcodeCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Mã vạch (nếu có)',
-                    // FIX: Wrap IconButton trong Builder để lấy fresh context có Overlay cho Tooltip
-                    suffixIcon: Builder(
-                      builder:
-                          (ctx) => IconButton(
-                            tooltip: 'Quét mã vạch',
-                            icon: const Icon(Icons.qr_code_scanner),
-                            onPressed: () async {
-                              final code = await Navigator.of(ctx).push<String>(
-                                MaterialPageRoute(
-                                  builder: (_) => const ScanScreen(),
-                                ),
-                              );
-                              if (code != null && code.isNotEmpty) {
-                                barcodeCtrl.text = code;
-                                FocusScope.of(ctx).unfocus();
-                              }
-                            },
-                          ),
+            content: StatefulBuilder(
+              builder: (context, setState) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: isMix,
+                      onChanged: (v) => setState(() => isMix = v ?? false),
+                      title: const Text('Hàng MIX'),
                     ),
-                  ),
-                ),
-              ],
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
+                    ),
+                    const SizedBox(height: 8),
+                    if (!isMix) ...[
+                      TextField(
+                        controller: priceCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                        decoration: const InputDecoration(labelText: 'Giá bán'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: costPriceCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                        decoration: const InputDecoration(labelText: 'Giá vốn'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: stockCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                        decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    TextField(
+                      controller: unitCtrl,
+                      decoration: const InputDecoration(labelText: 'Đơn vị'),
+                    ),
+                    if (!isMix) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: barcodeCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Mã vạch (nếu có)',
+                          suffixIcon: Builder(
+                            builder:
+                                (ctx) => IconButton(
+                                  tooltip: 'Quét mã vạch',
+                                  icon: const Icon(Icons.qr_code_scanner),
+                                  onPressed: () async {
+                                    final code = await Navigator.of(ctx).push<String>(
+                                      MaterialPageRoute(
+                                        builder: (_) => const ScanScreen(),
+                                      ),
+                                    );
+                                    if (code != null && code.isNotEmpty) {
+                                      barcodeCtrl.text = code;
+                                      FocusScope.of(ctx).unfocus();
+                                    }
+                                  },
+                                ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
             actions: [
               TextButton(
@@ -747,49 +733,40 @@ class _SaleScreenState extends State<SaleScreen> {
         return;
       }
 
+      final unitValue = unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim();
       final p = Product(
         name: nameCtrl.text.trim(),
-        price: NumberInputFormatter.tryParse(priceCtrl.text) ?? 0,
-        costPrice: NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0,
-        currentStock: NumberInputFormatter.tryParse(stockCtrl.text) ?? 0,
-        unit: unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim(),
-        barcode:
-            barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
+        price: isMix ? 0 : (NumberInputFormatter.tryParse(priceCtrl.text) ?? 0),
+        costPrice: isMix ? 0 : (NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0),
+        currentStock: isMix ? 0 : (NumberInputFormatter.tryParse(stockCtrl.text) ?? 0),
+        unit: unitValue,
+        barcode: isMix
+            ? null
+            : (barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim()),
+        itemType: isMix ? ProductItemType.mix : ProductItemType.raw,
+        isStocked: isMix ? false : true,
       );
       final unitToSave = p.unit.trim();
       if (unitToSave.isNotEmpty) {
         await prefs.setString('last_product_unit', unitToSave);
       }
       await provider.add(p);
-      final now = DateTime.now();
-      await DatabaseService.instance.upsertOpeningStocksForMonth(
-        year: now.year,
-        month: now.month,
-        openingByProductId: {p.id: p.currentStock},
-      );
-      setState(() {
-        final existingItem = _items.firstWhere(
-          (item) => item.productId == p.id,
-          orElse:
-              () => SaleItem(
-                productId: p.id,
-                name: p.name,
-                unitPrice: p.price,
-                unitCost: p.costPrice,
-                quantity: 0,
-                unit: p.unit,
-              ),
+      if (!isMix) {
+        final now = DateTime.now();
+        await DatabaseService.instance.upsertOpeningStocksForMonth(
+          year: now.year,
+          month: now.month,
+          openingByProductId: {p.id: p.currentStock},
         );
-        if (_items.contains(existingItem)) {
-          existingItem.quantity += 1;
-        } else {
-          _items.add(existingItem..quantity = 1);
-        }
-        _productCtrl.text = p.name;
+      }
+      setState(() {
+        _addSelectedProductToSale(p);
       });
-      await _applyLastUnitTo(
-        _items.lastWhere((item) => item.productId == p.id),
-      );
+      if (!isMix) {
+        await _applyLastUnitTo(
+          _items.lastWhere((item) => item.productId == p.id),
+        );
+      }
       await _saveRecentProduct(p);
       if (!_paidEdited) {
         final subtotal = _items.fold(0.0, (p, e) => p + e.total);
@@ -916,8 +893,7 @@ class _SaleScreenState extends State<SaleScreen> {
 
   Future<Product?> _showProductPicker() async {
     final products = await DatabaseService.instance.getProductsForSale();
-    final baseProducts =
-        products.where((p) => p.itemType != ProductItemType.mix).toList();
+    final baseProducts = products.toList();
     return await showModalBottomSheet<Product>(
       context: context,
       isScrollControlled: true,
@@ -988,7 +964,9 @@ class _SaleScreenState extends State<SaleScreen> {
                                   ),
                                   title: Text(product.name),
                                   subtitle: Text(
-                                    '${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}',
+                                    product.itemType == ProductItemType.mix
+                                        ? 'MIX • ${product.unit}'
+                                        : '${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}',
                                   ),
                                   onTap: () {
                                     Navigator.of(context).pop(product);
@@ -1409,15 +1387,22 @@ class _SaleScreenState extends State<SaleScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+             /*  const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton.icon(
-                  onPressed: _createMixLine,
+                  onPressed: () async {
+                    await _addQuickProductDialog(
+                      prefillName:
+                          _productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim(),
+                    );
+                    _productCtrl.clear();
+                    _unfocusProductField?.call();
+                  },
                   icon: const Icon(Icons.shuffle),
-                  label: const Text('Thêm hàng mix'),
+                  label: const Text('Thêm sản phẩm mới'),
                 ),
-              ),
+              ), */
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -1457,30 +1442,15 @@ class _SaleScreenState extends State<SaleScreen> {
                         final product = await _showProductPicker();
                         if (product != null) {
                           setState(() {
-                            final existingItem = _items.firstWhere(
-                              (item) => item.productId == product.id,
-                              orElse:
-                                  () => SaleItem(
-                                    productId: product.id,
-                                    name: product.name,
-                                    unitPrice: product.price,
-                                    unitCost: product.costPrice,
-                                    quantity: 0,
-                                    unit: product.unit,
-                                  ),
-                            );
-                            if (_items.contains(existingItem)) {
-                              existingItem.quantity += 1;
-                            } else {
-                              _items.add(existingItem..quantity = 1);
-                            }
-                            _productCtrl.text = product.name;
+                            _addSelectedProductToSale(product);
                           });
-                          await _applyLastUnitTo(
-                            _items.lastWhere(
-                              (item) => item.productId == product.id,
-                            ),
-                          );
+                          if (product.itemType != ProductItemType.mix) {
+                            await _applyLastUnitTo(
+                              _items.lastWhere(
+                                (item) => item.productId == product.id,
+                              ),
+                            );
+                          }
                           await _saveRecentProduct(product);
                           if (!_paidEdited) {
                             final subtotal2 = _items.fold(
@@ -1537,28 +1507,13 @@ class _SaleScreenState extends State<SaleScreen> {
                       labelStyle: const TextStyle(color: Colors.green),
                       onPressed: () async {
                         setState(() {
-                          final existingItem = _items.firstWhere(
-                            (item) => item.productId == p.id,
-                            orElse:
-                                () => SaleItem(
-                                  productId: p.id,
-                                  name: p.name,
-                                  unitPrice: p.price,
-                                  unitCost: p.costPrice,
-                                  quantity: 0,
-                                  unit: p.unit,
-                                ),
-                          );
-                          if (_items.contains(existingItem)) {
-                            existingItem.quantity += 1;
-                          } else {
-                            _items.add(existingItem..quantity = 1);
-                          }
-                          _productCtrl.text = p.name;
+                          _addSelectedProductToSale(p);
                         });
-                        await _applyLastUnitTo(
-                          _items.lastWhere((item) => item.productId == p.id),
-                        );
+                        if (p.itemType != ProductItemType.mix) {
+                          await _applyLastUnitTo(
+                            _items.lastWhere((item) => item.productId == p.id),
+                          );
+                        }
                         await _saveRecentProduct(p);
                         if (!_paidEdited) {
                           final subtotal2 = _items.fold(
@@ -1596,6 +1551,8 @@ class _SaleScreenState extends State<SaleScreen> {
                     prod = null;
                   }
                   final isMixLine = _isMixItem(it);
+                  final itemBg = i.isEven ? Colors.black.withValues(alpha: 0.03) : Colors.transparent;
+                  final itemBorder = Colors.black.withValues(alpha: 0.08);
                   final qtyCtrl = _getQtyController(it);
                   final qtyFocus = _getQtyFocusNode(it);
                   final expectedText = it.quantity.toStringAsFixed(
@@ -1607,11 +1564,18 @@ class _SaleScreenState extends State<SaleScreen> {
 
                   return Column(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                      Container(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        decoration: BoxDecoration(
+                          color: itemBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: itemBorder),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                             Row(
                               children: [
                                 Expanded(
@@ -2146,6 +2110,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                           0.0,
                                           (p, e) => p + e.total,
                                         );
+                                        _discount = _discount.clamp(0, subtotal2).toDouble();
                                         final total2 =
                                             (subtotal2 - _discount)
                                                 .clamp(0, double.infinity)
@@ -2160,7 +2125,7 @@ class _SaleScreenState extends State<SaleScreen> {
                           ],
                         ),
                       ),
-                      const Divider(height: 1),
+                    ),
                     ],
                   );
                 }),
