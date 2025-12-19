@@ -22,7 +22,12 @@ import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
 
 class PurchaseHistoryScreen extends StatefulWidget {
-  const PurchaseHistoryScreen({super.key});
+  final bool embedded;
+
+  const PurchaseHistoryScreen({
+    super.key,
+    this.embedded = false,
+  });
 
   @override
   State<PurchaseHistoryScreen> createState() => _PurchaseHistoryScreenState();
@@ -1064,41 +1069,48 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Lịch sử nhập hàng'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'Nhập hàng',
-            onPressed: _addPurchaseDialog,
-          ),
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            tooltip: 'Chọn khoảng ngày',
-            onPressed: () async {
-              final now = DateTime.now();
-              final picked = await showDateRangePicker(
-                context: context,
-                firstDate: DateTime(now.year - 2),
-                lastDate: DateTime(now.year + 1),
-                initialDateRange: _range,
-              );
-              if (picked != null) {
-                setState(() => _range = picked);
-              }
-            },
-          ),
-          if (_range != null)
-            IconButton(
-              icon: const Icon(Icons.clear),
-              tooltip: 'Xoá lọc ngày',
-              onPressed: () => setState(() => _range = null),
-            ),
-        ],
-      ),
-      body: Column(
+    final content = Column(
         children: [
+          if (widget.embedded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _addPurchaseDialog,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Nhập hàng'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.filter_list),
+                    label: const Text('Khoảng ngày'),
+                    onPressed: () async {
+                      final now = DateTime.now();
+                      final picked = await showDateRangePicker(
+                        context: context,
+                        firstDate: DateTime(now.year - 2),
+                        lastDate: DateTime(now.year + 1),
+                        initialDateRange: _range,
+                      );
+                      if (picked != null) {
+                        setState(() => _range = picked);
+                      }
+                    },
+                  ),
+                  if (_range != null) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.clear),
+                      tooltip: 'Xoá lọc ngày',
+                      onPressed: () => setState(() => _range = null),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: TextField(
@@ -1246,7 +1258,46 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             ),
           ),
         ],
+      );
+
+    if (widget.embedded) {
+      return content;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Lịch sử nhập hàng'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Nhập hàng',
+            onPressed: _addPurchaseDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.filter_list),
+            tooltip: 'Chọn khoảng ngày',
+            onPressed: () async {
+              final now = DateTime.now();
+              final picked = await showDateRangePicker(
+                context: context,
+                firstDate: DateTime(now.year - 2),
+                lastDate: DateTime(now.year + 1),
+                initialDateRange: _range,
+              );
+              if (picked != null) {
+                setState(() => _range = picked);
+              }
+            },
+          ),
+          if (_range != null)
+            IconButton(
+              icon: const Icon(Icons.clear),
+              tooltip: 'Xoá lọc ngày',
+              onPressed: () => setState(() => _range = null),
+            ),
+        ],
       ),
+      body: content,
     );
   }
 }

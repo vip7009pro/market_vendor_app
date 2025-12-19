@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:convert';
 import '../providers/sale_provider.dart';
 import '../providers/debt_provider.dart';
 import '../providers/product_provider.dart';
@@ -93,6 +94,31 @@ class _ReportScreenState extends State<ReportScreen> {
 
       final rangeStart = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
       final rangeEnd = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
+
+      final purchasesInRange = await DatabaseService.instance.getPurchaseHistory(
+        range: DateTimeRange(start: rangeStart, end: rangeEnd),
+      );
+
+      final saleItemsInRange = await db.rawQuery(
+        '''
+        SELECT
+          s.id as saleId,
+          s.createdAt as saleCreatedAt,
+          s.customerName as customerName,
+          si.productId as productId,
+          si.name as name,
+          si.unit as unit,
+          si.quantity as quantity,
+          si.itemType as itemType,
+          si.mixItemsJson as mixItemsJson
+        FROM sale_items si
+        JOIN sales s ON s.id = si.saleId
+        WHERE s.createdAt >= ? AND s.createdAt <= ?
+        ORDER BY s.createdAt DESC
+        ''',
+        [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+      );
+
       final expenses = await db.query(
         'expenses',
         where: 'occurredAt >= ? AND occurredAt <= ?',
@@ -281,6 +307,93 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(e['expenseDocUpdatedAt']),
           _cv(e['updatedAt']),
         ]);
+      }
+
+      final purchaseHistorySheet = excel['lịch sử nhập kho'];
+      purchaseHistorySheet.appendRow([
+        _cv('id'),
+        _cv('createdAt'),
+        _cv('productId'),
+        _cv('productName'),
+        _cv('unit'),
+        _cv('quantity'),
+        _cv('unitCost'),
+        _cv('totalCost'),
+        _cv('supplierName'),
+        _cv('supplierPhone'),
+        _cv('note'),
+      ]);
+      for (final ph in purchasesInRange) {
+        final pid = ph['productId'] as String;
+        final prod = productsById[pid];
+        purchaseHistorySheet.appendRow([
+          _cv(ph['id']),
+          _cv(ph['createdAt']),
+          _cv(pid),
+          _cv(ph['productName']),
+          _cv(prod?['unit']),
+          _cv(ph['quantity']),
+          _cv(ph['unitCost']),
+          _cv(ph['totalCost']),
+          _cv(ph['supplierName']),
+          _cv(ph['supplierPhone']),
+          _cv(ph['note']),
+        ]);
+      }
+
+      final exportHistorySheet = excel['lịch sử xuất kho'];
+      exportHistorySheet.appendRow([
+        _cv('saleId'),
+        _cv('saleCreatedAt'),
+        _cv('customerName'),
+        _cv('productId'),
+        _cv('productName'),
+        _cv('unit'),
+        _cv('quantity'),
+        _cv('source'),
+      ]);
+      for (final r in saleItemsInRange) {
+        final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
+        if (itemType == 'MIX') {
+          final raw = (r['mixItemsJson']?.toString() ?? '').trim();
+          if (raw.isEmpty) continue;
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is List) {
+              for (final e in decoded) {
+                if (e is Map) {
+                  final rid = (e['rawProductId']?.toString() ?? '').trim();
+                  if (rid.isEmpty) continue;
+                  exportHistorySheet.appendRow([
+                    _cv(r['saleId']),
+                    _cv(r['saleCreatedAt']),
+                    _cv(r['customerName']),
+                    _cv(rid),
+                    _cv(e['rawName']),
+                    _cv(e['rawUnit']),
+                    _cv((e['rawQty'] as num?)?.toDouble() ?? 0.0),
+                    _cv('MIX'),
+                  ]);
+                }
+              }
+            }
+          } catch (_) {
+            continue;
+          }
+        } else {
+          final pid = (r['productId']?.toString() ?? '').trim();
+          if (pid.isEmpty) continue;
+          exportHistorySheet.appendRow([
+            _cv(r['saleId']),
+            _cv(r['saleCreatedAt']),
+            _cv(r['customerName']),
+            _cv(pid),
+            _cv(r['name']),
+            _cv(r['unit']),
+            _cv((r['quantity'] as num?)?.toDouble() ?? 0.0),
+            _cv('RAW'),
+          ]);
+        }
       }
 
       final purchaseSheet = excel['list nhập hàng'];

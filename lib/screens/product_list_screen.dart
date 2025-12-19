@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:convert';
 import '../providers/product_provider.dart';
 import '../models/product.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +10,7 @@ import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'inventory_report_screen.dart';
+import 'purchase_history_screen.dart';
 
 class ProductListScreen extends StatefulWidget {
   const ProductListScreen({super.key});
@@ -17,106 +19,374 @@ class ProductListScreen extends StatefulWidget {
   State<ProductListScreen> createState() => _ProductListScreenState();
 }
 
-class _ProductListScreenState extends State<ProductListScreen> {
-  String _query = '';
+class _ProductListScreenState extends State<ProductListScreen> with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  // Tab 0 (Products)
+  String _productsQuery = '';
+
+  // Tab 2 (Export history - RAW)
+  DateTimeRange? _exportRange;
+  String _exportQuery = '';
 
   @override
-  Widget build(BuildContext context) {
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickRangeForTab(int tabIndex) async {
+    final now = DateTime.now();
+    final current = _exportRange;
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 3),
+      lastDate: DateTime(now.year + 1),
+      initialDateRange: current,
+    );
+    if (picked == null) return;
+    setState(() {
+      if (tabIndex == 2) {
+        _exportRange = picked;
+      }
+    });
+  }
+
+  void _clearRangeForTab(int tabIndex) {
+    setState(() {
+      if (tabIndex == 2) _exportRange = null;
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> _loadExportHistoryRaw() async {
+    final start = _exportRange == null
+        ? null
+        : DateTime(_exportRange!.start.year, _exportRange!.start.month, _exportRange!.start.day);
+    final end = _exportRange == null
+        ? null
+        : DateTime(_exportRange!.end.year, _exportRange!.end.month, _exportRange!.end.day, 23, 59, 59, 999);
+
+    final db = DatabaseService.instance.db;
+
+    final saleRows = await db.rawQuery(
+      '''
+      SELECT 
+        s.id as saleId,
+        s.createdAt as saleCreatedAt,
+        s.customerName as customerName,
+        si.productId as productId,
+        si.name as name,
+        si.unit as unit,
+        si.quantity as quantity,
+        si.itemType as itemType,
+        si.mixItemsJson as mixItemsJson
+      FROM sale_items si
+      JOIN sales s ON s.id = si.saleId
+      ${start == null ? '' : 'WHERE s.createdAt >= ? AND s.createdAt <= ?'}
+      ORDER BY s.createdAt DESC
+      ''',
+      start == null ? null : [start.toIso8601String(), end!.toIso8601String()],
+    );
+
+    final out = <Map<String, dynamic>>[];
+    for (final r in saleRows) {
+      final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
+      if (itemType == 'MIX') {
+        final raw = (r['mixItemsJson']?.toString() ?? '').trim();
+        if (raw.isEmpty) continue;
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            for (final e in decoded) {
+              if (e is Map) {
+                final rawProductId = (e['rawProductId']?.toString() ?? '').trim();
+                if (rawProductId.isEmpty) continue;
+                out.add({
+                  'saleId': r['saleId'],
+                  'saleCreatedAt': r['saleCreatedAt'],
+                  'customerName': r['customerName'],
+                  'productId': rawProductId,
+                  'productName': (e['rawName']?.toString() ?? '').trim(),
+                  'unit': (e['rawUnit']?.toString() ?? '').trim(),
+                  'quantity': (e['rawQty'] as num?)?.toDouble() ?? 0.0,
+                  'source': 'MIX',
+                });
+              }
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      } else {
+        final pid = (r['productId']?.toString() ?? '').trim();
+        if (pid.isEmpty) continue;
+        out.add({
+          'saleId': r['saleId'],
+          'saleCreatedAt': r['saleCreatedAt'],
+          'customerName': r['customerName'],
+          'productId': pid,
+          'productName': (r['name']?.toString() ?? '').trim(),
+          'unit': (r['unit']?.toString() ?? '').trim(),
+          'quantity': (r['quantity'] as num?)?.toDouble() ?? 0.0,
+          'source': 'RAW',
+        });
+      }
+    }
+
+    final q = _exportQuery.trim();
+    if (q.isEmpty) return out;
+    final qLower = TextNormalizer.normalize(q);
+    return out.where((m) {
+      final productName = TextNormalizer.normalize((m['productName']?.toString() ?? ''));
+      final customerName = TextNormalizer.normalize((m['customerName']?.toString() ?? ''));
+      return productName.contains(qLower) || customerName.contains(qLower);
+    }).toList();
+  }
+
+  Widget _buildTab0Products(BuildContext context) {
     final provider = context.watch<ProductProvider>();
     final products = provider.products;
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
 
-    final qn = TextNormalizer.normalize(_query);
+    final qn = TextNormalizer.normalize(_productsQuery);
     final filtered = qn.isEmpty
         ? products
         : products.where((p) {
             final name = TextNormalizer.normalize(p.name);
             final barcode = (p.barcode ?? '').trim();
-            return name.contains(qn) || (barcode.isNotEmpty && barcode.contains(_query.trim()));
+            return name.contains(qn) || (barcode.isNotEmpty && barcode.contains(_productsQuery.trim()));
           }).toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sản phẩm'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.table_chart_outlined),
-            tooltip: 'Bảng kê tồn kho',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const InventoryReportScreen()),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: TextField(
+            decoration: const InputDecoration(
+              hintText: 'Tìm theo tên / mã vạch',
+              isDense: true,
+              prefixIcon: Icon(Icons.search),
+            ),
+            onChanged: (v) => setState(() => _productsQuery = v),
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView.separated(
+            itemCount: filtered.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, i) {
+              final p = filtered[i];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.blue.withValues(alpha: 0.12),
+                  foregroundColor: Colors.blue,
+                  child: Icon(
+                    (p.barcode != null && p.barcode!.trim().isNotEmpty)
+                        ? Icons.qr_code
+                        : Icons.inventory_2_outlined,
+                  ),
+                ),
+                title: Text(p.name),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Giá bán: ${currency.format(p.price)} / ${p.unit}'),
+                    Text('Giá vốn: ${currency.format(p.costPrice)}'),
+                    Text('Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}'),
+                  ],
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () => _showProductDialog(context, existing: p),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _confirmDelete(context, p),
+                    ),
+                  ],
+                ),
               );
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.inventory_2_outlined),
-            tooltip: 'Set tồn đầu kỳ (tháng hiện tại)',
-            onPressed: () => _showOpeningStockDialog(context),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () => _showProductDialog(context),
-            tooltip: 'Thêm sản phẩm',
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Tìm theo tên / mã vạch',
-                isDense: true,
-                prefixIcon: Icon(Icons.search),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTab1ImportHistory(BuildContext context) {
+    return const PurchaseHistoryScreen(embedded: true);
+  }
+
+  Widget _buildTab2ExportHistoryRaw(BuildContext context) {
+    final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Tìm theo sản phẩm / khách hàng',
+                    isDense: true,
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: (v) => setState(() => _exportQuery = v.trim()),
+                ),
               ),
-              onChanged: (v) => setState(() => _query = v),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Chọn khoảng ngày (theo ngày xuất)',
+                icon: const Icon(Icons.filter_list),
+                onPressed: () => _pickRangeForTab(2),
+              ),
+              if (_exportRange != null)
+                IconButton(
+                  tooltip: 'Xoá lọc ngày',
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => _clearRangeForTab(2),
+                ),
+            ],
+          ),
+        ),
+        if (_exportRange != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Đang lọc: ${DateFormat('dd/MM/yyyy').format(_exportRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_exportRange!.end)}',
+                style: const TextStyle(color: Colors.black54, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
             ),
           ),
-          const Divider(height: 1),
-          Expanded(
-            child: ListView.separated(
-              itemCount: filtered.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, i) {
-                final p = filtered[i];
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue.withValues(alpha: 0.12),
-                    foregroundColor: Colors.blue,
-                    child: Icon(
-                      (p.barcode != null && p.barcode!.trim().isNotEmpty)
-                          ? Icons.qr_code
-                          : Icons.inventory_2_outlined,
+        const Divider(height: 1),
+        Expanded(
+          child: FutureBuilder<List<Map<String, dynamic>>>(
+            future: _loadExportHistoryRaw(),
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final rows = snap.data ?? const [];
+              if (rows.isEmpty) {
+                return const Center(child: Text('Chưa có lịch sử xuất kho'));
+              }
+
+              return ListView.separated(
+                itemCount: rows.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final r = rows[i];
+                  final createdAt = DateTime.tryParse(r['saleCreatedAt'] as String? ?? '') ?? DateTime.now();
+                  final productName = (r['productName'] as String?) ?? '';
+                  final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
+                  final unit = (r['unit'] as String?) ?? '';
+                  final customerName = (r['customerName'] as String?)?.trim();
+                  final source = (r['source'] as String?) ?? '';
+
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.orange.withValues(alpha: 0.12),
+                      foregroundColor: Colors.orange,
+                      child: const Icon(Icons.outbox_outlined),
                     ),
-                  ),
-                  title: Text(p.name),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Giá bán: ${currency.format(p.price)} / ${p.unit}'),
-                      Text('Giá vốn: ${currency.format(p.costPrice)}'),
-                      Text('Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}'),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        onPressed: () => _showProductDialog(context, existing: p),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
-                        onPressed: () => _confirmDelete(context, p),
-                      ),
-                    ],
-                  ),
+                    title: Text(productName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('SL xuất: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)} ${unit.isEmpty ? '' : unit}'),
+                        if (customerName != null && customerName.isNotEmpty) Text('KH: $customerName'),
+                        Text(fmtDate.format(createdAt), style: const TextStyle(color: Colors.black54)),
+                        if (source == 'MIX')
+                          const Text(
+                            'Xuất từ MIX',
+                            style: TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.w600),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tabIndex = _tabController.index;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Kho'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Sản phẩm'),
+            Tab(text: 'Nhập kho'),
+            Tab(text: 'Xuất kho (RAW)'),
+          ],
+        ),
+        actions: [
+          if (tabIndex == 0) ...[
+            IconButton(
+              icon: const Icon(Icons.table_chart_outlined),
+              tooltip: 'Bảng kê tồn kho',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const InventoryReportScreen()),
                 );
               },
             ),
-          ),
+            IconButton(
+              icon: const Icon(Icons.inventory_2_outlined),
+              tooltip: 'Set tồn đầu kỳ (tháng hiện tại)',
+              onPressed: () => _showOpeningStockDialog(context),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: () => _showProductDialog(context),
+              tooltip: 'Thêm sản phẩm',
+            ),
+          ] else if (tabIndex == 2) ...[
+            IconButton(
+              tooltip: 'Chọn khoảng ngày',
+              icon: const Icon(Icons.filter_list),
+              onPressed: () => _pickRangeForTab(tabIndex),
+            ),
+            if (_exportRange != null)
+              IconButton(
+                tooltip: 'Xoá lọc ngày',
+                icon: const Icon(Icons.clear),
+                onPressed: () => _clearRangeForTab(tabIndex),
+              ),
+          ],
+        ],
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildTab0Products(context),
+          _buildTab1ImportHistory(context),
+          _buildTab2ExportHistoryRaw(context),
         ],
       ),
     );

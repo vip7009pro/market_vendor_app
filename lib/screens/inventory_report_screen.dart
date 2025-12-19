@@ -120,93 +120,95 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: Text('Tồn đầu kỳ ${monthYear.month}/${monthYear.year}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(productName, maxLines: 2, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 8),
-            Row(
+        content: SingleChildScrollView(
+          child: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: ctrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-                    decoration: InputDecoration(
-                      labelText: 'Tồn đầu kỳ ($unit)',
-                      isDense: true,
-                    ),
+                Text(productName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: ctrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                  decoration: InputDecoration(
+                    labelText: 'Tồn đầu kỳ',
+                    suffixText: unit,
+                    isDense: true,
                   ),
                 ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.auto_fix_high),
-                  label: const Text('Lấy tồn hiện tại'),
-                  onPressed: () {
-                    ctrl.text = _fmtQty(currentStock);
-                    FocusScope.of(context).unfocus();
-                  },
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.auto_fix_high),
+                      label: const Text('Lấy tồn hiện tại'),
+                      onPressed: () {
+                        ctrl.text = _fmtQty(currentStock);
+                        FocusScope.of(context).unfocus();
+                      },
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.calculate_outlined),
+                      label: const Text('Tính tồn đầu kỳ'),
+                      onPressed: () async {
+                        final start = DateTime(
+                          _range.start.year,
+                          _range.start.month,
+                          _range.start.day,
+                        );
+                        final end = DateTime(
+                          _range.end.year,
+                          _range.end.month,
+                          _range.end.day,
+                          23,
+                          59,
+                          59,
+                          999,
+                        );
+
+                        final db = DatabaseService.instance.db;
+
+                        final purchaseRows = await db.query(
+                          'purchase_history',
+                          columns: ['quantity'],
+                          where: 'productId = ? AND createdAt >= ? AND createdAt <= ?',
+                          whereArgs: [
+                            productId,
+                            start.toIso8601String(),
+                            end.toIso8601String(),
+                          ],
+                        );
+                        double importQty = 0;
+                        for (final r in purchaseRows) {
+                          importQty += (r['quantity'] as num?)?.toDouble() ?? 0;
+                        }
+
+                        final exportQty = await _exportQtyForProductInRange(
+                          productId: productId,
+                          start: start,
+                          end: end,
+                        );
+
+                        final opening = currentStock + exportQty - importQty;
+                        ctrl.text = _fmtQty(opening);
+                        FocusScope.of(context).unfocus();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Tồn hiện tại: ${_fmtQty(currentStock)} $unit',
+                  style: const TextStyle(color: Colors.black54),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.calculate_outlined),
-                label: const Text('Tính tồn đầu kỳ'),
-                onPressed: () async {
-                  final start = DateTime(
-                    _range.start.year,
-                    _range.start.month,
-                    _range.start.day,
-                  );
-                  final end = DateTime(
-                    _range.end.year,
-                    _range.end.month,
-                    _range.end.day,
-                    23,
-                    59,
-                    59,
-                    999,
-                  );
-
-                  final db = DatabaseService.instance.db;
-
-                  final purchaseRows = await db.query(
-                    'purchase_history',
-                    columns: ['quantity'],
-                    where: 'productId = ? AND createdAt >= ? AND createdAt <= ?',
-                    whereArgs: [
-                      productId,
-                      start.toIso8601String(),
-                      end.toIso8601String(),
-                    ],
-                  );
-                  double importQty = 0;
-                  for (final r in purchaseRows) {
-                    importQty += (r['quantity'] as num?)?.toDouble() ?? 0;
-                  }
-
-                  final exportQty = await _exportQtyForProductInRange(
-                    productId: productId,
-                    start: start,
-                    end: end,
-                  );
-
-                  final opening = currentStock + exportQty - importQty;
-                  ctrl.text = _fmtQty(opening);
-                  FocusScope.of(context).unfocus();
-                },
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tồn hiện tại: ${_fmtQty(currentStock)} $unit',
-              style: const TextStyle(color: Colors.black54),
-            ),
-          ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),

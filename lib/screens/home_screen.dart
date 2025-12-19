@@ -12,7 +12,7 @@ import '../services/database_service.dart';
 import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart'; // Để lấy uid khi cần
 import 'debt_screen.dart';
-import 'purchase_history_screen.dart';
+import 'product_list_screen.dart';
 import 'report_screen.dart';
 import 'settings_screen.dart';
 import 'sale_screen.dart';
@@ -102,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const SaleScreen(),
       const SalesHistoryScreen(),
       const DebtScreen(),
-      const PurchaseHistoryScreen(),
+      const ProductListScreen(),
       const ExpenseScreen(),
       const ReportScreen(),
       const SettingsScreen(),
@@ -137,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Bán hàng'),
           NavigationDestination(icon: Icon(Icons.history), label: 'Lịch sử'),
           NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Ghi nợ'),
-          NavigationDestination(icon: Icon(Icons.inventory), label: 'Nhập'),
+          NavigationDestination(icon: Icon(Icons.inventory_2_outlined), label: 'Kho'),
           NavigationDestination(icon: Icon(Icons.payments_outlined), label: 'Chi phí'),
           NavigationDestination(icon: Icon(Icons.insights), label: 'Báo cáo'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Cài đặt'),

@@ -916,12 +916,14 @@ class _SaleScreenState extends State<SaleScreen> {
 
   Future<Product?> _showProductPicker() async {
     final products = await DatabaseService.instance.getProductsForSale();
+    final baseProducts =
+        products.where((p) => p.itemType != ProductItemType.mix).toList();
     return await showModalBottomSheet<Product>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
         final TextEditingController searchController = TextEditingController();
-        List<Product> filteredProducts = List.from(products);
+        List<Product> filteredProducts = List.from(baseProducts);
 
         return StatefulBuilder(
           builder: (context, setState) {
@@ -939,7 +941,7 @@ class _SaleScreenState extends State<SaleScreen> {
                         onPressed: () {
                           searchController.clear();
                           setState(() {
-                            filteredProducts = List.from(products);
+                            filteredProducts = List.from(baseProducts);
                           });
                         },
                       ),
@@ -947,13 +949,13 @@ class _SaleScreenState extends State<SaleScreen> {
                     onChanged: (value) {
                       if (value.isEmpty) {
                         setState(() {
-                          filteredProducts = List.from(products);
+                          filteredProducts = List.from(baseProducts);
                         });
                       } else {
                         final query = value.toLowerCase();
                         setState(() {
                           filteredProducts =
-                              products.where((product) {
+                              baseProducts.where((product) {
                                 final nameMatch = product.name
                                     .toLowerCase()
                                     .contains(query);
@@ -979,39 +981,15 @@ class _SaleScreenState extends State<SaleScreen> {
                               itemCount: filteredProducts.length,
                               itemBuilder: (context, index) {
                                 final product = filteredProducts[index];
-                                final isMix = product.itemType == ProductItemType.mix;
                                 return ListTile(
                                   leading: const CircleAvatar(
                                     child: Icon(Icons.shopping_bag),
                                     radius: 20,
                                   ),
-                                  title: Row(
-                                    children: [
-                                      Expanded(child: Text(product.name)),
-                                      if (isMix)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: Colors.deepPurple.shade50,
-                                            borderRadius: BorderRadius.circular(999),
-                                          ),
-                                          child: Text(
-                                            'MIX',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.deepPurple.shade700,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
+                                  title: Text(product.name),
                                   subtitle: Text(
-                                    '${NumberFormat('#,##0').format(product.price)} đ',
+                                    '${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}',
                                   ),
-                                  trailing: isMix
-                                      ? Text(product.unit)
-                                      : Text('Tồn: ${product.currentStock} ${product.unit}'),
                                   onTap: () {
                                     Navigator.of(context).pop(product);
                                   },
@@ -1667,90 +1645,177 @@ class _SaleScreenState extends State<SaleScreen> {
                                         ),
                                       ],
                                       const SizedBox(height: 2),
-                                      InkWell(
-                                        onTap: () async {
-                                          final ctrl = TextEditingController(
-                                            text: it.unitPrice.toStringAsFixed(
-                                              0,
-                                            ),
-                                          );
-                                          final ok = await showDialog<bool>(
-                                            context: context,
-                                            builder:
-                                                (_) => AlertDialog(
-                                                  title: const Text(
-                                                    'Sửa đơn giá',
-                                                  ),
-                                                  content: TextField(
-                                                    controller: ctrl,
-                                                    keyboardType:
-                                                        const TextInputType.numberWithOptions(
+                                      if (isMixLine)
+                                        Row(
+                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          children: [
+                                            Expanded(
+                                              child: GestureDetector(
+                                                onTap: () async {
+                                                  final ctrl = TextEditingController(
+                                                    text: NumberFormat('#,###').format(
+                                                      it.unitPrice,
+                                                    ),
+                                                  );
+                                                  final ok = await showDialog<bool>(
+                                                    context: context,
+                                                    builder:
+                                                        (_) => AlertDialog(
+                                                      title: const Text(
+                                                        'Sửa đơn giá',
+                                                      ),
+                                                      content: TextField(
+                                                        controller: ctrl,
+                                                        keyboardType:
+                                                            const TextInputType.numberWithOptions(
                                                           decimal: true,
                                                         ),
-                                                    inputFormatters: [
-                                                      NumberInputFormatter(
-                                                        maxDecimalDigits: 0,
-                                                      ),
-                                                    ],
-                                                    decoration:
-                                                        const InputDecoration(
+                                                        inputFormatters: [
+                                                          NumberInputFormatter(
+                                                            maxDecimalDigits: 0,
+                                                          ),
+                                                        ],
+                                                        decoration: const InputDecoration(
                                                           labelText: 'Đơn giá',
                                                         ),
-                                                  ),
-                                                  actions: [
-                                                    TextButton(
-                                                      onPressed:
-                                                          () => Navigator.pop(
+                                                      ),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed: () => Navigator.pop(
                                                             context,
                                                             false,
                                                           ),
-                                                      child: const Text('Hủy'),
-                                                    ),
-                                                    FilledButton(
-                                                      onPressed:
-                                                          () => Navigator.pop(
+                                                          child: const Text('Hủy'),
+                                                        ),
+                                                        FilledButton(
+                                                          onPressed: () => Navigator.pop(
                                                             context,
                                                             true,
                                                           ),
-                                                      child: const Text('Lưu'),
+                                                          child: const Text('Lưu'),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                  if (ok == true) {
+                                                    final v = NumberInputFormatter.tryParse(
+                                                      ctrl.text,
+                                                    );
+                                                    if (v != null && v >= 0) {
+                                                      setState(() {
+                                                        it.unitPrice = v;
+                                                        if (!_paidEdited) {
+                                                          final subtotal2 = _items.fold(
+                                                            0.0,
+                                                            (p, e) => p + e.total,
+                                                          );
+                                                          _discount = _discount
+                                                              .clamp(0, subtotal2)
+                                                              .toDouble();
+                                                          final total2 = (subtotal2 - _discount)
+                                                              .clamp(
+                                                                0,
+                                                                double.infinity,
+                                                              )
+                                                              .toDouble();
+                                                          _paid = total2;
+                                                        }
+                                                      });
+                                                    }
+                                                  }
+                                                },
+                                                child: Text(
+                                                  '${currency.format(it.unitPrice)} × ${it.quantity} ${it.unit} (chạm để sửa)',
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              currency.format(it.total),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      else
+                                        GestureDetector(
+                                          onTap: () async {
+                                            final ctrl = TextEditingController(
+                                              text: NumberFormat('#,###').format(
+                                                it.unitPrice,
+                                              ),
+                                            );
+                                            final ok = await showDialog<bool>(
+                                              context: context,
+                                              builder: (_) => AlertDialog(
+                                                title: const Text(
+                                                  'Sửa đơn giá',
+                                                ),
+                                                content: TextField(
+                                                  controller: ctrl,
+                                                  keyboardType:
+                                                      const TextInputType.numberWithOptions(
+                                                    decimal: true,
+                                                  ),
+                                                  inputFormatters: [
+                                                    NumberInputFormatter(
+                                                      maxDecimalDigits: 0,
                                                     ),
                                                   ],
+                                                  decoration: const InputDecoration(
+                                                    labelText: 'Đơn giá',
+                                                  ),
                                                 ),
-                                          );
-                                          if (ok == true) {
-                                            final v =
-                                                NumberInputFormatter.tryParse(
-                                                  ctrl.text,
-                                                );
-                                            if (v != null && v >= 0) {
-                                              setState(() {
-                                                it.unitPrice = v;
-                                                if (!_paidEdited) {
-                                                  final subtotal2 = _items.fold(
-                                                    0.0,
-                                                    (p, e) => p + e.total,
-                                                  );
-                                                  _discount =
-                                                      _discount
-                                                          .clamp(0, subtotal2)
-                                                          .toDouble();
-                                                  final total2 =
-                                                      (subtotal2 - _discount)
-                                                          .clamp(
-                                                            0,
-                                                            double.infinity,
-                                                          )
-                                                          .toDouble();
-                                                  _paid = total2;
-                                                }
-                                              });
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () => Navigator.pop(
+                                                      context,
+                                                      false,
+                                                    ),
+                                                    child: const Text('Hủy'),
+                                                  ),
+                                                  FilledButton(
+                                                    onPressed: () => Navigator.pop(
+                                                      context,
+                                                      true,
+                                                    ),
+                                                    child: const Text('Lưu'),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            if (ok == true) {
+                                              final v = NumberInputFormatter.tryParse(
+                                                ctrl.text,
+                                              );
+                                              if (v != null && v >= 0) {
+                                                setState(() {
+                                                  it.unitPrice = v;
+                                                  if (!_paidEdited) {
+                                                    final subtotal2 = _items.fold(
+                                                      0.0,
+                                                      (p, e) => p + e.total,
+                                                    );
+                                                    _discount = _discount
+                                                        .clamp(0, subtotal2)
+                                                        .toDouble();
+                                                    final total2 = (subtotal2 - _discount)
+                                                        .clamp(
+                                                          0,
+                                                          double.infinity,
+                                                        )
+                                                        .toDouble();
+                                                    _paid = total2;
+                                                  }
+                                                });
+                                              }
                                             }
-                                          }
-                                        },
-                                        child: Text(
-                                          '${currency.format(it.unitPrice)} × ${it.quantity} ${it.unit} (chạm để sửa)',
+                                          },
+                                          child: Text(
+                                            '${currency.format(it.unitPrice)} × ${it.quantity} ${it.unit} (chạm để sửa)',
+                                          ),
                                         ),
-                                      ),
                                       if (isMixLine) ...[
                                         const SizedBox(height: 8),
                                         TextField(
@@ -1894,12 +1959,13 @@ class _SaleScreenState extends State<SaleScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                Text(
-                                  currency.format(it.total),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
+                                if (!isMixLine)
+                                  Text(
+                                    currency.format(it.total),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                             const SizedBox(height: 6),
