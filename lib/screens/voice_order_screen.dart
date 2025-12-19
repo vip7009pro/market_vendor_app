@@ -635,8 +635,8 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   Future<void> _processWithAI(String text) async {
     if (text.isEmpty) return;
 
-    //const apiKey = String.fromEnvironment('OPENROUTER_API_KEY');
-    const apiKey = "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";
+    const apiKey = String.fromEnvironment('OPENROUTER_API_KEY');
+    
     if (apiKey.trim().isEmpty) {
       if (!mounted) return;
       setState(() {
