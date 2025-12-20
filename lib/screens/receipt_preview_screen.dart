@@ -517,7 +517,7 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
         TableRow(
           children: [
             cell('${i + 1}', align: TextAlign.center),
-            cell(it.name),
+            cell(it.displayName ?? it.name), // Use displayName if available, otherwise fall back to name
             cell(it.unit, align: TextAlign.center),
             cell(qty, align: TextAlign.right),
             cell(widget.currency.format(it.unitPrice), align: TextAlign.right),

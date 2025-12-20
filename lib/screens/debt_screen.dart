@@ -505,11 +505,37 @@ class DebtList extends StatelessWidget {
                 type = 'purchase';
               }
               if (picked != null && picked.isNotEmpty) {
-                d.sourceType = type;
-                d.sourceId = picked;
-                await context.read<DebtProvider>().update(d);
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã gán giao dịch cho công nợ')));
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder:
+                      (context) => AlertDialog(
+                        title: const Text('Xác nhận gán giao dịch'),
+                        content: const Text(
+                          'Bạn có chắc chắn muốn gán giao dịch này cho công nợ?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('Hủy'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            child: const Text('Đồng ý'),
+                          ),
+                        ],
+                      ),
+                );
+                if (confirm == true) {
+                  d.sourceType = type;
+                  d.sourceId = picked;
+                  await context.read<DebtProvider>().update(d);
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Đã gán giao dịch cho công nợ'),
+                    ),
+                  );
+                }
               }
               return;
             }
