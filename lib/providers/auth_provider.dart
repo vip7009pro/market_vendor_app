@@ -7,12 +7,12 @@ import 'package:http/http.dart' as http;
 
 class AuthProvider extends ChangeNotifier {
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+  static const String _driveFileScope = 'https://www.googleapis.com/auth/drive.file';
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: [
       'email',
       'profile',
-      'https://www.googleapis.com/auth/drive.file'
-      // Drive scope sẽ request thêm sau khi login Firebase thành công
+      _driveFileScope,
     ],
   );
 
@@ -60,9 +60,6 @@ class AuthProvider extends ChangeNotifier {
       final userCredential = await _firebaseAuth.signInWithCredential(credential);
       _firebaseUser = userCredential.user;
 
-      // Sau khi login Firebase thành công → request quyền Drive
-      ///await requestDriveScope();
-
       notifyListeners();
     } catch (e) {
       _errorMessage = 'Lỗi đăng nhập: $e';
@@ -76,9 +73,7 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> requestDriveScope() async {
     try {
       final granted = await _googleSignIn.requestScopes([
-        'email',
-        'profile',
-        'https://www.googleapis.com/auth/drive.file', // An toàn, chỉ truy cập file app tạo
+        _driveFileScope, // An toàn, chỉ truy cập file app tạo
       ]);
       notifyListeners();
       return granted;
@@ -112,7 +107,8 @@ class AuthProvider extends ChangeNotifier {
   // Đăng xuất
   Future<void> signOut() async {
     await _firebaseAuth.signOut();
-    await _googleSignIn.disconnect();
+    // IMPORTANT: disconnect() revokes scopes and will trigger consent again next login.
+    await _googleSignIn.signOut();
     _firebaseUser = null;
     notifyListeners();
   }

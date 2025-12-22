@@ -34,6 +34,7 @@ class _SaleScreenState extends State<SaleScreen> {
   final Map<String, TextEditingController> _qtyControllers = {};
   final Map<String, FocusNode> _qtyFocusNodes = {};
   final ScrollController _scrollCtrl = ScrollController();
+  final Map<String, TextEditingController> _mixDisplayNameCtrls = {};
   double _discount = 0;
   double _paid = 0;
   String? _customerId;
@@ -53,6 +54,203 @@ class _SaleScreenState extends State<SaleScreen> {
         text: it.quantity.toStringAsFixed(it.quantity % 1 == 0 ? 0 : 2),
       ),
     );
+  }
+
+  final Map<String, TextEditingController> _mixRawQtyControllers = {};
+  final Map<String, FocusNode> _mixRawQtyFocusNodes = {};
+
+  String _mixRawKey(String mixProductId, String rawProductId) => '$mixProductId::$rawProductId';
+
+  TextEditingController _mixRawQtyCtrlFor({required String mixProductId, required String rawProductId, required double initialQty}) {
+    final key = _mixRawKey(mixProductId, rawProductId);
+    final existing = _mixRawQtyControllers[key];
+    if (existing != null) return existing;
+    final rawQty = initialQty;
+    final ctrl = TextEditingController(
+      text: rawQty == 0 ? '' : rawQty.toStringAsFixed(rawQty % 1 == 0 ? 0 : 2),
+    );
+    _mixRawQtyControllers[key] = ctrl;
+    return ctrl;
+  }
+
+  FocusNode _mixRawQtyFocusFor({required String mixProductId, required String rawProductId}) {
+    final key = _mixRawKey(mixProductId, rawProductId);
+    return _mixRawQtyFocusNodes.putIfAbsent(key, () => FocusNode());
+  }
+
+  void _disposeMixRawFieldFor({required String mixProductId, required String rawProductId}) {
+    final key = _mixRawKey(mixProductId, rawProductId);
+    _mixRawQtyControllers.remove(key)?.dispose();
+    _mixRawQtyFocusNodes.remove(key)?.dispose();
+  }
+
+  Map<String, double> _requiredRawQtyForThisSale() {
+    final need = <String, double>{};
+    for (final it in _items) {
+      final t = (it.itemType ?? '').toUpperCase().trim();
+      if (t == 'MIX') {
+        final mixItems = _getMixItems(it);
+        for (final m in mixItems) {
+          final rid = (m['rawProductId']?.toString() ?? '').trim();
+          if (rid.isEmpty) continue;
+          final q = (m['rawQty'] as num?)?.toDouble() ?? 0.0;
+          if (q <= 0) continue;
+          need[rid] = (need[rid] ?? 0) + q;
+        }
+      } else {
+        final pid = it.productId;
+        final q = it.quantity;
+        if (q <= 0) continue;
+        need[pid] = (need[pid] ?? 0) + q;
+      }
+    }
+    return need;
+  }
+
+  Future<bool> _ensureEnoughStockBeforeSave() async {
+    final need = _requiredRawQtyForThisSale();
+    if (need.isEmpty) return true;
+
+    final products = await DatabaseService.instance.getProductsForSale();
+    final byId = {for (final p in products) p.id: p};
+
+    final now = DateTime.now();
+
+    for (final entry in need.entries) {
+      final pid = entry.key;
+      final requiredQty = entry.value;
+      final p = byId[pid];
+      if (p == null) continue;
+
+      final current = p.currentStock;
+      if (current >= requiredQty) continue;
+
+      final ctrl = TextEditingController(
+        text: NumberFormat.decimalPattern('en_US').format(current),
+      );
+
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Tồn kho không đủ'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Sản phẩm: ${p.name}'),
+              Text('Cần xuất: ${requiredQty.toStringAsFixed(requiredQty % 1 == 0 ? 0 : 2)} ${p.unit}'),
+              Text('Tồn hiện tại: ${current.toStringAsFixed(current % 1 == 0 ? 0 : 2)} ${p.unit}'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                decoration: const InputDecoration(
+                  labelText: 'Cập nhật tồn hiện tại mới',
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Cập nhật')),
+          ],
+        ),
+      );
+
+      if (ok != true) return false;
+
+      final newCurrent = (NumberInputFormatter.tryParse(ctrl.text) ?? current).toDouble();
+      await DatabaseService.instance.setCurrentStockAndRecalcOpeningStockForMonth(
+        productId: pid,
+        newCurrentStock: newCurrent,
+        year: now.year,
+        month: now.month,
+      );
+    }
+
+    await context.read<ProductProvider>().load();
+    return true;
+  }
+
+  Future<bool> _warnIfSellingBelowRawPrice() async {
+    final byId = {for (final p in context.read<ProductProvider>().products) p.id: p};
+    final warnings = <Map<String, dynamic>>[];
+
+    for (final it in _items) {
+      final t = (it.itemType ?? '').toUpperCase().trim();
+      if (t != 'MIX') continue;
+
+      final mixItems = _getMixItems(it);
+      if (mixItems.isEmpty) continue;
+
+      double rawSellTotal = 0.0;
+      for (final m in mixItems) {
+        final rid = (m['rawProductId']?.toString() ?? '').trim();
+        final rawQty = (m['rawQty'] as num?)?.toDouble() ?? 0.0;
+        if (rid.isEmpty || rawQty <= 0) continue;
+        final rawPrice = byId[rid]?.price ?? 0.0;
+        rawSellTotal += rawQty * rawPrice;
+      }
+
+      final saleTotal = it.total;
+      if (rawSellTotal > 0 && saleTotal + 0.000001 < rawSellTotal) {
+        warnings.add({
+          'name': (it.displayName?.trim().isNotEmpty == true) ? it.displayName!.trim() : it.name,
+          'saleTotal': saleTotal,
+          'rawSellTotal': rawSellTotal,
+        });
+      }
+    }
+
+    if (warnings.isEmpty) return true;
+
+    final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Cảnh báo giá bán'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Có sản phẩm bán thấp hơn tổng giá bán của nguyên liệu (RAW):'),
+              const SizedBox(height: 8),
+              ...warnings.map((w) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          (w['name'] as String?) ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Text(
+                        '${currency.format(w['saleTotal'] as double)} < ${currency.format(w['rawSellTotal'] as double)}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+              const SizedBox(height: 8),
+              const Text('Bạn vẫn muốn lưu hóa đơn?'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Quay lại')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Vẫn lưu')),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   FocusNode _getQtyFocusNode(SaleItem it) {
@@ -104,7 +302,219 @@ class _SaleScreenState extends State<SaleScreen> {
     for (final f in _qtyFocusNodes.values) {
       f.dispose();
     }
+    for (final c in _mixRawQtyControllers.values) {
+      c.dispose();
+    }
+    for (final f in _mixRawQtyFocusNodes.values) {
+      f.dispose();
+    }
+    for (final c in _mixDisplayNameCtrls.values) {
+      c.dispose();
+    }
     super.dispose();
+  }
+
+  bool _isMixItem(SaleItem it) {
+    return (it.itemType ?? '').toUpperCase().trim() == 'MIX';
+  }
+
+  TextEditingController _mixDisplayNameCtrlFor(SaleItem it) {
+    return _mixDisplayNameCtrls.putIfAbsent(
+      it.productId,
+      () => TextEditingController(text: it.displayName ?? ''),
+    );
+  }
+
+  List<Map<String, dynamic>> _getMixItems(SaleItem it) {
+    final raw = (it.mixItemsJson ?? '').trim();
+    if (raw.isEmpty) return <Map<String, dynamic>>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    } catch (_) {}
+    return <Map<String, dynamic>>[];
+  }
+
+  void _setMixItems(SaleItem it, List<Map<String, dynamic>> mixItems) {
+    it.mixItemsJson = jsonEncode(mixItems);
+  }
+
+  void _recalcMixTotalsFromMixItems(SaleItem it, List<Map<String, dynamic>> mixItems) {
+    final qty = mixItems.fold<double>(0.0, (p, e) => p + ((e['rawQty'] as num?)?.toDouble() ?? 0));
+    final totalCost = mixItems.fold<double>(
+      0.0,
+      (p, e) => p + (((e['rawQty'] as num?)?.toDouble() ?? 0) * ((e['rawUnitCost'] as num?)?.toDouble() ?? 0)),
+    );
+    it.quantity = qty;
+    it.unitCost = qty <= 0 ? 0 : (totalCost / qty);
+  }
+
+  void _addSelectedProductToSale(Product product) {
+    if (product.itemType == ProductItemType.mix) {
+      final exists = _items.any((e) => e.productId == product.id);
+      if (exists) {
+        _productCtrl.text = product.name;
+        return;
+      }
+
+      _items.add(
+        SaleItem(
+          productId: product.id,
+          name: product.name,
+          unitPrice: product.price,
+          unitCost: 0,
+          quantity: 0,
+          unit: product.unit,
+          itemType: 'MIX',
+          displayName: product.name,
+          mixItemsJson: '[]',
+        ),
+      );
+      _productCtrl.text = product.name;
+      return;
+    }
+
+    final existingItem = _items.firstWhere(
+      (item) => item.productId == product.id,
+      orElse:
+          () => SaleItem(
+            productId: product.id,
+            name: product.name,
+            unitPrice: product.price,
+            unitCost: product.costPrice,
+            quantity: 0,
+            unit: product.unit,
+          ),
+    );
+    if (_items.contains(existingItem)) {
+      existingItem.quantity += 1;
+    } else {
+      _items.add(existingItem..quantity = 1);
+    }
+    _productCtrl.text = product.name;
+  }
+
+  Future<Product?> _showRawPicker({String? requiredUnit}) async {
+    final products = await DatabaseService.instance.getProductsForSale();
+    final raws = products.where((p) => p.itemType == ProductItemType.raw).toList();
+    final filtered = requiredUnit == null ? raws : raws.where((p) => p.unit == requiredUnit).toList();
+
+    return await showModalBottomSheet<Product>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        final TextEditingController searchController = TextEditingController();
+        List<Product> filteredProducts = List.from(filtered);
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              height: MediaQuery.of(context).size.height * 0.8,
+              child: Column(
+                children: [
+                  TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      labelText: requiredUnit == null ? 'Chọn nguyên liệu (RAW)' : 'Chọn nguyên liệu ($requiredUnit)',
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          searchController.clear();
+                          setState(() {
+                            filteredProducts = List.from(filtered);
+                          });
+                        },
+                      ),
+                    ),
+                    onChanged: (value) {
+                      if (value.isEmpty) {
+                        setState(() {
+                          filteredProducts = List.from(filtered);
+                        });
+                      } else {
+                        final query = value.toLowerCase();
+                        setState(() {
+                          filteredProducts = filtered.where((product) {
+                            final nameMatch = product.name.toLowerCase().contains(query);
+                            final barcodeMatch = product.barcode?.toLowerCase().contains(query) ?? false;
+                            return nameMatch || barcodeMatch;
+                          }).toList();
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: filteredProducts.isEmpty
+                        ? const Center(child: Text('Không tìm thấy nguyên liệu nào'))
+                        : ListView.builder(
+                            itemCount: filteredProducts.length,
+                            itemBuilder: (context, index) {
+                              final product = filteredProducts[index];
+                              return ListTile(
+                                leading: const CircleAvatar(child: Icon(Icons.inventory_2_outlined)),
+                                title: Text(product.name),
+                                subtitle: Text('${NumberFormat('#,##0').format(product.price)} đ'),
+                                trailing: Text('Tồn: ${product.currentStock} ${product.unit}'),
+                                onTap: () => Navigator.of(context).pop(product),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _addRawToMix(SaleItem mixLine) async {
+    final mixItems = _getMixItems(mixLine);
+    final requiredUnit = mixLine.unit.trim().isEmpty ? null : mixLine.unit;
+    final raw = await _showRawPicker(requiredUnit: requiredUnit);
+    if (raw == null) return;
+
+    if (requiredUnit != null && raw.unit != requiredUnit) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không thể trộn nguyên liệu khác đơn vị')),
+      );
+      return;
+    }
+
+    // If first raw, lock mix unit to raw unit and also update product unit in DB.
+    if (requiredUnit == null) {
+      mixLine.unit = raw.unit;
+      await DatabaseService.instance.updateProductUnit(productId: mixLine.productId, unit: raw.unit);
+    }
+
+    // Add or increment existing raw
+    final idx = mixItems.indexWhere((e) => (e['rawProductId']?.toString() ?? '') == raw.id);
+    if (idx == -1) {
+      mixItems.add({
+        'rawProductId': raw.id,
+        'rawName': raw.name,
+        'rawUnit': raw.unit,
+        'rawQty': 0.0,
+        'rawUnitCost': raw.costPrice,
+      });
+    }
+
+    _setMixItems(mixLine, mixItems);
+    _recalcMixTotalsFromMixItems(mixLine, mixItems);
+
+    setState(() {
+      if (!_paidEdited) {
+        final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+        final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+        _paid = total2;
+      }
+    });
   }
 
   Future<void> _loadRecentUnits() async {
@@ -211,77 +621,93 @@ class _SaleScreenState extends State<SaleScreen> {
     final lastUnit = prefs.getString('last_product_unit') ?? 'cái';
     final unitCtrl = TextEditingController(text: lastUnit);
     final barcodeCtrl = TextEditingController();
+    var isMix = false;
     final ok = await showDialog<bool>(
       context: context,
       builder:
           (_) => AlertDialog(
             title: const Text('Thêm sản phẩm'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: priceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: false,
-                  ),
-                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                  decoration: const InputDecoration(labelText: 'Giá bán'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: costPriceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: false,
-                  ),
-                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                  decoration: const InputDecoration(labelText: 'Giá vốn'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: stockCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-                  decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: unitCtrl,
-                  decoration: const InputDecoration(labelText: 'Đơn vị'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: barcodeCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Mã vạch (nếu có)',
-                    // FIX: Wrap IconButton trong Builder để lấy fresh context có Overlay cho Tooltip
-                    suffixIcon: Builder(
-                      builder:
-                          (ctx) => IconButton(
-                            tooltip: 'Quét mã vạch',
-                            icon: const Icon(Icons.qr_code_scanner),
-                            onPressed: () async {
-                              final code = await Navigator.of(ctx).push<String>(
-                                MaterialPageRoute(
-                                  builder: (_) => const ScanScreen(),
-                                ),
-                              );
-                              if (code != null && code.isNotEmpty) {
-                                barcodeCtrl.text = code;
-                                FocusScope.of(ctx).unfocus();
-                              }
-                            },
-                          ),
+            content: StatefulBuilder(
+              builder: (context, setState) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: isMix,
+                      onChanged: (v) => setState(() => isMix = v ?? false),
+                      title: const Text('Hàng MIX'),
                     ),
-                  ),
-                ),
-              ],
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                        controller: priceCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                        decoration: const InputDecoration(labelText: 'Giá bán'),
+                      ),
+                      const SizedBox(height: 8),
+                    if (!isMix) ...[
+                      
+                      TextField(
+                        controller: costPriceCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                        decoration: const InputDecoration(labelText: 'Giá vốn'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: stockCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                        decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    
+                    TextField(
+                      controller: unitCtrl,
+                      decoration: const InputDecoration(labelText: 'Đơn vị'),
+                    ),
+                    if (!isMix) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: barcodeCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Mã vạch (nếu có)',
+                          suffixIcon: Builder(
+                            builder:
+                                (ctx) => IconButton(
+                                  tooltip: 'Quét mã vạch',
+                                  icon: const Icon(Icons.qr_code_scanner),
+                                  onPressed: () async {
+                                    final code = await Navigator.of(ctx).push<String>(
+                                      MaterialPageRoute(
+                                        builder: (_) => const ScanScreen(),
+                                      ),
+                                    );
+                                    if (code != null && code.isNotEmpty) {
+                                      barcodeCtrl.text = code;
+                                      FocusScope.of(ctx).unfocus();
+                                    }
+                                  },
+                                ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
             actions: [
               TextButton(
@@ -309,49 +735,40 @@ class _SaleScreenState extends State<SaleScreen> {
         return;
       }
 
+      final unitValue = unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim();
       final p = Product(
         name: nameCtrl.text.trim(),
         price: NumberInputFormatter.tryParse(priceCtrl.text) ?? 0,
-        costPrice: NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0,
-        currentStock: NumberInputFormatter.tryParse(stockCtrl.text) ?? 0,
-        unit: unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim(),
-        barcode:
-            barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
+        costPrice: isMix ? 0 : (NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0),
+        currentStock: isMix ? 0 : (NumberInputFormatter.tryParse(stockCtrl.text) ?? 0),
+        unit: unitValue,
+        barcode: isMix
+            ? null
+            : (barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim()),
+        itemType: isMix ? ProductItemType.mix : ProductItemType.raw,
+        isStocked: isMix ? false : true,
       );
       final unitToSave = p.unit.trim();
       if (unitToSave.isNotEmpty) {
         await prefs.setString('last_product_unit', unitToSave);
       }
       await provider.add(p);
-      final now = DateTime.now();
-      await DatabaseService.instance.upsertOpeningStocksForMonth(
-        year: now.year,
-        month: now.month,
-        openingByProductId: {p.id: p.currentStock},
-      );
-      setState(() {
-        final existingItem = _items.firstWhere(
-          (item) => item.productId == p.id,
-          orElse:
-              () => SaleItem(
-                productId: p.id,
-                name: p.name,
-                unitPrice: p.price,
-                unitCost: p.costPrice,
-                quantity: 0,
-                unit: p.unit,
-              ),
+      if (!isMix) {
+        final now = DateTime.now();
+        await DatabaseService.instance.upsertOpeningStocksForMonth(
+          year: now.year,
+          month: now.month,
+          openingByProductId: {p.id: p.currentStock},
         );
-        if (_items.contains(existingItem)) {
-          existingItem.quantity += 1;
-        } else {
-          _items.add(existingItem..quantity = 1);
-        }
-        _productCtrl.text = p.name;
+      }
+      setState(() {
+        _addSelectedProductToSale(p);
       });
-      await _applyLastUnitTo(
-        _items.lastWhere((item) => item.productId == p.id),
-      );
+      if (!isMix) {
+        await _applyLastUnitTo(
+          _items.lastWhere((item) => item.productId == p.id),
+        );
+      }
       await _saveRecentProduct(p);
       if (!_paidEdited) {
         final subtotal = _items.fold(0.0, (p, e) => p + e.total);
@@ -477,13 +894,14 @@ class _SaleScreenState extends State<SaleScreen> {
   }
 
   Future<Product?> _showProductPicker() async {
-    final products = context.read<ProductProvider>().products;
+    final products = await DatabaseService.instance.getProductsForSale();
+    final baseProducts = products.toList();
     return await showModalBottomSheet<Product>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
         final TextEditingController searchController = TextEditingController();
-        List<Product> filteredProducts = List.from(products);
+        List<Product> filteredProducts = List.from(baseProducts);
 
         return StatefulBuilder(
           builder: (context, setState) {
@@ -501,7 +919,7 @@ class _SaleScreenState extends State<SaleScreen> {
                         onPressed: () {
                           searchController.clear();
                           setState(() {
-                            filteredProducts = List.from(products);
+                            filteredProducts = List.from(baseProducts);
                           });
                         },
                       ),
@@ -509,13 +927,13 @@ class _SaleScreenState extends State<SaleScreen> {
                     onChanged: (value) {
                       if (value.isEmpty) {
                         setState(() {
-                          filteredProducts = List.from(products);
+                          filteredProducts = List.from(baseProducts);
                         });
                       } else {
                         final query = value.toLowerCase();
                         setState(() {
                           filteredProducts =
-                              products.where((product) {
+                              baseProducts.where((product) {
                                 final nameMatch = product.name
                                     .toLowerCase()
                                     .contains(query);
@@ -541,17 +959,17 @@ class _SaleScreenState extends State<SaleScreen> {
                               itemCount: filteredProducts.length,
                               itemBuilder: (context, index) {
                                 final product = filteredProducts[index];
+                                final iconColor = product.itemType == ProductItemType.mix ? const Color.fromARGB(255, 93, 197, 8) : const Color.fromARGB(255, 240, 157, 184);
                                 return ListTile(
-                                  leading: const CircleAvatar(
-                                    child: Icon(Icons.shopping_bag),
+                                  leading: CircleAvatar(
                                     radius: 20,
+                                    child: Icon(Icons.shopping_bag, color: iconColor),
                                   ),
                                   title: Text(product.name),
                                   subtitle: Text(
-                                    '${NumberFormat('#,##0').format(product.price)} đ',
-                                  ),
-                                  trailing: Text(
-                                    'Tồn: ${product.currentStock} ${product.unit}',
+                                    product.itemType == ProductItemType.mix
+                                        ? 'MIX • ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}'
+                                        : '${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}',
                                   ),
                                   onTap: () {
                                     Navigator.of(context).pop(product);
@@ -972,6 +1390,22 @@ class _SaleScreenState extends State<SaleScreen> {
                   ),
                 ],
               ),
+             /*  const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await _addQuickProductDialog(
+                      prefillName:
+                          _productCtrl.text.trim().isEmpty ? null : _productCtrl.text.trim(),
+                    );
+                    _productCtrl.clear();
+                    _unfocusProductField?.call();
+                  },
+                  icon: const Icon(Icons.shuffle),
+                  label: const Text('Thêm sản phẩm mới'),
+                ),
+              ), */
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -1011,30 +1445,15 @@ class _SaleScreenState extends State<SaleScreen> {
                         final product = await _showProductPicker();
                         if (product != null) {
                           setState(() {
-                            final existingItem = _items.firstWhere(
-                              (item) => item.productId == product.id,
-                              orElse:
-                                  () => SaleItem(
-                                    productId: product.id,
-                                    name: product.name,
-                                    unitPrice: product.price,
-                                    unitCost: product.costPrice,
-                                    quantity: 0,
-                                    unit: product.unit,
-                                  ),
-                            );
-                            if (_items.contains(existingItem)) {
-                              existingItem.quantity += 1;
-                            } else {
-                              _items.add(existingItem..quantity = 1);
-                            }
-                            _productCtrl.text = product.name;
+                            _addSelectedProductToSale(product);
                           });
-                          await _applyLastUnitTo(
-                            _items.lastWhere(
-                              (item) => item.productId == product.id,
-                            ),
-                          );
+                          if (product.itemType != ProductItemType.mix) {
+                            await _applyLastUnitTo(
+                              _items.lastWhere(
+                                (item) => item.productId == product.id,
+                              ),
+                            );
+                          }
                           await _saveRecentProduct(product);
                           if (!_paidEdited) {
                             final subtotal2 = _items.fold(
@@ -1091,28 +1510,13 @@ class _SaleScreenState extends State<SaleScreen> {
                       labelStyle: const TextStyle(color: Colors.green),
                       onPressed: () async {
                         setState(() {
-                          final existingItem = _items.firstWhere(
-                            (item) => item.productId == p.id,
-                            orElse:
-                                () => SaleItem(
-                                  productId: p.id,
-                                  name: p.name,
-                                  unitPrice: p.price,
-                                  unitCost: p.costPrice,
-                                  quantity: 0,
-                                  unit: p.unit,
-                                ),
-                          );
-                          if (_items.contains(existingItem)) {
-                            existingItem.quantity += 1;
-                          } else {
-                            _items.add(existingItem..quantity = 1);
-                          }
-                          _productCtrl.text = p.name;
+                          _addSelectedProductToSale(p);
                         });
-                        await _applyLastUnitTo(
-                          _items.lastWhere((item) => item.productId == p.id),
-                        );
+                        if (p.itemType != ProductItemType.mix) {
+                          await _applyLastUnitTo(
+                            _items.lastWhere((item) => item.productId == p.id),
+                          );
+                        }
                         await _saveRecentProduct(p);
                         if (!_paidEdited) {
                           final subtotal2 = _items.fold(
@@ -1149,6 +1553,9 @@ class _SaleScreenState extends State<SaleScreen> {
                   } catch (_) {
                     prod = null;
                   }
+                  final isMixLine = _isMixItem(it);
+                  final itemBg = i.isEven ? Colors.black.withValues(alpha: 0.03) : Colors.transparent;
+                  final itemBorder = Colors.black.withValues(alpha: 0.08);
                   final qtyCtrl = _getQtyController(it);
                   final qtyFocus = _getQtyFocusNode(it);
                   final expectedText = it.quantity.toStringAsFixed(
@@ -1160,11 +1567,18 @@ class _SaleScreenState extends State<SaleScreen> {
 
                   return Column(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                      Container(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        decoration: BoxDecoration(
+                          color: itemBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: itemBorder),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                             Row(
                               children: [
                                 Expanded(
@@ -1180,7 +1594,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      if (prod != null) ...[
+                                      if (prod != null && !isMixLine) ...[
                                         const SizedBox(height: 2),
                                         Text(
                                           'Tồn: ${prod.currentStock.toStringAsFixed(prod.currentStock % 1 == 0 ? 0 : 2)} ${prod.unit}',
@@ -1190,131 +1604,367 @@ class _SaleScreenState extends State<SaleScreen> {
                                           ),
                                         ),
                                       ],
+                                      if (isMixLine) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'MIX • SL = tổng nguyên liệu (${it.quantity.toStringAsFixed(it.quantity % 1 == 0 ? 0 : 2)} ${it.unit})',
+                                          style: const TextStyle(fontSize: 12, color: Colors.black54),
+                                        ),
+                                      ],
                                       const SizedBox(height: 2),
-                                      InkWell(
-                                        onTap: () async {
-                                          final ctrl = TextEditingController(
-                                            text: it.unitPrice.toStringAsFixed(
-                                              0,
-                                            ),
-                                          );
-                                          final ok = await showDialog<bool>(
-                                            context: context,
-                                            builder:
-                                                (_) => AlertDialog(
-                                                  title: const Text(
-                                                    'Sửa đơn giá',
-                                                  ),
-                                                  content: TextField(
-                                                    controller: ctrl,
-                                                    keyboardType:
-                                                        const TextInputType.numberWithOptions(
+                                      if (isMixLine)
+                                        Row(
+                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          children: [
+                                            Expanded(
+                                              child: GestureDetector(
+                                                onTap: () async {
+                                                  final ctrl = TextEditingController(
+                                                    text: NumberFormat('#,###').format(
+                                                      it.unitPrice,
+                                                    ),
+                                                  );
+                                                  final ok = await showDialog<bool>(
+                                                    context: context,
+                                                    builder:
+                                                        (_) => AlertDialog(
+                                                      title: const Text(
+                                                        'Sửa đơn giá',
+                                                      ),
+                                                      content: TextField(
+                                                        controller: ctrl,
+                                                        keyboardType:
+                                                            const TextInputType.numberWithOptions(
                                                           decimal: true,
                                                         ),
-                                                    inputFormatters: [
-                                                      NumberInputFormatter(
-                                                        maxDecimalDigits: 0,
-                                                      ),
-                                                    ],
-                                                    decoration:
-                                                        const InputDecoration(
+                                                        inputFormatters: [
+                                                          NumberInputFormatter(
+                                                            maxDecimalDigits: 0,
+                                                          ),
+                                                        ],
+                                                        decoration: const InputDecoration(
                                                           labelText: 'Đơn giá',
                                                         ),
-                                                  ),
-                                                  actions: [
-                                                    TextButton(
-                                                      onPressed:
-                                                          () => Navigator.pop(
+                                                      ),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed: () => Navigator.pop(
                                                             context,
                                                             false,
                                                           ),
-                                                      child: const Text('Hủy'),
-                                                    ),
-                                                    FilledButton(
-                                                      onPressed:
-                                                          () => Navigator.pop(
+                                                          child: const Text('Hủy'),
+                                                        ),
+                                                        FilledButton(
+                                                          onPressed: () => Navigator.pop(
                                                             context,
                                                             true,
                                                           ),
-                                                      child: const Text('Lưu'),
+                                                          child: const Text('Lưu'),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                  if (ok == true) {
+                                                    final v = NumberInputFormatter.tryParse(
+                                                      ctrl.text,
+                                                    );
+                                                    if (v != null && v >= 0) {
+                                                      setState(() {
+                                                        it.unitPrice = v;
+                                                        if (!_paidEdited) {
+                                                          final subtotal2 = _items.fold(
+                                                            0.0,
+                                                            (p, e) => p + e.total,
+                                                          );
+                                                          _discount = _discount
+                                                              .clamp(0, subtotal2)
+                                                              .toDouble();
+                                                          final total2 = (subtotal2 - _discount)
+                                                              .clamp(
+                                                                0,
+                                                                double.infinity,
+                                                              )
+                                                              .toDouble();
+                                                          _paid = total2;
+                                                        }
+                                                      });
+                                                    }
+                                                  }
+                                                },
+                                                child: Text(
+                                                  '${currency.format(it.unitPrice)} × ${it.quantity} ${it.unit} (chạm để sửa)',
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              currency.format(it.total),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      else
+                                        GestureDetector(
+                                          onTap: () async {
+                                            final ctrl = TextEditingController(
+                                              text: NumberFormat('#,###').format(
+                                                it.unitPrice,
+                                              ),
+                                            );
+                                            final ok = await showDialog<bool>(
+                                              context: context,
+                                              builder: (_) => AlertDialog(
+                                                title: const Text(
+                                                  'Sửa đơn giá',
+                                                ),
+                                                content: TextField(
+                                                  controller: ctrl,
+                                                  keyboardType:
+                                                      const TextInputType.numberWithOptions(
+                                                    decimal: true,
+                                                  ),
+                                                  inputFormatters: [
+                                                    NumberInputFormatter(
+                                                      maxDecimalDigits: 0,
                                                     ),
                                                   ],
+                                                  decoration: const InputDecoration(
+                                                    labelText: 'Đơn giá',
+                                                  ),
                                                 ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () => Navigator.pop(
+                                                      context,
+                                                      false,
+                                                    ),
+                                                    child: const Text('Hủy'),
+                                                  ),
+                                                  FilledButton(
+                                                    onPressed: () => Navigator.pop(
+                                                      context,
+                                                      true,
+                                                    ),
+                                                    child: const Text('Lưu'),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            if (ok == true) {
+                                              final v = NumberInputFormatter.tryParse(
+                                                ctrl.text,
+                                              );
+                                              if (v != null && v >= 0) {
+                                                setState(() {
+                                                  it.unitPrice = v;
+                                                  if (!_paidEdited) {
+                                                    final subtotal2 = _items.fold(
+                                                      0.0,
+                                                      (p, e) => p + e.total,
+                                                    );
+                                                    _discount = _discount
+                                                        .clamp(0, subtotal2)
+                                                        .toDouble();
+                                                    final total2 = (subtotal2 - _discount)
+                                                        .clamp(
+                                                          0,
+                                                          double.infinity,
+                                                        )
+                                                        .toDouble();
+                                                    _paid = total2;
+                                                  }
+                                                });
+                                              }
+                                            }
+                                          },
+                                          child: Text(
+                                            '${currency.format(it.unitPrice)} × ${it.quantity} ${it.unit} (chạm để sửa)',
+                                          ),
+                                        ),
+                                      if (isMixLine) ...[
+                                        const SizedBox(height: 8),
+                                        TextField(
+                                          controller: _mixDisplayNameCtrlFor(it),
+                                          decoration: const InputDecoration(
+                                            labelText: 'Tên hiển thị trên hóa đơn (không bắt buộc)',
+                                            isDense: true,
+                                          ),
+                                          onChanged: (v) {
+                                            it.displayName = v.trim().isEmpty ? null : v.trim();
+                                          },
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: OutlinedButton.icon(
+                                            onPressed: () => _addRawToMix(it),
+                                            icon: const Icon(Icons.add),
+                                            label: const Text('Thêm nguyên liệu (RAW)'),
+                                          ),
+                                        ),
+                                        ..._getMixItems(it).asMap().entries.map((entry) {
+                                          final idx = entry.key;
+                                          final m = entry.value;
+                                          final rawName = (m['rawName']?.toString() ?? '').trim();
+                                          final rawUnit = (m['rawUnit']?.toString() ?? '').trim();
+                                          final rawId = (m['rawProductId']?.toString() ?? '').trim();
+                                          final rawQty = (m['rawQty'] as num?)?.toDouble() ?? 0;
+                                          final rawUnitCost = (m['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
+                                          final ctrl = _mixRawQtyCtrlFor(
+                                            mixProductId: it.productId,
+                                            rawProductId: rawId,
+                                            initialQty: rawQty,
                                           );
-                                          if (ok == true) {
-                                            final v =
-                                                NumberInputFormatter.tryParse(
-                                                  ctrl.text,
-                                                );
-                                            if (v != null && v >= 0) {
-                                              setState(() {
-                                                it.unitPrice = v;
-                                                if (!_paidEdited) {
-                                                  final subtotal2 = _items.fold(
-                                                    0.0,
-                                                    (p, e) => p + e.total,
-                                                  );
-                                                  _discount =
-                                                      _discount
-                                                          .clamp(0, subtotal2)
-                                                          .toDouble();
-                                                  final total2 =
-                                                      (subtotal2 - _discount)
-                                                          .clamp(
-                                                            0,
-                                                            double.infinity,
-                                                          )
-                                                          .toDouble();
-                                                  _paid = total2;
-                                                }
-                                              });
+                                          final focusNode = _mixRawQtyFocusFor(
+                                            mixProductId: it.productId,
+                                            rawProductId: rawId,
+                                          );
+                                          double? rawStock;
+                                          for (final p in context.read<ProductProvider>().products) {
+                                            if (p.id == rawId) {
+                                              rawStock = p.currentStock;
+                                              break;
                                             }
                                           }
-                                        },
-                                        child: Text(
-                                          '${currency.format(it.unitPrice)} × ${it.quantity} ${it.unit} (chạm để sửa)',
-                                        ),
-                                      ),
+                                          return Padding(
+                                            padding: const EdgeInsets.only(top: 6.0),
+                                            child: Row(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        rawName.isEmpty ? 'Nguyên liệu' : rawName,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        '${rawStock == null ? '' : 'Tồn: ${rawStock.toStringAsFixed(rawStock % 1 == 0 ? 0 : 2)}'}${rawStock == null ? '' : (rawUnit.isEmpty ? '' : ' $rawUnit')}  |  Giá: ${currency.format(rawUnitCost)}',
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                        style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                SizedBox(
+                                                  width: 92,
+                                                  child: TextField(
+                                                    controller: ctrl,
+                                                    focusNode: focusNode,
+                                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                                                    decoration: InputDecoration(
+                                                      labelText: rawUnit.isEmpty ? 'SL' : 'SL ($rawUnit)',
+                                                      isDense: true,
+                                                    ),
+                                                    onChanged: (v) {
+                                                      final val = NumberInputFormatter.tryParse(v);
+                                                      if (val == null || val < 0) return;
+                                                      final items = _getMixItems(it);
+                                                      if (idx >= items.length) return;
+                                                      items[idx]['rawQty'] = val;
+                                                      _setMixItems(it, items);
+                                                      _recalcMixTotalsFromMixItems(it, items);
+                                                      setState(() {
+                                                        if (!_paidEdited) {
+                                                          final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                                                          final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                                                          _paid = total2;
+                                                        }
+                                                      });
+                                                    },
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                SizedBox(
+                                                  width: 88,
+                                                  child: Align(
+                                                    alignment: Alignment.centerRight,
+                                                    child: Text(
+                                                      currency.format(rawQty * rawUnitCost),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                                    ),
+                                                  ),
+                                                ),
+                                                IconButton(
+                                                  tooltip: 'Xóa nguyên liệu',
+                                                  onPressed: () {
+                                                    final items = _getMixItems(it);
+                                                    if (idx >= items.length) return;
+                                                    final removedId = (items[idx]['rawProductId']?.toString() ?? '').trim();
+                                                    items.removeAt(idx);
+                                                    _setMixItems(it, items);
+                                                    _recalcMixTotalsFromMixItems(it, items);
+                                                    if (removedId.isNotEmpty) {
+                                                      _disposeMixRawFieldFor(mixProductId: it.productId, rawProductId: removedId);
+                                                    }
+                                                    setState(() {
+                                                      if (!_paidEdited) {
+                                                        final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                                                        final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                                                        _paid = total2;
+                                                      }
+                                                    });
+                                                  },
+                                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }),
+                                      ],
                                     ],
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                Text(
-                                  currency.format(it.total),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
+                                if (!isMixLine)
+                                  Text(
+                                    currency.format(it.total),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                SizedBox(
-                                  width: 60,
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
-                                      value: it.unit.isEmpty ? null : it.unit,
-                                      hint: const Text('Đơn vị'),
-                                      isExpanded: true,
-                                      items:
-                                          _recentUnits
-                                              .map(
-                                                (u) => DropdownMenuItem(
-                                                  value: u,
-                                                  child: Text(u),
-                                                ),
-                                              )
-                                              .toList(),
-                                      onChanged: (u) async {
-                                        if (u == null) return;
-                                        setState(() => it.unit = u);
-                                        await _rememberUnit(u);
-                                      },
+                                if (!isMixLine) ...[
+                                  SizedBox(
+                                    width: 60,
+                                    child: DropdownButtonHideUnderline(
+                                      child: DropdownButton<String>(
+                                        value: it.unit.isEmpty ? null : it.unit,
+                                        hint: const Text('Đơn vị'),
+                                        isExpanded: true,
+                                        items:
+                                            _recentUnits
+                                                .map(
+                                                  (u) => DropdownMenuItem(
+                                                    value: u,
+                                                    child: Text(u),
+                                                  ),
+                                                )
+                                                .toList(),
+                                        onChanged: (u) async {
+                                          if (u == null) return;
+                                          setState(() => it.unit = u);
+                                          await _rememberUnit(u);
+                                        },
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
+                                  const SizedBox(width: 8),
+                                ],
                                 SizedBox(
                                   width: 110,
                                   child: Builder(
@@ -1336,6 +1986,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                             labelText: 'Số lượng',
                                             isDense: true,
                                           ),
+                                          readOnly: isMixLine,
                                           onTap: () {
                                             Scrollable.ensureVisible(
                                               qtyFieldCtx,
@@ -1415,36 +2066,37 @@ class _SaleScreenState extends State<SaleScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                QuantityStepper(
-                                  value: it.quantity,
-                                  onChanged: (v) {
-                                    setState(() {
-                                      it.quantity = v <= 0 ? 0.0 : v;
-                                      final t = it.quantity.toStringAsFixed(
-                                        it.quantity % 1 == 0 ? 0 : 2,
-                                      );
-                                      qtyCtrl.value = qtyCtrl.value.copyWith(
-                                        text: t,
-                                        selection: TextSelection.collapsed(
-                                          offset: t.length,
-                                        ),
-                                        composing: TextRange.empty,
-                                      );
-                                      if (!_paidEdited) {
-                                        final subtotal2 = _items.fold(
-                                          0.0,
-                                          (p, e) => p + e.total,
+                                if (!isMixLine)
+                                  QuantityStepper(
+                                    value: it.quantity,
+                                    onChanged: (v) {
+                                      setState(() {
+                                        it.quantity = v <= 0 ? 0.0 : v;
+                                        final t = it.quantity.toStringAsFixed(
+                                          it.quantity % 1 == 0 ? 0 : 2,
                                         );
-                                        final total2 =
-                                            (subtotal2 - _discount)
-                                                .clamp(0, double.infinity)
-                                                .toDouble();
-                                        _paid = total2;
-                                      }
-                                    });
-                                  },
-                                  step: _qtyStep,
-                                ),
+                                        qtyCtrl.value = qtyCtrl.value.copyWith(
+                                          text: t,
+                                          selection: TextSelection.collapsed(
+                                            offset: t.length,
+                                          ),
+                                          composing: TextRange.empty,
+                                        );
+                                        if (!_paidEdited) {
+                                          final subtotal2 = _items.fold(
+                                            0.0,
+                                            (p, e) => p + e.total,
+                                          );
+                                          final total2 =
+                                              (subtotal2 - _discount)
+                                                  .clamp(0, double.infinity)
+                                                  .toDouble();
+                                          _paid = total2;
+                                        }
+                                      });
+                                    },
+                                    step: _qtyStep,
+                                  ),
                                 const Spacer(),
                                 IconButton(
                                   icon: const Icon(
@@ -1454,12 +2106,14 @@ class _SaleScreenState extends State<SaleScreen> {
                                   onPressed: () {
                                     setState(() {
                                       _disposeQtyFieldFor(it.productId);
+                                      _mixDisplayNameCtrls.remove(it.productId)?.dispose();
                                       _items.removeAt(i);
                                       if (!_paidEdited) {
                                         final subtotal2 = _items.fold(
                                           0.0,
                                           (p, e) => p + e.total,
                                         );
+                                        _discount = _discount.clamp(0, subtotal2).toDouble();
                                         final total2 =
                                             (subtotal2 - _discount)
                                                 .clamp(0, double.infinity)
@@ -1474,7 +2128,7 @@ class _SaleScreenState extends State<SaleScreen> {
                           ],
                         ),
                       ),
-                      const Divider(height: 1),
+                    ),
                     ],
                   );
                 }),
@@ -1590,6 +2244,21 @@ class _SaleScreenState extends State<SaleScreen> {
                       _items.isEmpty
                           ? null
                           : () async {
+                            final okStock = await _ensureEnoughStockBeforeSave();
+                            if (!okStock) return;
+
+                            final okPrice = await _warnIfSellingBelowRawPrice();
+                            if (!okPrice) return;
+
+                            if (debt > 0 && (_customerId == null || _customerId!.isEmpty)) {
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Có nợ thì bắt buộc phải chọn khách hàng'),
+                                ),
+                              );
+                              return;
+                            }
                             // Tính totalCost dựa trên unitCost của các SaleItem
                             double calculatedTotalCost = _items.fold(
                               0.0,

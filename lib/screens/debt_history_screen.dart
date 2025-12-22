@@ -35,6 +35,37 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
   DateTimeRange? _range;
   String _query = '';
 
+  Widget _buildAssignmentChip(Debt d) {
+    final isAssigned = (d.sourceId ?? '').trim().isNotEmpty;
+    final bg = isAssigned ? Colors.green.withOpacity(0.12) : Colors.orange.withOpacity(0.12);
+    final fg = isAssigned ? Colors.green.shade800 : Colors.orange.shade800;
+    final icon = isAssigned ? Icons.link : Icons.link_off;
+    final label = isAssigned ? 'Đã gán' : 'Chưa gán';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<DebtProvider>();
@@ -134,6 +165,7 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                 final amountColor = isOwedToMe ? Colors.green : Colors.orange;
                 final iconColor = isOwedToMe ? Colors.green : Colors.orange;
                 final statusColor = d.settled ? Colors.green : Colors.blueGrey;
+                final isAssigned = (d.sourceId ?? '').trim().isNotEmpty;
                 
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -178,12 +210,31 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   const SizedBox(height: 2),
-                                  Text(
-                                    DateFormat('dd/MM/yyyy').format(d.createdAt),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        DateFormat('dd/MM/yyyy').format(d.createdAt),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _buildAssignmentChip(d),
+                                      if (isAssigned && (d.sourceType ?? '').trim().isNotEmpty) ...[
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          d.sourceType == 'sale' ? 'Bán hàng' : (d.sourceType == 'purchase' ? 'Nhập hàng' : d.sourceType!),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade700,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ],
                               ),

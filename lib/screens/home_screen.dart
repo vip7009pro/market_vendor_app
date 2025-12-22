@@ -12,11 +12,12 @@ import '../services/database_service.dart';
 import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart'; // Để lấy uid khi cần
 import 'debt_screen.dart';
-import 'purchase_history_screen.dart';
+import 'product_list_screen.dart';
 import 'report_screen.dart';
 import 'settings_screen.dart';
 import 'sale_screen.dart';
 import 'sales_history_screen.dart';
+import 'expense_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,6 +29,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
   late final List<Widget> _pages;
+  bool _checkedAccount = false;
 
   Future<void> _refreshAllProviders() async {
     final productProvider = Provider.of<ProductProvider>(context, listen: false);
@@ -45,11 +47,35 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _handleAccountAfterLogin(String uid) async {
     final prefs = await SharedPreferences.getInstance();
     final lastUid = prefs.getString('last_uid');
-    if (lastUid != null && lastUid.isNotEmpty && lastUid != uid) {
-      await DatabaseService.instance.close();
-      await DatabaseService.instance.resetLocalDatabase();
-      await DatabaseService.instance.reinitialize();
+
+    if (!_checkedAccount) {
+      _checkedAccount = true;
+      if (lastUid != null && lastUid.isNotEmpty && lastUid != uid) {
+        final hasData = await DatabaseService.instance.hasAnyData();
+        if (hasData && mounted) {
+          final shouldClear = await showDialog<bool>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Dữ liệu cũ trên máy'),
+              content: const Text(
+                'Phát hiện dữ liệu đã có sẵn trong máy từ tài khoản trước. Bạn có muốn xóa dữ liệu hiện tại để dùng dữ liệu trống không?',
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Giữ lại')),
+                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa dữ liệu')),
+              ],
+            ),
+          );
+
+          if (shouldClear == true) {
+            await DatabaseService.instance.close();
+            await DatabaseService.instance.resetLocalDatabase();
+            await DatabaseService.instance.reinitialize();
+          }
+        }
+      }
     }
+
     await prefs.setString('last_uid', uid);
     if (!mounted) return;
     await _refreshAllProviders();
@@ -71,11 +97,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+
     _pages = [
       const SaleScreen(),
       const SalesHistoryScreen(),
       const DebtScreen(),
-      const PurchaseHistoryScreen(),
+      const ProductListScreen(),
+      const ExpenseScreen(),
       const ReportScreen(),
       const SettingsScreen(),
     ];
@@ -109,7 +137,8 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Bán hàng'),
           NavigationDestination(icon: Icon(Icons.history), label: 'Lịch sử'),
           NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Ghi nợ'),
-          NavigationDestination(icon: Icon(Icons.inventory), label: 'Nhập hàng'),
+          NavigationDestination(icon: Icon(Icons.inventory_2_outlined), label: 'Kho'),
+          NavigationDestination(icon: Icon(Icons.payments_outlined), label: 'Chi phí'),
           NavigationDestination(icon: Icon(Icons.insights), label: 'Báo cáo'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Cài đặt'),
         ],

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:excel/excel.dart' as ex;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -26,7 +28,77 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
   String _query = '';
   bool _loading = false;
 
-  _AmountMode _amountMode = _AmountMode.cost;
+  _AmountMode _amountMode = _AmountMode.sell;
+
+  late Future<List<_InventoryRow>> _rowsFuture;
+  final ScrollController _scrollCtrl = ScrollController();
+
+  List<Map<String, dynamic>> _decodeMixItems(String? raw) {
+    final s = (raw ?? '').trim();
+    if (s.isEmpty) return <Map<String, dynamic>>[];
+    try {
+      final decoded = jsonDecode(s);
+      if (decoded is List) {
+        return decoded.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    } catch (_) {}
+    return <Map<String, dynamic>>[];
+  }
+
+  Future<double> _exportQtyForProductInRange({
+    required String productId,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final db = DatabaseService.instance.db;
+
+    final rows = await db.rawQuery(
+      '''
+      SELECT si.productId, si.quantity, si.itemType, si.mixItemsJson
+      FROM sale_items si
+      JOIN sales s ON s.id = si.saleId
+      WHERE s.createdAt >= ? AND s.createdAt <= ?
+      ''',
+      [start.toIso8601String(), end.toIso8601String()],
+    );
+
+    double total = 0.0;
+    for (final r in rows) {
+      final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
+      if (itemType == 'MIX') {
+        final mixItems = _decodeMixItems(r['mixItemsJson']?.toString());
+        for (final m in mixItems) {
+          final rid = (m['rawProductId']?.toString() ?? '').trim();
+          if (rid != productId) continue;
+          total += (m['rawQty'] as num?)?.toDouble() ?? 0.0;
+        }
+      } else {
+        final pid = (r['productId']?.toString() ?? '').trim();
+        if (pid != productId) continue;
+        total += (r['quantity'] as num?)?.toDouble() ?? 0.0;
+      }
+    }
+    return total;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _rowsFuture = _loadRows();
+  }
+
+  void _refreshRowsPreserveScroll() {
+    final offset = _scrollCtrl.hasClients ? _scrollCtrl.offset : 0.0;
+    setState(() {
+      _rowsFuture = _loadRows();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollCtrl.hasClients) return;
+      final max = _scrollCtrl.position.maxScrollExtent;
+      final target = offset.clamp(0.0, max);
+      _scrollCtrl.jumpTo(target);
+    });
+  }
 
   String _fmtQty(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
 
@@ -48,42 +120,95 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: Text('Tồn đầu kỳ ${monthYear.month}/${monthYear.year}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(productName, maxLines: 2, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 8),
-            Row(
+        content: SingleChildScrollView(
+          child: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: ctrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-                    decoration: InputDecoration(
-                      labelText: 'Tồn đầu kỳ ($unit)',
-                      isDense: true,
-                    ),
+                Text(productName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: ctrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                  decoration: InputDecoration(
+                    labelText: 'Tồn đầu kỳ',
+                    suffixText: unit,
+                    isDense: true,
                   ),
                 ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.auto_fix_high),
-                  label: const Text('Lấy tồn hiện tại'),
-                  onPressed: () {
-                    ctrl.text = _fmtQty(currentStock);
-                    FocusScope.of(context).unfocus();
-                  },
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.auto_fix_high),
+                      label: const Text('Lấy tồn hiện tại'),
+                      onPressed: () {
+                        ctrl.text = _fmtQty(currentStock);
+                        FocusScope.of(context).unfocus();
+                      },
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.calculate_outlined),
+                      label: const Text('Tính tồn đầu kỳ'),
+                      onPressed: () async {
+                        final start = DateTime(
+                          _range.start.year,
+                          _range.start.month,
+                          _range.start.day,
+                        );
+                        final end = DateTime(
+                          _range.end.year,
+                          _range.end.month,
+                          _range.end.day,
+                          23,
+                          59,
+                          59,
+                          999,
+                        );
+
+                        final db = DatabaseService.instance.db;
+
+                        final purchaseRows = await db.query(
+                          'purchase_history',
+                          columns: ['quantity'],
+                          where: 'productId = ? AND createdAt >= ? AND createdAt <= ?',
+                          whereArgs: [
+                            productId,
+                            start.toIso8601String(),
+                            end.toIso8601String(),
+                          ],
+                        );
+                        double importQty = 0;
+                        for (final r in purchaseRows) {
+                          importQty += (r['quantity'] as num?)?.toDouble() ?? 0;
+                        }
+
+                        final exportQty = await _exportQtyForProductInRange(
+                          productId: productId,
+                          start: start,
+                          end: end,
+                        );
+
+                        final opening = currentStock + exportQty - importQty;
+                        ctrl.text = _fmtQty(opening);
+                        FocusScope.of(context).unfocus();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Tồn hiện tại: ${_fmtQty(currentStock)} $unit',
+                  style: const TextStyle(color: Colors.black54),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Tồn hiện tại: ${_fmtQty(currentStock)} $unit',
-              style: const TextStyle(color: Colors.black54),
-            ),
-          ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
@@ -100,7 +225,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       openingByProductId: {productId: v},
     );
     if (!mounted) return;
-    setState(() {});
+    _refreshRowsPreserveScroll();
     messenger.showSnackBar(const SnackBar(content: Text('Đã cập nhật tồn đầu kỳ')));
   }
 
@@ -142,19 +267,32 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       importAmountCostByProductId[pid] = (importAmountCostByProductId[pid] ?? 0) + (qty * unitCost);
     }
 
-    final saleItemsRows = await db.rawQuery('''
-      SELECT si.productId as productId, SUM(si.quantity) as qty
+    final exportQtyByProductId = <String, double>{};
+    final saleRows = await db.rawQuery(
+      '''
+      SELECT si.productId, si.quantity, si.itemType, si.mixItemsJson
       FROM sale_items si
       JOIN sales s ON s.id = si.saleId
       WHERE s.createdAt >= ? AND s.createdAt <= ?
-      GROUP BY si.productId
-    ''', [start.toIso8601String(), end.toIso8601String()]);
-
-    final exportQtyByProductId = <String, double>{};
-    for (final r in saleItemsRows) {
-      final pid = r['productId'] as String?;
-      if (pid == null) continue;
-      exportQtyByProductId[pid] = (r['qty'] as num?)?.toDouble() ?? 0;
+      ''',
+      [start.toIso8601String(), end.toIso8601String()],
+    );
+    for (final r in saleRows) {
+      final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
+      if (itemType == 'MIX') {
+        final mixItems = _decodeMixItems(r['mixItemsJson']?.toString());
+        for (final m in mixItems) {
+          final rid = (m['rawProductId']?.toString() ?? '').trim();
+          if (rid.isEmpty) continue;
+          final q = (m['rawQty'] as num?)?.toDouble() ?? 0.0;
+          exportQtyByProductId[rid] = (exportQtyByProductId[rid] ?? 0) + q;
+        }
+      } else {
+        final pid = (r['productId']?.toString() ?? '').trim();
+        if (pid.isEmpty) continue;
+        final q = (r['quantity'] as num?)?.toDouble() ?? 0.0;
+        exportQtyByProductId[pid] = (exportQtyByProductId[pid] ?? 0) + q;
+      }
     }
 
     final qn = TextNormalizer.normalize(_query);
@@ -391,7 +529,10 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                 lastDate: DateTime(now.year + 1),
                 initialDateRange: _range,
               );
-              if (picked != null) setState(() => _range = picked);
+              if (picked != null) {
+                setState(() => _range = picked);
+                _refreshRowsPreserveScroll();
+              }
             },
           ),
         ],
@@ -406,7 +547,10 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                 isDense: true,
                 prefixIcon: Icon(Icons.search),
               ),
-              onChanged: (v) => setState(() => _query = v),
+              onChanged: (v) {
+                setState(() => _query = v);
+                _refreshRowsPreserveScroll();
+              },
             ),
           ),
           const SizedBox(height: 8),
@@ -439,7 +583,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
           const Divider(height: 16),
           Expanded(
             child: FutureBuilder<List<_InventoryRow>>(
-              future: _loadRows(),
+              future: _rowsFuture,
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -477,6 +621,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                 }
 
                 return ListView.builder(
+                  controller: _scrollCtrl,
+                  key: const PageStorageKey('inventory_report_list'),
                   itemCount: rows.length + 1,
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   itemBuilder: (context, i) {

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:convert';
 import '../providers/sale_provider.dart';
 import '../providers/debt_provider.dart';
 import '../providers/product_provider.dart';
@@ -27,13 +28,14 @@ class ReportScreen extends StatefulWidget {
 }
 
 class _ReportScreenState extends State<ReportScreen> {
+
   DateTimeRange _dateRange = DateTimeRange(
     start: DateTime.now().subtract(const Duration(days: 6)),
     end: DateTime.now(),
   );
 
   final PageController _chartPageController = PageController(initialPage: 0);
-  int _chartPageIndex = 0;
+  final ValueNotifier<int> _chartPageIndex = ValueNotifier<int>(0);
 
   ex.CellValue? _cv(Object? v) {
     if (v == null) return null;
@@ -88,6 +90,40 @@ class _ReportScreenState extends State<ReportScreen> {
       final purchases = await db.query(
         'purchase_history',
         orderBy: 'createdAt DESC',
+      );
+
+      final rangeStart = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
+      final rangeEnd = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
+
+      final purchasesInRange = await DatabaseService.instance.getPurchaseHistory(
+        range: DateTimeRange(start: rangeStart, end: rangeEnd),
+      );
+
+      final saleItemsInRange = await db.rawQuery(
+        '''
+        SELECT
+          s.id as saleId,
+          s.createdAt as saleCreatedAt,
+          s.customerName as customerName,
+          si.productId as productId,
+          si.name as name,
+          si.unit as unit,
+          si.quantity as quantity,
+          si.itemType as itemType,
+          si.mixItemsJson as mixItemsJson
+        FROM sale_items si
+        JOIN sales s ON s.id = si.saleId
+        WHERE s.createdAt >= ? AND s.createdAt <= ?
+        ORDER BY s.createdAt DESC
+        ''',
+        [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+      );
+
+      final expenses = await db.query(
+        'expenses',
+        where: 'occurredAt >= ? AND occurredAt <= ?',
+        whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+        orderBy: 'occurredAt DESC',
       );
 
       final sales = await DatabaseService.instance.getSalesForSync();
@@ -192,32 +228,32 @@ class _ReportScreenState extends State<ReportScreen> {
       final debtsSheet = excel['list công nợ'];
       debtsSheet.appendRow([
         _cv('id'),
-        _cv('createdAt'),
-        _cv('type'),
-        _cv('partyId'),
-        _cv('partyName'),
+        _cv('customerId'),
+        _cv('customerName'),
         _cv('amount'),
-        _cv('description'),
+        _cv('createdAt'),
         _cv('dueDate'),
-        _cv('settled'),
+        _cv('note'),
+        _cv('isPaid'),
+        _cv('paidAt'),
         _cv('updatedAt'),
-        _cv('deviceId'),
-        _cv('isSynced'),
+        _cv('sourceType'),
+        _cv('sourceId'),
       ]);
       for (final d in debts) {
         debtsSheet.appendRow([
           _cv(d['id']),
-          _cv(d['createdAt']),
-          _cv(d['type']),
-          _cv(d['partyId']),
-          _cv(d['partyName']),
+          _cv(d['customerId']),
+          _cv(d['customerName']),
           _cv(d['amount']),
-          _cv(d['description']),
+          _cv(d['createdAt']),
           _cv(d['dueDate']),
-          _cv(d['settled']),
+          _cv(d['note']),
+          _cv(d['isPaid']),
+          _cv(d['paidAt']),
           _cv(d['updatedAt']),
-          _cv(d['deviceId']),
-          _cv(d['isSynced']),
+          _cv(d['sourceType']),
+          _cv(d['sourceId']),
         ]);
       }
 
@@ -245,6 +281,119 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(p['createdAt']),
           _cv(p['isSynced']),
         ]);
+      }
+
+      final expensesSheet = excel['list chi phí'];
+      expensesSheet.appendRow([
+        _cv('id'),
+        _cv('occurredAt'),
+        _cv('amount'),
+        _cv('category'),
+        _cv('note'),
+        _cv('expenseDocUploaded'),
+        _cv('expenseDocFileId'),
+        _cv('expenseDocUpdatedAt'),
+        _cv('updatedAt'),
+      ]);
+      for (final e in expenses) {
+        expensesSheet.appendRow([
+          _cv(e['id']),
+          _cv(e['occurredAt']),
+          _cv(e['amount']),
+          _cv(e['category']),
+          _cv(e['note']),
+          _cv(e['expenseDocUploaded']),
+          _cv(e['expenseDocFileId']),
+          _cv(e['expenseDocUpdatedAt']),
+          _cv(e['updatedAt']),
+        ]);
+      }
+
+      final purchaseHistorySheet = excel['lịch sử nhập kho'];
+      purchaseHistorySheet.appendRow([
+        _cv('id'),
+        _cv('createdAt'),
+        _cv('productId'),
+        _cv('productName'),
+        _cv('unit'),
+        _cv('quantity'),
+        _cv('unitCost'),
+        _cv('totalCost'),
+        _cv('supplierName'),
+        _cv('supplierPhone'),
+        _cv('note'),
+      ]);
+      for (final ph in purchasesInRange) {
+        final pid = ph['productId'] as String;
+        final prod = productsById[pid];
+        purchaseHistorySheet.appendRow([
+          _cv(ph['id']),
+          _cv(ph['createdAt']),
+          _cv(pid),
+          _cv(ph['productName']),
+          _cv(prod?['unit']),
+          _cv(ph['quantity']),
+          _cv(ph['unitCost']),
+          _cv(ph['totalCost']),
+          _cv(ph['supplierName']),
+          _cv(ph['supplierPhone']),
+          _cv(ph['note']),
+        ]);
+      }
+
+      final exportHistorySheet = excel['lịch sử xuất kho'];
+      exportHistorySheet.appendRow([
+        _cv('saleId'),
+        _cv('saleCreatedAt'),
+        _cv('customerName'),
+        _cv('productId'),
+        _cv('productName'),
+        _cv('unit'),
+        _cv('quantity'),
+        _cv('source'),
+      ]);
+      for (final r in saleItemsInRange) {
+        final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
+        if (itemType == 'MIX') {
+          final raw = (r['mixItemsJson']?.toString() ?? '').trim();
+          if (raw.isEmpty) continue;
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is List) {
+              for (final e in decoded) {
+                if (e is Map) {
+                  final rid = (e['rawProductId']?.toString() ?? '').trim();
+                  if (rid.isEmpty) continue;
+                  exportHistorySheet.appendRow([
+                    _cv(r['saleId']),
+                    _cv(r['saleCreatedAt']),
+                    _cv(r['customerName']),
+                    _cv(rid),
+                    _cv(e['rawName']),
+                    _cv(e['rawUnit']),
+                    _cv((e['rawQty'] as num?)?.toDouble() ?? 0.0),
+                    _cv('MIX'),
+                  ]);
+                }
+              }
+            }
+          } catch (_) {
+            continue;
+          }
+        } else {
+          final pid = (r['productId']?.toString() ?? '').trim();
+          if (pid.isEmpty) continue;
+          exportHistorySheet.appendRow([
+            _cv(r['saleId']),
+            _cv(r['saleCreatedAt']),
+            _cv(r['customerName']),
+            _cv(pid),
+            _cv(r['name']),
+            _cv(r['unit']),
+            _cv((r['quantity'] as num?)?.toDouble() ?? 0.0),
+            _cv('RAW'),
+          ]);
+        }
       }
 
       final purchaseSheet = excel['list nhập hàng'];
@@ -503,6 +652,7 @@ class _ReportScreenState extends State<ReportScreen> {
   @override
   void dispose() {
     _chartPageController.dispose();
+    _chartPageIndex.dispose();
     super.dispose();
   }
 
@@ -549,6 +699,14 @@ class _ReportScreenState extends State<ReportScreen> {
 
     final totalOweOthers = debtsProvider.totalOweOthers;
     final totalOthersOweMe = debtsProvider.totalOthersOweMe;
+
+    final start = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
+    final end = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
+    final rangeForQuery = DateTimeRange(start: start, end: end);
+
+    final periodRevenue = filteredSales.fold<double>(0, (p, s) => p + s.total);
+    final periodCost = filteredSales.fold<double>(0, (p, s) => p + s.totalCost);
+    final periodProfit = periodRevenue - periodCost;
 
     // Prepare data for charts
     final daysInRange = _dateRange.duration.inDays + 1;
@@ -654,58 +812,127 @@ class _ReportScreenState extends State<ReportScreen> {
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ),
-                GridView.count(
-                  crossAxisCount: 2,
-                  childAspectRatio: 1.8,
-                  crossAxisSpacing: 1,
-                  mainAxisSpacing: 1,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  padding: const EdgeInsets.only(bottom: 4),
+                Column(
                   children: [
-                    _KpiCard(
-                      title: 'Hôm nay',
-                      revenue: todaySales,
-                      cost: todayCost,
-                      profit: todayProfit,
-                      currency: currency,
-                      color: Colors.blue,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _TripleKpi(
+                            title: 'Hôm nay',
+                            revenue: todaySales,
+                            cost: todayCost,
+                            profit: todayProfit,
+                            currency: currency,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _TripleKpi(
+                            title: 'Tuần này',
+                            revenue: weekSales,
+                            cost: weekCost,
+                            profit: weekProfit,
+                            currency: currency,
+                            color: Colors.green,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _TripleKpi(
+                            title: 'Tháng này',
+                            revenue: monthSales,
+                            cost: monthCost,
+                            profit: monthProfit,
+                            currency: currency,
+                            color: Colors.purple,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _TripleKpi(
+                            title: 'Năm nay',
+                            revenue: yearSales,
+                            cost: yearCost,
+                            profit: yearProfit,
+                            currency: currency,
+                            color: Colors.orange,
+                          ),
+                        ),
+                      ],
                     ),
-                    _KpiCard(
-                      title: 'Tuần này',
-                      revenue: weekSales,
-                      cost: weekCost,
-                      profit: weekProfit,
-                      currency: currency,
-                      color: Colors.green,
-                    ),
-                    _KpiCard(
-                      title: 'Tháng này',
-                      revenue: monthSales,
-                      cost: monthCost,
-                      profit: monthProfit,
-                      currency: currency,
-                      color: Colors.purple,
-                    ),
-                    _KpiCard(
-                      title: 'Năm nay',
-                      revenue: yearSales,
-                      cost: yearCost,
-                      profit: yearProfit,
-                      currency: currency,
-                      color: Colors.orange,
-                    ),
-                    _KpiCard(
-                      title: 'Tiền nợ tôi',
-                      value: totalOthersOweMe,
-                      currency: currency,
-                      color: Colors.red,
-                    ),
-                    _KpiCard(
-                      title: 'Tiền tôi nợ',
-                      value: totalOweOthers,
-                      currency: currency,
-                      color: Colors.amber,
+                    const SizedBox(height: 6),
+                    FutureBuilder<double>(
+                      future: DatabaseService.instance.getTotalExpensesInRange(rangeForQuery),
+                      builder: (context, snap) {
+                        final totalExpenses = snap.data ?? 0;
+                        final netProfit = periodProfit - totalExpenses;
+                        return Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Nợ tôi',
+                                    value: totalOthersOweMe,
+                                    currency: currency,
+                                    color: Colors.red,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Tôi nợ',
+                                    value: totalOweOthers,
+                                    currency: currency,
+                                    color: Colors.amber,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Chi phí',
+                                    value: totalExpenses,
+                                    currency: currency,
+                                    color: Colors.deepPurple,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'LN kỳ',
+                                    value: periodProfit,
+                                    currency: currency,
+                                    color: periodProfit >= 0 ? Colors.green : Colors.red,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Chi phí kỳ',
+                                    value: totalExpenses,
+                                    currency: currency,
+                                    color: Colors.deepPurple,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'LN ròng',
+                                    value: netProfit,
+                                    currency: currency,
+                                    color: netProfit >= 0 ? Colors.teal : Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -726,10 +953,7 @@ class _ReportScreenState extends State<ReportScreen> {
               child: PageView(
                 controller: _chartPageController,
                 onPageChanged: (index) {
-                  if (!mounted) return;
-                  setState(() {
-                    _chartPageIndex = index;
-                  });
+                  _chartPageIndex.value = index;
                 },
                 children: [
                   // Daily Chart
@@ -755,21 +979,26 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(3, (i) {
-                final isActive = i == _chartPageIndex;
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  width: isActive ? 16 : 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: isActive ? Colors.blue : Colors.grey.shade400,
-                    borderRadius: BorderRadius.circular(99),
-                  ),
+            ValueListenableBuilder<int>(
+              valueListenable: _chartPageIndex,
+              builder: (context, pageIndex, _) {
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(3, (i) {
+                    final isActive = i == pageIndex;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      width: isActive ? 16 : 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: isActive ? Colors.blue : Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    );
+                  }),
                 );
-              }),
+              },
             ),
           ],
         ),
@@ -1091,125 +1320,150 @@ class _InventoryMetric extends StatelessWidget {
   }
 }
 
-class _KpiCard extends StatelessWidget {
+class _SingleKpi extends StatelessWidget {
   final String title;
-  final double? value;
-  final double? revenue;
-  final double? cost;
-  final double? profit;
+  final double value;
   final NumberFormat currency;
   final Color color;
 
-  const _KpiCard({
+  const _SingleKpi({
     required this.title,
-    this.value,
-    this.revenue,
-    this.cost,
-    this.profit,
+    required this.value,
     required this.currency,
     required this.color,
-  }) : assert(value != null || (revenue != null && cost != null && profit != null));
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (value != null) {
-      return _buildSimpleCard(context);
-    } else {
-      return _buildDetailedCard(context);
-    }
-  }
-
-  Widget _buildSimpleCard(BuildContext context) {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              title, 
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              currency.format(value),
               style: TextStyle(
-                color: color, 
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
+                color: color,
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
               ),
             ),
-            const SizedBox(height: 4),
-            FittedBox(
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TripleKpi extends StatelessWidget {
+  final String title;
+  final double revenue;
+  final double cost;
+  final double profit;
+  final NumberFormat currency;
+  final Color color;
+
+  const _TripleKpi({
+    required this.title,
+    required this.revenue,
+    required this.cost,
+    required this.profit,
+    required this.currency,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final profitColor = profit >= 0 ? Colors.green : Colors.red;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+          _TripleKpiRow(label: 'DT', value: revenue, currency: currency, valueColor: Colors.blue),
+          const SizedBox(height: 2),
+          _TripleKpiRow(label: 'Vốn', value: cost, currency: currency, valueColor: Colors.orange),
+          const SizedBox(height: 2),
+          _TripleKpiRow(label: 'LN', value: profit, currency: currency, valueColor: profitColor),
+        ],
+      ),
+    );
+  }
+}
+
+class _TripleKpiRow extends StatelessWidget {
+  final String label;
+  final double value;
+  final NumberFormat currency;
+  final Color valueColor;
+
+  const _TripleKpiRow({
+    required this.label,
+    required this.value,
+    required this.currency,
+    required this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 30,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
                 currency.format(value),
                 style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: valueColor,
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailedCard(BuildContext context) {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 4),
-            // Revenue
-            _buildMetricRow('Doanh thu', revenue!, Colors.blue),
-            const SizedBox(height: 4),
-            // Cost
-            _buildMetricRow('Chi phí', cost!, Colors.orange),
-            const SizedBox(height: 4),
-            // Profit
-            _buildMetricRow(
-              'Lợi nhuận',
-              profit!,
-              profit! >= 0 ? Colors.green : Colors.red,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMetricRow(String label, double value, Color color) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Flexible(
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 10, color: Colors.black87),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        const SizedBox(width: 4),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            currency.format(value),
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: color,
             ),
           ),
         ),

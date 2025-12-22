@@ -7,6 +7,8 @@ import '../models/customer.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../utils/contact_serializer.dart';
 import '../utils/text_normalizer.dart';
+import 'package:intl/intl.dart';
+import '../utils/number_input_formatter.dart';
 
 class DebtFormScreen extends StatefulWidget {
   final Debt? existing;
@@ -336,7 +338,7 @@ class _DebtFormScreenState extends State<DebtFormScreen> {
       _partyId = e.partyId;
       _partyName = e.partyName;
       _partyCtrl.text = e.partyName;
-      _amountCtrl.text = e.amount.toStringAsFixed(0);
+      _amountCtrl.text = NumberFormat.decimalPattern('en_US').format(e.amount.round());
       _descCtrl.text = e.description ?? '';
       _dueDate = e.dueDate;
       _settled = e.settled;
@@ -417,10 +419,11 @@ class _DebtFormScreenState extends State<DebtFormScreen> {
             TextFormField(
               controller: _amountCtrl,
               keyboardType: TextInputType.number,
+              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
               decoration: const InputDecoration(labelText: 'Số tiền (₫)'),
               validator: (v) {
-                final val = double.tryParse((v ?? '').replaceAll(',', '.')) ?? -1;
-                if (val <= 0) return 'Số tiền phải > 0';
+                final val = NumberInputFormatter.tryParse(v ?? '') ?? -1;
+                if (val <= 0) return 'Nhập số tiền hợp lệ';
                 return null;
               },
             ),
@@ -451,7 +454,7 @@ class _DebtFormScreenState extends State<DebtFormScreen> {
             FilledButton.icon(
               onPressed: () async {
                 if (!_formKey.currentState!.validate()) return;
-                final amount = double.tryParse(_amountCtrl.text.replaceAll(',', '.')) ?? 0;
+                final amount = NumberInputFormatter.tryParse(_amountCtrl.text) ?? 0;
                 final provider = Provider.of<DebtProvider>(context, listen: false);
                 if (widget.existing == null) {
                   final d = Debt(
