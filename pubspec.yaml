@@ -92,6 +92,7 @@ dependencies:
     sdk: flutter
   syncfusion_flutter_datepicker: ^31.1.19
   speech_to_text: ^7.3.0
+  string_similarity: ^2.1.1
 
 dev_dependencies:
   flutter_test:
