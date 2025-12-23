@@ -12,6 +12,7 @@ import '../services/database_service.dart';
 import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart'; // Để lấy uid khi cần
 import '../services/drive_backup_scheduler.dart';
+import '../services/debt_reminder_service.dart';
 import 'debt_screen.dart';
 import 'product_list_screen.dart';
 import 'report_screen.dart';
@@ -129,6 +130,11 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       DriveBackupScheduler().start(context);
+    });
+
+    // Nhắc nợ: quá hạn hoặc quá 7 ngày nếu chưa set dueDate (mỗi ngày 1 lần)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      DebtReminderService.instance.checkAndNotify();
     });
   }
 

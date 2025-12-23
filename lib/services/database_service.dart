@@ -869,27 +869,18 @@ class DatabaseService {
       }
     }
 
-    // Migration từ version 18 lên 19: Hỗ trợ sản phẩm MIX + dòng bán có nguyên liệu
-    if (oldVersion < 19) {
+    if (oldVersion < 20) {
       try {
-        await safeAddColumn(db, 'products', 'itemType', "TEXT NOT NULL DEFAULT 'RAW'");
-      } catch (_) {}
-      try {
-        await safeAddColumn(db, 'products', 'isStocked', 'INTEGER NOT NULL DEFAULT 1');
-      } catch (_) {}
-
-      try {
-        await safeAddColumn(db, 'sale_items', 'unitCost', 'REAL NOT NULL DEFAULT 0');
-      } catch (_) {}
-      try {
-        await safeAddColumn(db, 'sale_items', 'itemType', 'TEXT');
-      } catch (_) {}
-      try {
-        await safeAddColumn(db, 'sale_items', 'displayName', 'TEXT');
-      } catch (_) {}
-      try {
-        await safeAddColumn(db, 'sale_items', 'mixItemsJson', 'TEXT');
-      } catch (_) {}
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS debt_reminder_settings(
+            debtId TEXT PRIMARY KEY,
+            muted INTEGER NOT NULL DEFAULT 0,
+            lastNotifiedAt TEXT
+          )
+        ''');
+      } catch (e) {
+        print('Lỗi khi tạo bảng debt_reminder_settings: $e');
+      }
     }
   }
 
@@ -899,7 +890,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 19, // Tăng version để áp dụng migration
+      version: 20, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -1088,6 +1079,14 @@ class DatabaseService {
             bankName TEXT,
             bankAccount TEXT,
             updatedAt TEXT NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS debt_reminder_settings(
+            debtId TEXT PRIMARY KEY,
+            muted INTEGER NOT NULL DEFAULT 0,
+            lastNotifiedAt TEXT
           )
         ''');
       },
@@ -2124,6 +2123,91 @@ class DatabaseService {
       developer.log('Error getting debt by id:', error: e);
       rethrow;
     }
+  }
+
+  Future<void> muteDebtReminder(String debtId) async {
+    await db.insert(
+      'debt_reminder_settings',
+      {
+        'debtId': debtId,
+        'muted': 1,
+        'lastNotifiedAt': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> markDebtNotifiedToday(String debtId) async {
+    await db.insert(
+      'debt_reminder_settings',
+      {
+        'debtId': debtId,
+        'muted': 0,
+        'lastNotifiedAt': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Debt>> getDebtsToRemind() async {
+    await EncryptionService.instance.init();
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    final sevenDaysAgo = now.subtract(const Duration(days: 7));
+
+    final rows = await db.rawQuery(
+      '''
+      SELECT d.*,
+             s.muted as muted,
+             s.lastNotifiedAt as lastNotifiedAt
+      FROM debts d
+      LEFT JOIN debt_reminder_settings s ON s.debtId = d.id
+      WHERE d.settled = 0
+        AND (
+          (d.dueDate IS NOT NULL AND d.dueDate <= ?)
+          OR
+          (d.dueDate IS NULL AND d.createdAt <= ?)
+        )
+        AND (s.muted IS NULL OR s.muted = 0)
+      ORDER BY d.createdAt DESC
+      ''',
+      [now.toIso8601String(), sevenDaysAgo.toIso8601String()],
+    );
+
+    final result = <Debt>[];
+    for (final m in rows) {
+      final lastNotified = m['lastNotifiedAt'] as String?;
+      if (lastNotified != null) {
+        final dt = DateTime.tryParse(lastNotified);
+        if (dt != null && !dt.isBefore(todayStart) && dt.isBefore(todayEnd)) {
+          continue;
+        }
+      }
+
+      final description = m['description'] as String?;
+      final decryptedDescription =
+          description != null ? await EncryptionService.instance.decrypt(description) : null;
+
+      result.add(
+        Debt(
+          id: m['id'] as String,
+          createdAt: DateTime.parse(m['createdAt'] as String),
+          type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
+          partyId: m['partyId'] as String,
+          partyName: m['partyName'] as String,
+          amount: (m['amount'] as num).toDouble(),
+          description: decryptedDescription,
+          dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
+          settled: (m['settled'] as int) == 1,
+          sourceType: m['sourceType'] as String?,
+          sourceId: m['sourceId'] as String?,
+        ),
+      );
+    }
+
+    return result;
   }
 
   Future<void> _markEntityAsDeletedTxn(Transaction txn, String table, String id) async {

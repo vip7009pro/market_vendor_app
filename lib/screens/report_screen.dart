@@ -37,6 +37,9 @@ class _ReportScreenState extends State<ReportScreen> {
   final PageController _chartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _chartPageIndex = ValueNotifier<int>(0);
 
+  final PageController _netChartPageController = PageController(initialPage: 0);
+  final ValueNotifier<int> _netChartPageIndex = ValueNotifier<int>(0);
+
   ex.CellValue? _cv(Object? v) {
     if (v == null) return null;
     if (v is ex.CellValue) return v;
@@ -653,6 +656,8 @@ class _ReportScreenState extends State<ReportScreen> {
   void dispose() {
     _chartPageController.dispose();
     _chartPageIndex.dispose();
+    _netChartPageController.dispose();
+    _netChartPageIndex.dispose();
     super.dispose();
   }
 
@@ -999,6 +1004,229 @@ class _ReportScreenState extends State<ReportScreen> {
                   }),
                 );
               },
+            ),
+            const SizedBox(height: 16),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: DatabaseService.instance.db.query(
+                'expenses',
+                where: 'occurredAt >= ? AND occurredAt <= ?',
+                whereArgs: [start.toIso8601String(), end.toIso8601String()],
+              ),
+              builder: (context, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const SizedBox(
+                    height: 320,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                final expensesRows = snap.data ?? const <Map<String, dynamic>>[];
+
+                final expenseByDay = <String, double>{};
+                final expenseByMonth = <int, double>{};
+                final expenseByYear = <int, double>{};
+
+                for (final e in expensesRows) {
+                  final occurredAt = DateTime.tryParse(e['occurredAt']?.toString() ?? '');
+                  if (occurredAt == null) continue;
+                  final amount = (e['amount'] as num?)?.toDouble() ?? 0.0;
+
+                  final dayKey = DateFormat('dd/MM').format(occurredAt);
+                  expenseByDay[dayKey] = (expenseByDay[dayKey] ?? 0) + amount;
+
+                  expenseByMonth[occurredAt.month] = (expenseByMonth[occurredAt.month] ?? 0) + amount;
+                  expenseByYear[occurredAt.year] = (expenseByYear[occurredAt.year] ?? 0) + amount;
+                }
+
+                final netDailyPoints = dailyData.map((p) {
+                  final exp = expenseByDay[p.x] ?? 0.0;
+                  final net = p.profit - exp;
+                  return _Point(p.x, 0, cost: 0, profit: net);
+                }).toList();
+
+                final netMonthlyPoints = monthlyDataPoints.map((p) {
+                  final m = int.tryParse(p.x) ?? 0;
+                  final exp = expenseByMonth[m] ?? 0.0;
+                  final net = p.profit - exp;
+                  return _Point(p.x, 0, cost: 0, profit: net);
+                }).toList();
+
+                final netYearlyPoints = yearlyDataPoints.map((p) {
+                  final y = int.tryParse(p.x) ?? 0;
+                  final exp = expenseByYear[y] ?? 0.0;
+                  final net = p.profit - exp;
+                  return _Point(p.x, 0, cost: 0, profit: net);
+                }).toList();
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        'Biểu đồ lợi nhuận ròng (Doanh - Vốn - Chi phí)',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 320,
+                      child: PageView(
+                        controller: _netChartPageController,
+                        onPageChanged: (index) {
+                          _netChartPageIndex.value = index;
+                        },
+                        children: [
+                          _buildNetProfitChartCard(
+                            title: 'Theo ngày (${_dateRange.start.day}/${_dateRange.start.month} - ${_dateRange.end.day}/${_dateRange.end.month})',
+                            points: netDailyPoints,
+                            currency: currency,
+                          ),
+                          _buildNetProfitChartCard(
+                            title: 'Theo tháng (${now.year})',
+                            points: netMonthlyPoints,
+                            currency: currency,
+                          ),
+                          _buildNetProfitChartCard(
+                            title: 'Theo năm',
+                            points: netYearlyPoints,
+                            currency: currency,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ValueListenableBuilder<int>(
+                      valueListenable: _netChartPageIndex,
+                      builder: (context, pageIndex, _) {
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(3, (i) {
+                            final isActive = i == pageIndex;
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              width: isActive ? 16 : 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isActive ? Colors.teal : Colors.grey.shade400,
+                                borderRadius: BorderRadius.circular(99),
+                              ),
+                            );
+                          }),
+                        );
+                      },
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetProfitChartCard({
+    required String title,
+    required List<_Point> points,
+    required NumberFormat currency,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 260,
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  minY: _getMinY(points),
+                  maxY: _getMaxY(points),
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                        final point = points[groupIndex];
+                        final tooltipText = '${point.x}\n\nLN ròng: ${currency.format(point.profit)}';
+                        return BarTooltipItem(
+                          tooltipText,
+                          const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        );
+                      },
+                      tooltipMargin: 8,
+                      tooltipRoundedRadius: 8,
+                      tooltipPadding: const EdgeInsets.all(8),
+                      getTooltipColor: (_) => Colors.black87,
+                    ),
+                  ),
+                  gridData: const FlGridData(show: true, drawVerticalLine: false),
+                  borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) {
+                          final i = value.toInt();
+                          if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              points[i].x,
+                              style: const TextStyle(fontSize: 10),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        },
+                        reservedSize: 42,
+                      ),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 50,
+                        getTitlesWidget: (value, meta) {
+                          String txt;
+                          final abs = value.abs();
+                          if (abs >= 1000000) {
+                            txt = '${(value / 1000000).toStringAsFixed(1)}M';
+                          } else if (abs >= 1000) {
+                            txt = '${(value / 1000).toStringAsFixed(0)}k';
+                          } else {
+                            txt = value.toInt().toString();
+                          }
+                          return Text(txt, style: const TextStyle(fontSize: 10));
+                        },
+                      ),
+                    ),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  barGroups: [
+                    for (var i = 0; i < points.length; i++)
+                      BarChartGroupData(
+                        x: i,
+                        barRods: [
+                          BarChartRodData(
+                            toY: points[i].profit,
+                            color: (points[i].profit >= 0 ? Colors.teal : Colors.red).withOpacity(0.75),
+                            width: 12,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),

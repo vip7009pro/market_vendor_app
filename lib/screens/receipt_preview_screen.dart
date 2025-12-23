@@ -851,17 +851,21 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     int columnWidth;
     double? maxWidth; // Nullable để full khi cần
+    double fontSize;
 
     if (_selectedSize == 'A4 (Màu)') {
       columnWidth = 70;
       maxWidth = null;
+      fontSize = 12;
     } else if (_selectedSize == 'Full') {
       // Full screen: Tính columnWidth động dựa trên screen (giả sử monospace char ~8px)
       columnWidth = (screenWidth / 8).round().clamp(50, 80); // 50-80 chars để fit đẹp
       maxWidth = null; // Full width
+      fontSize = 12;
     } else {
       columnWidth = _paperSizes[_selectedSize]!;
       maxWidth = _selectedSize == '80mm' ? 300.0 : 240.0;
+      fontSize = _selectedSize == '80mm' ? 12 : 11;
     }
 
     final receiptContent = _buildReceiptContent(widget.sale, widget.currency, columnWidth);
@@ -911,16 +915,19 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                         border: Border.all(color: Colors.black),
                         color: Colors.white,
                       ),
-                      child: SingleChildScrollView( // Chỉ vertical scroll, bỏ horizontal vì full
-                        child: Text(
-                          receiptContent,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 12,
-                            height: 1.2,
-                            color: Colors.black,
+                      child: SingleChildScrollView(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Text(
+                            receiptContent,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: fontSize,
+                              height: 1.2,
+                              color: Colors.black,
+                            ),
+                            softWrap: false,
                           ),
-                          softWrap: true,
                         ),
                       ),
                     ),
