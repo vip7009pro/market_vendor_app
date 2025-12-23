@@ -26,8 +26,8 @@ android {
         create("release") {
             keyAlias = "ghinoflutter"
             keyPassword = "Anhtaday_87"
-            //storeFile = file("D:/ghinoflutter.jks")
-            storeFile = file("G:/NODEJS/ghinoflutter.jks")
+            storeFile = file("D:/ghinoflutter.jks")
+            //storeFile = file("G:/NODEJS/ghinoflutter.jks")
             storePassword = "Anhtaday_87"
         }
     }
