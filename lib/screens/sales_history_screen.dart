@@ -14,7 +14,9 @@ import '../services/database_service.dart';
 import '../utils/file_helper.dart';
 // Import file mới
 import 'receipt_preview_screen.dart'; // Thêm dòng này
+
 import 'sales_item_history_screen.dart';
+import 'sale_edit_screen.dart';
 
 // Vietnamese diacritics removal (accent-insensitive search)
 String _vn(String s) {
@@ -491,6 +493,32 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                       }
                                     },
                                   ),
+                                  const SizedBox(width: 8),
+                                  // Edit button
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined,
+                                        color: Colors.blueAccent, size: 20),
+                                    tooltip: 'Sửa hóa đơn',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () async {
+                                      final ok = await Navigator.push<bool>(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => SaleEditScreen(
+                                            sale: s,
+                                          ),
+                                        ),
+                                      );
+                                      if (ok == true) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                              content: Text('Đã cập nhật bán hàng')),
+                                        );
+                                      }
+                                    },
+                                  ),
                                 ],
                               ),
                             ],
@@ -545,16 +573,24 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
 }
 
-class _SaleDetailScreen extends StatelessWidget {
+class _SaleDetailScreen extends StatefulWidget {
   const _SaleDetailScreen({required this.sale});
 
   final Sale sale;
+
+  @override
+  State<_SaleDetailScreen> createState() => _SaleDetailScreenState();
+}
+
+class _SaleDetailScreenState extends State<_SaleDetailScreen> {
+  late Sale _sale;
 
   List<Map<String, dynamic>> _decodeMixItems(String? raw) {
     final s = (raw ?? '').trim();
     if (s.isEmpty) return <Map<String, dynamic>>[];
     try {
       final decoded = jsonDecode(s);
+
       if (decoded is List) {
         return decoded
             .whereType<Map>()
@@ -566,14 +602,45 @@ class _SaleDetailScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
-    final currency =
-        NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+  void initState() {
+    super.initState();
+    _sale = widget.sale;
+  }
 
-    final customer = sale.customerName?.trim().isNotEmpty == true
-        ? sale.customerName!.trim()
-        : 'Khách lẻ';
+  Future<void> _editSale() async {
+    final ok = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SaleEditScreen(sale: widget.sale),
+      ),
+    );
+    if (!mounted) return;
+    if (ok == true) {
+      await context.read<SaleProvider>().load();
+      if (!mounted) return;
+      Sale? updated;
+      try {
+        updated = context.read<SaleProvider>().sales.firstWhere(
+              (s) => s.id == widget.sale.id,
+            );
+      } catch (_) {
+        updated = null;
+      }
+      setState(() {
+        _sale = updated ?? _sale;
+      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Đã cập nhật bán hàng')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sale = _sale;
+    final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
+    final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+
+    final customer = sale.customerName?.trim().isNotEmpty == true ? sale.customerName!.trim() : 'Khách lẻ';
 
     final paidAll = sale.debt <= 0;
     final statusBg = paidAll ? Colors.green.withOpacity(0.12) : Colors.red.withOpacity(0.12);
@@ -583,6 +650,11 @@ class _SaleDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Chi tiết bán hàng'),
         actions: [
+          IconButton(
+            tooltip: 'Sửa',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: _editSale,
+          ),
           IconButton(
             tooltip: 'In hóa đơn',
             icon: const Icon(Icons.print_outlined),

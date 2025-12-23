@@ -253,11 +253,93 @@ Future<void> _showPaymentHistory(BuildContext context, Debt d, NumberFormat curr
                 final createdAt = DateTime.parse(m['createdAt'] as String);
                 final note = (m['note'] as String?) ?? '';
                 final amount = (m['amount'] as num).toDouble();
+                final paymentId = m['id'] as int;
                 return ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   title: Text('${DateFormat('dd/MM/yyyy HH:mm').format(createdAt)} - ${currency.format(amount)}'),
                   subtitle: note.isEmpty ? null : Text(note),
+                  trailing: IconButton(
+                    tooltip: 'Sửa',
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: () async {
+                      DateTime editedAt = createdAt;
+                      final amountCtrl = TextEditingController(text: amount.toStringAsFixed(0));
+                      final noteCtrl = TextEditingController(text: note);
+
+                      Future<void> pickDateTime(StateSetter setStateDialog) async {
+                        final dd = await showDatePicker(
+                          context: context,
+                          initialDate: editedAt,
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime(2100),
+                        );
+                        if (dd == null) return;
+                        final tt = await showTimePicker(
+                          context: context,
+                          initialTime: TimeOfDay.fromDateTime(editedAt),
+                        );
+                        if (tt == null) return;
+                        editedAt = DateTime(dd.year, dd.month, dd.day, tt.hour, tt.minute);
+                        setStateDialog(() {});
+                      }
+
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (_) => StatefulBuilder(
+                          builder: (dialogCtx, setStateDialog) => AlertDialog(
+                            title: const Text('Sửa thanh toán'),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(child: Text(DateFormat('dd/MM/yyyy HH:mm').format(editedAt))),
+                                    TextButton(onPressed: () => pickDateTime(setStateDialog), child: const Text('Đổi')),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: amountCtrl,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: const InputDecoration(labelText: 'Số tiền'),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: noteCtrl,
+                                  decoration: const InputDecoration(labelText: 'Ghi chú (tuỳ chọn)'),
+                                ),
+                              ],
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Hủy')),
+                              FilledButton(onPressed: () => Navigator.pop(dialogCtx, true), child: const Text('Lưu')),
+                            ],
+                          ),
+                        ),
+                      );
+
+                      if (ok == true) {
+                        final newAmount = double.tryParse(amountCtrl.text.replaceAll(',', '.')) ?? 0;
+                        if (newAmount <= 0) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Số tiền không hợp lệ')));
+                          return;
+                        }
+                        await context.read<DebtProvider>().updatePayment(
+                              paymentId: paymentId,
+                              debtId: d.id,
+                              amount: newAmount,
+                              createdAt: editedAt,
+                              note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+                            );
+                        if (!context.mounted) return;
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật thanh toán')));
+                      }
+                    },
+                  ),
                 );
               }),
             const SizedBox(height: 8),

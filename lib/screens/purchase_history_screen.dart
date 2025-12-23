@@ -717,6 +717,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     if (products.isEmpty) return;
 
     String selectedProductId = (row['productId'] as String?) ?? products.first.id;
+    DateTime createdAt = DateTime.tryParse((row['createdAt'] as String?) ?? '') ?? DateTime.now();
     final initialQty = (row['quantity'] as num?)?.toDouble() ?? 0;
     final initialUnitCost = (row['unitCost'] as num?)?.toDouble() ?? 0;
     final initialPaid = (row['paidAmount'] as num?)?.toDouble();
@@ -741,6 +742,40 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: createdAt,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                  );
+                  if (d == null) return;
+                  final t = await showTimePicker(
+                    context: context,
+                    initialTime: TimeOfDay.fromDateTime(createdAt),
+                  );
+                  if (t == null) return;
+                  createdAt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+                  setStateDialog(() {});
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(labelText: 'Ngày giờ nhập'),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          DateFormat('dd/MM/yyyy HH:mm').format(createdAt),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const Icon(Icons.edit_calendar_outlined, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: supplierNameCtrl,
                 decoration: const InputDecoration(labelText: 'Nhà cung cấp (tuỳ chọn)'),
@@ -896,7 +931,45 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       supplierName: supplierNameCtrl.text.trim().isEmpty ? null : supplierNameCtrl.text.trim(),
       supplierPhone: supplierPhoneCtrl.text.trim().isEmpty ? null : supplierPhoneCtrl.text.trim(),
       note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+      createdAt: createdAt,
     );
+
+    final purchaseId = (row['id'] as String);
+    final totalCost = qty * unitCost;
+    final debtInitialAmount = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
+    final existingDebt = await DatabaseService.instance.getDebtBySource(sourceType: 'purchase', sourceId: purchaseId);
+    if (existingDebt != null) {
+      final alreadyPaidForDebt = await DatabaseService.instance.getTotalPaidForDebt(existingDebt.id);
+      final newRemain = (debtInitialAmount - alreadyPaidForDebt).clamp(0.0, double.infinity).toDouble();
+      final updatedDebt = Debt(
+        id: existingDebt.id,
+        createdAt: existingDebt.createdAt,
+        type: DebtType.oweOthers,
+        partyId: existingDebt.partyId,
+        partyName: existingDebt.partyName,
+        amount: newRemain,
+        description:
+            'Nhập hàng: ${selected.name}, SL ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)} ${selected.unit}, Giá nhập ${unitCost.toStringAsFixed(0)}, Thành tiền ${totalCost.toStringAsFixed(0)}, Đã trả ${paidAmount.toStringAsFixed(0)}',
+        settled: newRemain <= 0,
+        sourceType: 'purchase',
+        sourceId: purchaseId,
+      );
+      await DatabaseService.instance.updateDebt(updatedDebt);
+      await context.read<DebtProvider>().load();
+    } else if (debtInitialAmount > 0) {
+      final supplierName = supplierNameCtrl.text.trim();
+      final newDebt = Debt(
+        type: DebtType.oweOthers,
+        partyId: 'supplier_unknown',
+        partyName: supplierName.isEmpty ? 'Nhà cung cấp' : supplierName,
+        amount: debtInitialAmount,
+        description:
+            'Nhập hàng: ${selected.name}, SL ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)} ${selected.unit}, Giá nhập ${unitCost.toStringAsFixed(0)}, Thành tiền ${totalCost.toStringAsFixed(0)}, Đã trả ${paidAmount.toStringAsFixed(0)}',
+        sourceType: 'purchase',
+        sourceId: purchaseId,
+      );
+      await context.read<DebtProvider>().add(newDebt);
+    }
 
     await context.read<ProductProvider>().load();
     if (!mounted) return;

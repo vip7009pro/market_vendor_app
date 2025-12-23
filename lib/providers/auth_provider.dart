@@ -8,11 +8,13 @@ import 'package:http/http.dart' as http;
 class AuthProvider extends ChangeNotifier {
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   static const String _driveFileScope = 'https://www.googleapis.com/auth/drive.file';
+  static const String _sheetsScope = 'https://www.googleapis.com/auth/spreadsheets';
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: [
       'email',
       'profile',
       _driveFileScope,
+      _sheetsScope,
     ],
   );
 
@@ -79,6 +81,19 @@ class AuthProvider extends ChangeNotifier {
       return granted;
     } catch (e) {
       debugPrint('Request Drive scope error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> requestSheetsScope() async {
+    try {
+      final granted = await _googleSignIn.requestScopes([
+        _sheetsScope,
+      ]);
+      notifyListeners();
+      return granted;
+    } catch (e) {
+      debugPrint('Request Sheets scope error: $e');
       return false;
     }
   }

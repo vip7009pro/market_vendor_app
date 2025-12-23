@@ -37,6 +37,175 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
     _load();
   }
 
+  Future<void> _editDebtCreatedAt() async {
+    DateTime createdAt = _debt.createdAt;
+    final paid = _payments.fold<double>(0, (p, e) => p + ((e['amount'] as num).toDouble()));
+    final initialNow = paid + _debt.amount;
+    final initialCtrl = TextEditingController(text: initialNow.toStringAsFixed(0));
+    Future<void> pickDateTime(StateSetter setStateDialog) async {
+      final d = await showDatePicker(
+        context: context,
+        initialDate: createdAt,
+        firstDate: DateTime(2000),
+        lastDate: DateTime(2100),
+      );
+      if (d == null) return;
+      final t = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(createdAt),
+      );
+      if (t == null) return;
+      createdAt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+      setStateDialog(() {});
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (dialogCtx, setStateDialog) => AlertDialog(
+          title: const Text('Sửa ngày giờ công nợ'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      DateFormat('dd/MM/yyyy HH:mm').format(createdAt),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => pickDateTime(setStateDialog),
+                    child: const Text('Đổi'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: initialCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                decoration: const InputDecoration(labelText: 'Nợ ban đầu'),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Đã trả: ${_currency.format(paid)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Hủy')),
+            FilledButton(onPressed: () => Navigator.pop(dialogCtx, true), child: const Text('Lưu')),
+          ],
+        ),
+      ),
+    );
+
+    if (ok == true) {
+      final initialAmount = NumberInputFormatter.tryParse(initialCtrl.text) ?? 0;
+      if (initialAmount < 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nợ ban đầu không hợp lệ')));
+        return;
+      }
+
+      await context.read<DebtProvider>().updateDebtCreatedAtAndInitialAmount(
+            debt: _debt,
+            createdAt: createdAt,
+            initialAmount: initialAmount,
+            alreadyPaid: paid,
+          );
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật ngày giờ công nợ')));
+    }
+  }
+
+  Future<void> _editPayment(Map<String, dynamic> m) async {
+    final paymentId = m['id'] as int;
+    DateTime createdAt = DateTime.parse(m['createdAt'] as String);
+    final amountCtrl = TextEditingController(text: (m['amount'] as num).toDouble().toStringAsFixed(0));
+    final noteCtrl = TextEditingController(text: (m['note'] as String?) ?? '');
+
+    Future<void> pickDateTime(StateSetter setStateDialog) async {
+      final d = await showDatePicker(
+        context: context,
+        initialDate: createdAt,
+        firstDate: DateTime(2000),
+        lastDate: DateTime(2100),
+      );
+      if (d == null) return;
+      final t = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(createdAt),
+      );
+      if (t == null) return;
+      createdAt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+      setStateDialog(() {});
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (dialogCtx, setStateDialog) => AlertDialog(
+          title: const Text('Sửa thanh toán'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: Text(DateFormat('dd/MM/yyyy HH:mm').format(createdAt))),
+                  TextButton(onPressed: () => pickDateTime(setStateDialog), child: const Text('Đổi')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                decoration: const InputDecoration(labelText: 'Số tiền'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(labelText: 'Ghi chú (tuỳ chọn)'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Hủy')),
+            FilledButton(onPressed: () => Navigator.pop(dialogCtx, true), child: const Text('Lưu')),
+          ],
+        ),
+      ),
+    );
+
+    if (ok == true) {
+      final amount = NumberInputFormatter.tryParse(amountCtrl.text) ?? 0;
+      if (amount <= 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Số tiền không hợp lệ')));
+        return;
+      }
+
+      await context.read<DebtProvider>().updatePayment(
+            paymentId: paymentId,
+            debtId: _debt.id,
+            amount: amount,
+            createdAt: createdAt,
+            note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+          );
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật thanh toán')));
+    }
+  }
+
   Future<void> _exportPaymentsCsv(BuildContext context) async {
     if (!mounted) return;
     
@@ -59,10 +228,14 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
 
   Future<void> _load() async {
     final data = await context.read<DebtProvider>().paymentsFor(_debt.id);
+    final debtLatest = await context.read<DebtProvider>().getById(_debt.id);
     await _loadSource();
     if (!mounted) return;
     setState(() {
       _payments = data;
+      if (debtLatest != null) {
+        _debt = debtLatest;
+      }
       _loading = false;
     });
   }
@@ -203,6 +376,11 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       appBar: AppBar(
         title: const Text('Chi tiết công nợ'),
         actions: [
+          IconButton(
+            tooltip: 'Sửa ngày giờ',
+            icon: const Icon(Icons.edit_calendar_outlined),
+            onPressed: _editDebtCreatedAt,
+          ),
           IconButton(
             tooltip: 'Trả nợ',
             icon: const Icon(Icons.payments_outlined),
@@ -470,6 +648,13 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
                                     trailing: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
+                                        IconButton(
+                                          tooltip: 'Sửa',
+                                          icon: const Icon(Icons.edit_outlined, size: 20),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () => _editPayment(m),
+                                        ),
                                         Text(
                                           _currency.format(amount),
                                           style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.green),

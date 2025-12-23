@@ -10,6 +10,8 @@ import '../providers/debt_provider.dart';
 import '../providers/purchase_provider.dart';
 import '../services/database_service.dart';
 import '../services/drive_sync_service.dart';
+import 'drive_backup_manager_screen.dart';
+import 'sheets_sync_screen.dart';
 import 'theme_selection_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -423,6 +425,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Column(
               children: [
+                ListTile(
+                  leading: Icon(Icons.cloud_outlined, color: theme.colorScheme.primary),
+                  title: const Text('Quản lý backup Google Drive'),
+                  subtitle: const Text('Xem danh sách / xóa / backup ngay'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: auth.isSignedIn
+                      ? () async {
+                          final hasPremium = await _checkPremiumAccess(context);
+                          if (!hasPremium) return;
+                          if (!mounted) return;
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const DriveBackupManagerScreen(),
+                            ),
+                          );
+                        }
+                      : null,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(Icons.table_view_outlined, color: theme.colorScheme.primary),
+                  title: const Text('Đồng bộ Google Sheets'),
+                  subtitle: const Text('Tạo sheet / đồng bộ dữ liệu'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: auth.isSignedIn
+                      ? () async {
+                          final hasPremium = await _checkPremiumAccess(context);
+                          if (!hasPremium) return;
+                          if (!mounted) return;
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SheetsSyncScreen(),
+                            ),
+                          );
+                        }
+                      : null,
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: Icon(Icons.backup, color: theme.colorScheme.primary),
                   title: const Text('Sao lưu dữ liệu'),

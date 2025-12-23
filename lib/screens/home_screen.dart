@@ -11,6 +11,7 @@ import '../providers/debt_provider.dart';
 import '../services/database_service.dart';
 import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart'; // Để lấy uid khi cần
+import '../services/drive_backup_scheduler.dart';
 import 'debt_screen.dart';
 import 'product_list_screen.dart';
 import 'report_screen.dart';
@@ -123,6 +124,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (uid != null) {
       _handleAccountAfterLogin(uid);
     }
+
+    // Auto backup Google Drive (trưa/tối/đêm) + cleanup > 30 ngày
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      DriveBackupScheduler().start(context);
+    });
   }
 
   @override

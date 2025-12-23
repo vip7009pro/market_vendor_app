@@ -19,6 +19,77 @@ class DebtProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<Debt?> getById(String debtId) async {
+    try {
+      return await DatabaseService.instance.getDebtById(debtId);
+    } catch (_) {
+      try {
+        return _debts.firstWhere((d) => d.id == debtId);
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  Future<void> updateDebtCreatedAt({required Debt debt, required DateTime createdAt}) async {
+    final updated = Debt(
+      id: debt.id,
+      createdAt: createdAt,
+      type: debt.type,
+      partyId: debt.partyId,
+      partyName: debt.partyName,
+      amount: debt.amount,
+      description: debt.description,
+      dueDate: debt.dueDate,
+      settled: debt.settled,
+      sourceType: debt.sourceType,
+      sourceId: debt.sourceId,
+    );
+    await DatabaseService.instance.updateDebtWithCreatedAt(updated);
+    await load();
+  }
+
+  Future<void> updateDebtCreatedAtAndInitialAmount({
+    required Debt debt,
+    required DateTime createdAt,
+    required double initialAmount,
+    required double alreadyPaid,
+  }) async {
+    final newRemain = (initialAmount - alreadyPaid).clamp(0, double.infinity).toDouble();
+    final updated = Debt(
+      id: debt.id,
+      createdAt: createdAt,
+      type: debt.type,
+      partyId: debt.partyId,
+      partyName: debt.partyName,
+      amount: newRemain,
+      description: debt.description,
+      dueDate: debt.dueDate,
+      settled: newRemain <= 0,
+      sourceType: debt.sourceType,
+      sourceId: debt.sourceId,
+    );
+    await DatabaseService.instance.updateDebtWithCreatedAt(updated);
+    await load();
+  }
+
+  Future<void> updatePayment({
+    required int paymentId,
+    required String debtId,
+    required double amount,
+    required DateTime createdAt,
+    String? note,
+  }) async {
+    await DatabaseService.instance.updateDebtPaymentWithAdjustment(
+      paymentId: paymentId,
+      debtId: debtId,
+      newAmount: amount,
+      newCreatedAt: createdAt,
+      newNote: note,
+    );
+    await load();
+  }
+
   Future<void> add(Debt d) async {
     _debts.add(d);
     notifyListeners();

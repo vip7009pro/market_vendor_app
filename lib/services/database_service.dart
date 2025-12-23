@@ -241,6 +241,7 @@ class DatabaseService {
     String? supplierName,
     String? supplierPhone,
     String? note,
+    DateTime? createdAt,
   }) async {
     final now = DateTime.now();
     final totalCost = quantity * unitCost;
@@ -276,6 +277,7 @@ class DatabaseService {
       await txn.update(
         'purchase_history',
         {
+          if (createdAt != null) 'createdAt': createdAt.toIso8601String(),
           'productId': productId,
           'productName': productName,
           'quantity': quantity,
@@ -1421,14 +1423,9 @@ class DatabaseService {
   // Sales
   Future<void> insertSale(Sale s) async {
     try {
-      // Initialize encryption service
       await EncryptionService.instance.init();
-      
-      // Encrypt note if it exists
-      final encryptedNote = s.note != null 
-          ? await EncryptionService.instance.encrypt(s.note!)
-          : null;
-      
+      final encryptedNote = s.note != null ? await EncryptionService.instance.encrypt(s.note!) : null;
+
       // totalCost:
       // - RAW: lấy costPrice hiện tại trong products
       // - MIX: dùng unitCost/quantity đã được tính từ nguyên liệu
@@ -1466,7 +1463,7 @@ class DatabaseService {
           'customerName': s.customerName,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
-          'totalCost': totalCost, // Lưu totalCost
+          'totalCost': totalCost,
           'note': encryptedNote,
           'updatedAt': DateTime.now().toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -1483,7 +1480,7 @@ class DatabaseService {
             'itemType': it.itemType,
             'displayName': it.displayName,
             'mixItemsJson': it.mixItemsJson,
-            'isSynced': 0, // Chưa đồng bộ
+            'isSynced': 0,
           });
         }
 
@@ -1536,19 +1533,134 @@ class DatabaseService {
     }
   }
 
+  Map<String, double> _saleStockOutByProductId(Sale s) {
+    final qtyByProductId = <String, double>{};
+    for (final it in s.items) {
+      final t = (it.itemType ?? '').toUpperCase().trim();
+      if (t == 'MIX') {
+        final raw = (it.mixItemsJson ?? '').trim();
+        if (raw.isEmpty) continue;
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            for (final e in decoded) {
+              if (e is Map) {
+                final rid = e['rawProductId']?.toString();
+                if (rid == null || rid.isEmpty) continue;
+                final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
+                qtyByProductId[rid] = (qtyByProductId[rid] ?? 0) + rq;
+              }
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      } else {
+        final pid = it.productId;
+        qtyByProductId[pid] = (qtyByProductId[pid] ?? 0) + it.quantity;
+      }
+    }
+    return qtyByProductId;
+  }
+
+  Future<void> updateSaleWithStockAdjustment({
+    required Sale oldSale,
+    required Sale newSale,
+  }) async {
+    try {
+      final oldOut = _saleStockOutByProductId(oldSale);
+      final newOut = _saleStockOutByProductId(newSale);
+      final allProductIds = <String>{...oldOut.keys, ...newOut.keys};
+      final deltaOut = <String, double>{};
+      for (final pid in allProductIds) {
+        final d = (newOut[pid] ?? 0) - (oldOut[pid] ?? 0);
+        if (d != 0) deltaOut[pid] = d;
+      }
+
+      await db.transaction((txn) async {
+        for (final entry in deltaOut.entries) {
+          await txn.rawUpdate(
+            'UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ?',
+            [entry.value, DateTime.now().toIso8601String(), entry.key],
+          );
+        }
+
+        await EncryptionService.instance.init();
+        final encryptedNote = newSale.note != null ? await EncryptionService.instance.encrypt(newSale.note!) : null;
+
+        double totalCost = 0.0;
+        final rawProductIds = <String>[];
+        for (final it in newSale.items) {
+          final t = (it.itemType ?? '').toUpperCase().trim();
+          if (t != 'MIX') rawProductIds.add(it.productId);
+        }
+        final productMap = <String, double>{};
+        if (rawProductIds.isNotEmpty) {
+          final productRows = await txn.query(
+            'products',
+            where: 'id IN (${List.filled(rawProductIds.length, '?').join(',')})',
+            whereArgs: rawProductIds,
+          );
+          for (final p in productRows) {
+            productMap[p['id'] as String] = (p['costPrice'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
+        for (final it in newSale.items) {
+          final t = (it.itemType ?? '').toUpperCase().trim();
+          if (t == 'MIX') {
+            totalCost += (it.unitCost * it.quantity);
+          } else {
+            totalCost += ((productMap[it.productId] ?? it.unitCost) * it.quantity);
+          }
+        }
+
+        await txn.insert('sales', {
+          'id': newSale.id,
+          'createdAt': newSale.createdAt.toIso8601String(),
+          'customerId': newSale.customerId,
+          'customerName': newSale.customerName,
+          'discount': newSale.discount,
+          'paidAmount': newSale.paidAmount,
+          'totalCost': totalCost,
+          'note': encryptedNote,
+          'updatedAt': DateTime.now().toIso8601String(),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+        await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [newSale.id]);
+        for (final it in newSale.items) {
+          await txn.insert('sale_items', {
+            'saleId': newSale.id,
+            'productId': it.productId,
+            'name': it.name,
+            'unitPrice': it.unitPrice,
+            'unitCost': it.unitCost,
+            'quantity': it.quantity,
+            'unit': it.unit,
+            'itemType': it.itemType,
+            'displayName': it.displayName,
+            'mixItemsJson': it.mixItemsJson,
+            'isSynced': 0,
+          });
+        }
+
+        await _addAuditTxn(txn, 'sale', newSale.id, 'update', {
+          'total': newSale.total,
+          'discount': newSale.discount,
+          'paidAmount': newSale.paidAmount,
+          'totalCost': totalCost,
+        });
+      });
+    } catch (e) {
+      developer.log('Error updating sale with stock adjustment:', error: e);
+      rethrow;
+    }
+  }
+
   Future<void> upsertSale(Sale s, {DateTime? updatedAt}) async {
     try {
-      // Initialize encryption service
       await EncryptionService.instance.init();
-      
-      // Encrypt note if it exists
-      final encryptedNote = s.note != null 
-          ? await EncryptionService.instance.encrypt(s.note!)
-          : null;
-      
-      // totalCost:
-      // - RAW: lấy costPrice hiện tại trong products
-      // - MIX: dùng unitCost/quantity đã được tính từ nguyên liệu
+      final encryptedNote = s.note != null ? await EncryptionService.instance.encrypt(s.note!) : null;
+
       double totalCost = 0.0;
       final rawProductIds = <String>[];
       for (final it in s.items) {
@@ -1583,15 +1695,12 @@ class DatabaseService {
           'customerName': s.customerName,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
-          'totalCost': totalCost, // Lưu totalCost
+          'totalCost': totalCost,
           'note': encryptedNote,
           'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-        // Delete existing items
         await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [s.id]);
-
-        // Insert new items
         for (final it in s.items) {
           await txn.insert('sale_items', {
             'saleId': s.id,
@@ -1604,7 +1713,7 @@ class DatabaseService {
             'itemType': it.itemType,
             'displayName': it.displayName,
             'mixItemsJson': it.mixItemsJson,
-            'isSynced': 0, // Chưa đồng bộ
+            'isSynced': 0,
           });
         }
       });
@@ -1616,23 +1725,17 @@ class DatabaseService {
 
   Future<List<Sale>> getSales() async {
     try {
-      // Initialize encryption service
       await EncryptionService.instance.init();
-      
       final salesRows = await db.query('sales', orderBy: 'createdAt DESC');
       final List<Sale> sales = [];
-      
-      // Process each sale asynchronously
       await Future.forEach(salesRows, (row) async {
         try {
-          // Get sale items
           final items = await db.query(
-            'sale_items', 
-            where: 'saleId = ?', 
-            whereArgs: [row['id']],            
+            'sale_items',
+            where: 'saleId = ?',
+            whereArgs: [row['id']],
           );
-          
-          // Process sale items
+
           final saleItems = items
               .map((m) => SaleItem.fromMap({
                     'productId': m['productId'],
@@ -1646,36 +1749,28 @@ class DatabaseService {
                     'mixItemsJson': m['mixItemsJson'],
                   }))
               .toList();
-          
-          // Decrypt note if it exists
+
           final note = row['note'] as String?;
-          final decryptedNote = note != null 
-              ? await EncryptionService.instance.decrypt(note)
-              : null;
-          
-          // Lấy totalCost từ database
+          final decryptedNote = note != null ? await EncryptionService.instance.decrypt(note) : null;
           final totalCost = (row['totalCost'] as num?)?.toDouble() ?? 0.0;
 
-          // Create sale object
-          final sale = Sale(
-            id: row['id'] as String,
-            createdAt: DateTime.parse(row['createdAt'] as String),
-            customerId: row['customerId'] as String?,
-            customerName: row['customerName'] as String?,
-            items: saleItems,
-            discount: (row['discount'] as num).toDouble(),
-            paidAmount: (row['paidAmount'] as num).toDouble(),
-            note: decryptedNote,
-            totalCost: totalCost, // Sử dụng totalCost từ database
+          sales.add(
+            Sale(
+              id: row['id'] as String,
+              createdAt: DateTime.parse(row['createdAt'] as String),
+              customerId: row['customerId'] as String?,
+              customerName: row['customerName'] as String?,
+              items: saleItems,
+              discount: (row['discount'] as num).toDouble(),
+              paidAmount: (row['paidAmount'] as num).toDouble(),
+              note: decryptedNote,
+              totalCost: totalCost,
+            ),
           );
-          
-          sales.add(sale);
         } catch (e) {
           developer.log('Error processing sale ${row['id']}: $e', error: e);
-          // Continue with other sales even if one fails
         }
       });
-      
       return sales;
     } catch (e) {
       developer.log('Error getting sales:', error: e);
@@ -1755,6 +1850,41 @@ class DatabaseService {
       });
     } catch (e) {
       developer.log('Error updating debt:', error: e);
+      rethrow;
+    }
+  }
+
+  Future<void> updateDebtWithCreatedAt(Debt d) async {
+    try {
+      // Initialize encryption service
+      await EncryptionService.instance.init();
+      
+      // Encrypt description if it exists
+      final encryptedDescription = d.description != null 
+          ? await EncryptionService.instance.encrypt(d.description!)
+          : null;
+      
+      await db.update(
+        'debts',
+        {
+          'createdAt': d.createdAt.toIso8601String(),
+          'type': d.type == DebtType.oweOthers ? 0 : 1,
+          'partyId': d.partyId,
+          'partyName': d.partyName,
+          'amount': d.amount,
+          'description': encryptedDescription,
+          'dueDate': d.dueDate?.toIso8601String(),
+          'settled': d.settled ? 1 : 0,
+          'sourceType': d.sourceType,
+          'sourceId': d.sourceId,
+          'updatedAt': DateTime.now().toIso8601String(),
+          'isSynced': 0, // Đánh dấu là chưa đồng bộ để đẩy lên Firestore
+        },
+        where: 'id = ?',
+        whereArgs: [d.id],
+      );
+    } catch (e) {
+      developer.log('Error updating debt with createdAt:', error: e);
       rethrow;
     }
   }
@@ -1964,6 +2094,38 @@ class DatabaseService {
     );
   }
 
+  Future<Debt?> getDebtById(String debtId) async {
+    try {
+      await EncryptionService.instance.init();
+      final rows = await db.query(
+        'debts',
+        where: 'id = ?',
+        whereArgs: [debtId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return null;
+      final m = rows.first;
+      final description = m['description'] as String?;
+      final decryptedDescription = description != null ? await EncryptionService.instance.decrypt(description) : null;
+      return Debt(
+        id: m['id'] as String,
+        createdAt: DateTime.parse(m['createdAt'] as String),
+        type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
+        partyId: m['partyId'] as String,
+        partyName: m['partyName'] as String,
+        amount: (m['amount'] as num).toDouble(),
+        description: decryptedDescription,
+        dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
+        settled: (m['settled'] as int) == 1,
+        sourceType: m['sourceType'] as String?,
+        sourceId: m['sourceId'] as String?,
+      );
+    } catch (e) {
+      developer.log('Error getting debt by id:', error: e);
+      rethrow;
+    }
+  }
+
   Future<void> _markEntityAsDeletedTxn(Transaction txn, String table, String id) async {
     final devId = await deviceId;
     await txn.insert('deleted_entities', {
@@ -2057,6 +2219,76 @@ class DatabaseService {
       developer.log('Error inserting debt payment:', error: e);
       rethrow;
     }
+  }
+
+  Future<void> updateDebtPaymentWithAdjustment({
+    required int paymentId,
+    required String debtId,
+    required double newAmount,
+    required DateTime newCreatedAt,
+    String? newNote,
+  }) async {
+    if (newAmount <= 0) return;
+    await db.transaction((txn) async {
+      await EncryptionService.instance.init();
+
+      final payRows = await txn.query(
+        'debt_payments',
+        where: 'id = ? AND debtId = ?',
+        whereArgs: [paymentId, debtId],
+        limit: 1,
+      );
+      if (payRows.isEmpty) {
+        throw Exception('Không tìm thấy khoản thanh toán');
+      }
+      final oldAmount = (payRows.first['amount'] as num?)?.toDouble() ?? 0.0;
+
+      final encryptedNote = newNote != null ? await EncryptionService.instance.encrypt(newNote) : null;
+
+      await txn.update(
+        'debt_payments',
+        {
+          'amount': newAmount,
+          'note': encryptedNote,
+          'createdAt': newCreatedAt.toIso8601String(),
+          'isSynced': 0,
+        },
+        where: 'id = ?',
+        whereArgs: [paymentId],
+      );
+
+      final debtRows = await txn.query(
+        'debts',
+        columns: ['amount'],
+        where: 'id = ?',
+        whereArgs: [debtId],
+        limit: 1,
+      );
+      if (debtRows.isEmpty) {
+        throw Exception('Không tìm thấy công nợ');
+      }
+      final currentRemain = (debtRows.first['amount'] as num?)?.toDouble() ?? 0.0;
+      final newRemain = (currentRemain + (oldAmount - newAmount)).clamp(0.0, double.infinity).toDouble();
+      final settled = newRemain <= 0;
+
+      await txn.update(
+        'debts',
+        {
+          'amount': newRemain,
+          'settled': settled ? 1 : 0,
+          'updatedAt': DateTime.now().toIso8601String(),
+          'isSynced': 0,
+        },
+        where: 'id = ?',
+        whereArgs: [debtId],
+      );
+
+      await _addAuditTxn(txn, 'debt_payment', paymentId.toString(), 'update', {
+        'oldAmount': oldAmount,
+        'newAmount': newAmount,
+        'newCreatedAt': newCreatedAt.toIso8601String(),
+      });
+    });
   }
 
   Future<List<Map<String, dynamic>>> getDebtPayments(String debtId) async {
