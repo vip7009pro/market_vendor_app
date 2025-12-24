@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
+import 'dart:io';
 import '../providers/product_provider.dart';
 import '../models/product.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 import 'scan_screen.dart';
 import '../services/database_service.dart';
+import '../services/product_image_service.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -190,11 +193,40 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor: Colors.blue.withValues(alpha: 0.12),
-                  foregroundColor: Colors.blue,
-                  child: Icon(
-                    (p.barcode != null && p.barcode!.trim().isNotEmpty)
-                        ? Icons.qr_code
-                        : Icons.inventory_2_outlined,
+                  child: Builder(
+                    builder: (_) {
+                      final img = p.imagePath;
+                      if (img != null && img.trim().isNotEmpty) {
+                        return FutureBuilder<String?>(
+                          future: ProductImageService.instance.resolvePath(img),
+                          builder: (context, snap) {
+                            final full = snap.data;
+                            if (full == null || full.isEmpty) {
+                              return Icon(
+                                (p.barcode != null && p.barcode!.trim().isNotEmpty)
+                                    ? Icons.qr_code
+                                    : Icons.inventory_2_outlined,
+                                color: Colors.blue,
+                              );
+                            }
+                            return ClipOval(
+                              child: Image.file(
+                                File(full),
+                                width: 40,
+                                height: 40,
+                                fit: BoxFit.cover,
+                              ),
+                            );
+                          },
+                        );
+                      }
+                      return Icon(
+                        (p.barcode != null && p.barcode!.trim().isNotEmpty)
+                            ? Icons.qr_code
+                            : Icons.inventory_2_outlined,
+                        color: Colors.blue,
+                      );
+                    },
                   ),
                 ),
                 title: Text(p.name),
@@ -233,6 +265,8 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
 
   Widget _buildTab2ExportHistoryRaw(BuildContext context) {
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
+    final products = context.watch<ProductProvider>().products;
+    final byId = {for (final p in products) p.id: p};
     return Column(
       children: [
         Padding(
@@ -299,12 +333,37 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
                   final unit = (r['unit'] as String?) ?? '';
                   final customerName = (r['customerName'] as String?)?.trim();
                   final source = (r['source'] as String?) ?? '';
+                  final pid = (r['productId'] as String?) ?? '';
+                  final prod = pid.isEmpty ? null : byId[pid];
 
                   return ListTile(
                     leading: CircleAvatar(
                       backgroundColor: Colors.orange.withValues(alpha: 0.12),
-                      foregroundColor: Colors.orange,
-                      child: const Icon(Icons.outbox_outlined),
+                      child: Builder(
+                        builder: (_) {
+                          final img = prod?.imagePath;
+                          if (img != null && img.trim().isNotEmpty) {
+                            return FutureBuilder<String?>(
+                              future: ProductImageService.instance.resolvePath(img),
+                              builder: (context, snap) {
+                                final full = snap.data;
+                                if (full == null || full.isEmpty) {
+                                  return const Icon(Icons.outbox_outlined, color: Colors.orange);
+                                }
+                                return ClipOval(
+                                  child: Image.file(
+                                    File(full),
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover,
+                                  ),
+                                );
+                              },
+                            );
+                          }
+                          return const Icon(Icons.outbox_outlined, color: Colors.orange);
+                        },
+                      ),
                     ),
                     title: Text(productName, maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Column(
@@ -431,63 +490,164 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
     final unitCtrl = TextEditingController(text: existing?.unit ?? lastUnit);
     final barcodeCtrl = TextEditingController(text: existing?.barcode ?? '');
 
+    XFile? pickedImage;
+    bool removeImage = false;
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text(existing == null ? 'Thêm sản phẩm' : 'Sửa sản phẩm'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên')), 
-            const SizedBox(height: 8),
-            TextField(
-              controller: priceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: false),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-              decoration: const InputDecoration(labelText: 'Giá bán'),
-            ), 
-            const SizedBox(height: 8),
-            TextField(
-              controller: costPriceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: false),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-              decoration: const InputDecoration(labelText: 'Giá vốn'),
-            ), 
-            const SizedBox(height: 8),
-            TextField(
-              controller: stockCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-              decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
-            ), 
-            const SizedBox(height: 8),
-            TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')), 
-            const SizedBox(height: 8),
-            TextField(
-              controller: barcodeCtrl,
-              decoration: InputDecoration(
-                labelText: 'Mã vạch (nếu có)',
-                suffixIcon: IconButton(
-                  tooltip: 'Quét mã vạch',
-                  icon: const Icon(Icons.qr_code_scanner),
-                  onPressed: () async {
-                    final code = await Navigator.of(context).push<String>(
-                      MaterialPageRoute(builder: (_) => const ScanScreen()),
-                    );
-                    if (code != null && code.isNotEmpty) {
-                      barcodeCtrl.text = code;
-                      FocusScope.of(context).unfocus();
-                    }
-                  },
-                ),
+      builder: (_) => StatefulBuilder(
+        builder: (dialogContext, setStateDialog) {
+          final currentPath = removeImage ? null : existing?.imagePath;
+          return AlertDialog(
+            title: Text(existing == null ? 'Thêm sản phẩm' : 'Sửa sản phẩm'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(28),
+                          child: Builder(
+                            builder: (_) {
+                              if (pickedImage != null) {
+                                return Image.file(
+                                  File(pickedImage!.path),
+                                  fit: BoxFit.cover,
+                                );
+                              }
+                              if (currentPath != null && currentPath.trim().isNotEmpty) {
+                                return FutureBuilder<String?>(
+                                  future: ProductImageService.instance.resolvePath(currentPath),
+                                  builder: (context, snap) {
+                                    final full = snap.data;
+                                    if (full == null || full.isEmpty) {
+                                      return const ColoredBox(
+                                        color: Color(0xFFEFEFEF),
+                                        child: Center(child: Icon(Icons.inventory_2_outlined)),
+                                      );
+                                    }
+                                    return Image.file(File(full), fit: BoxFit.cover);
+                                  },
+                                );
+                              }
+                              return const ColoredBox(
+                                color: Color(0xFFEFEFEF),
+                                child: Center(child: Icon(Icons.inventory_2_outlined)),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final x = await ImagePicker().pickImage(
+                                  source: ImageSource.camera,
+                                  imageQuality: 85,
+                                );
+                                if (x == null) return;
+                                setStateDialog(() {
+                                  pickedImage = x;
+                                  removeImage = false;
+                                });
+                              },
+                              icon: const Icon(Icons.photo_camera),
+                              label: const Text('Chụp'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final x = await ImagePicker().pickImage(
+                                  source: ImageSource.gallery,
+                                  imageQuality: 85,
+                                );
+                                if (x == null) return;
+                                setStateDialog(() {
+                                  pickedImage = x;
+                                  removeImage = false;
+                                });
+                              },
+                              icon: const Icon(Icons.photo_library_outlined),
+                              label: const Text('Chọn'),
+                            ),
+                            if (pickedImage != null || (existing?.imagePath?.trim().isNotEmpty == true && !removeImage))
+                              TextButton.icon(
+                                onPressed: () {
+                                  setStateDialog(() {
+                                    pickedImage = null;
+                                    removeImage = true;
+                                  });
+                                },
+                                icon: const Icon(Icons.delete_outline),
+                                label: const Text('Bỏ ảnh'),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên')),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: priceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                    decoration: const InputDecoration(labelText: 'Giá bán'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: costPriceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                    decoration: const InputDecoration(labelText: 'Giá vốn'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: stockCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                    decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: barcodeCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'Mã vạch (nếu có)',
+                      suffixIcon: IconButton(
+                        tooltip: 'Quét mã vạch',
+                        icon: const Icon(Icons.qr_code_scanner),
+                        onPressed: () async {
+                          final code = await Navigator.of(dialogContext).push<String>(
+                            MaterialPageRoute(builder: (_) => const ScanScreen()),
+                          );
+                          if (code != null && code.isNotEmpty) {
+                            barcodeCtrl.text = code;
+                            FocusScope.of(dialogContext).unfocus();
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ), 
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
-        ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Hủy')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Lưu')),
+            ],
+          );
+        },
       ),
     );
 
@@ -515,6 +675,15 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
           unit: unitToSave,
           barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
         );
+
+        if (pickedImage != null) {
+          final relPath = await ProductImageService.instance.saveFromXFile(
+            source: pickedImage!,
+            productId: newProduct.id,
+          );
+          newProduct.imagePath = relPath;
+        }
+
         await provider.add(newProduct);
         final now = DateTime.now();
         await DatabaseService.instance.upsertOpeningStocksForMonth(
@@ -523,6 +692,22 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
           openingByProductId: {newProduct.id: newProduct.currentStock},
         );
       } else {
+        String? imagePath = existing.imagePath;
+        if (removeImage) {
+          await ProductImageService.instance.delete(existing.imagePath);
+          imagePath = null;
+        }
+        if (pickedImage != null) {
+          final relPath = await ProductImageService.instance.saveFromXFile(
+            source: pickedImage!,
+            productId: existing.id,
+          );
+          if (existing.imagePath != null && existing.imagePath!.trim().isNotEmpty) {
+            await ProductImageService.instance.delete(existing.imagePath);
+          }
+          imagePath = relPath;
+        }
+
         await provider.update(Product(
           id: existing.id,
           name: nameCtrl.text.trim(),
@@ -531,6 +716,7 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
           currentStock: NumberInputFormatter.tryParse(stockCtrl.text) ?? 0,
           unit: unitToSave,
           barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
+          imagePath: imagePath,
           isActive: existing.isActive,
         ));
       }

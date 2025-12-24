@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
+import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/customer.dart';
@@ -11,12 +13,14 @@ import '../models/debt.dart';
 import '../models/product.dart';
 import '../models/sale.dart';
 
+import '../providers/customer_provider.dart';
 import '../providers/debt_provider.dart';
 import '../providers/product_provider.dart';
-import '../providers/customer_provider.dart';
 import '../providers/sale_provider.dart';
+import '../services/product_image_service.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/string_utils.dart';
+
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../utils/contact_serializer.dart';
 
@@ -354,7 +358,35 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
                             itemBuilder: (context, index) {
                               final p = filtered[index];
                               return ListTile(
-                                leading: const CircleAvatar(child: Icon(Icons.shopping_bag)),
+                                leading: CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: Colors.blue.withValues(alpha: 0.12),
+                                  child: Builder(
+                                    builder: (_) {
+                                      final img = p.imagePath;
+                                      if (img != null && img.trim().isNotEmpty) {
+                                        return FutureBuilder<String?>(
+                                          future: ProductImageService.instance.resolvePath(img),
+                                          builder: (context, snap) {
+                                            final full = snap.data;
+                                            if (full == null || full.isEmpty) {
+                                              return const Icon(Icons.shopping_bag);
+                                            }
+                                            return ClipOval(
+                                              child: Image.file(
+                                                File(full),
+                                                width: 40,
+                                                height: 40,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      }
+                                      return const Icon(Icons.shopping_bag);
+                                    },
+                                  ),
+                                ),
                                 title: Text(p.name),
                                 subtitle: Text(currency.format(p.price)),
                                 trailing: Text(
@@ -469,56 +501,127 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     final lastUnit = prefs.getString('last_product_unit') ?? 'cái';
     final unitCtrl = TextEditingController(text: lastUnit);
     final barcodeCtrl = TextEditingController();
+
+    XFile? pickedImage;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Thêm sản phẩm'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
+      builder: (_) => StatefulBuilder(
+        builder: (dialogContext, setStateDialog) {
+          return AlertDialog(
+            title: const Text('Thêm sản phẩm'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(28),
+                          child: Builder(
+                            builder: (_) {
+                              if (pickedImage != null) {
+                                return Image.file(File(pickedImage!.path), fit: BoxFit.cover);
+                              }
+                              return const ColoredBox(
+                                color: Color(0xFFEFEFEF),
+                                child: Center(child: Icon(Icons.inventory_2_outlined)),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final x = await ImagePicker().pickImage(
+                                  source: ImageSource.camera,
+                                  imageQuality: 85,
+                                );
+                                if (x == null) return;
+                                setStateDialog(() => pickedImage = x);
+                              },
+                              icon: const Icon(Icons.photo_camera),
+                              label: const Text('Chụp'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final x = await ImagePicker().pickImage(
+                                  source: ImageSource.gallery,
+                                  imageQuality: 85,
+                                );
+                                if (x == null) return;
+                                setStateDialog(() => pickedImage = x);
+                              },
+                              icon: const Icon(Icons.photo_library_outlined),
+                              label: const Text('Chọn'),
+                            ),
+                            if (pickedImage != null)
+                              TextButton.icon(
+                                onPressed: () => setStateDialog(() => pickedImage = null),
+                                icon: const Icon(Icons.delete_outline),
+                                label: const Text('Bỏ ảnh'),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: priceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                    decoration: const InputDecoration(labelText: 'Giá bán'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: costPriceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                    decoration: const InputDecoration(labelText: 'Giá vốn'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: stockCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                    decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: unitCtrl,
+                    decoration: const InputDecoration(labelText: 'Đơn vị'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: barcodeCtrl,
+                    decoration: const InputDecoration(labelText: 'Mã vạch (tuỳ chọn)'),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: priceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: false),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-              decoration: const InputDecoration(labelText: 'Giá bán'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: costPriceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: false),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-              decoration: const InputDecoration(labelText: 'Giá vốn'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: stockCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-              decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: unitCtrl,
-              decoration: const InputDecoration(labelText: 'Đơn vị'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: barcodeCtrl,
-              decoration: const InputDecoration(labelText: 'Mã vạch (tuỳ chọn)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
-        ],
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Hủy')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Lưu')),
+            ],
+          );
+        },
       ),
     );
+
     if (ok != true) return;
 
     final name = nameCtrl.text.trim();
@@ -539,6 +642,14 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
       barcode: barcode,
       isActive: true,
     );
+
+    if (pickedImage != null) {
+      final relPath = await ProductImageService.instance.saveFromXFile(
+        source: pickedImage!,
+        productId: p.id,
+      );
+      p.imagePath = relPath;
+    }
 
     final unitToSave = p.unit.trim();
     if (unitToSave.isNotEmpty) {

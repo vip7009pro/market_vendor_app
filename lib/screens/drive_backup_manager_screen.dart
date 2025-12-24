@@ -287,14 +287,38 @@ class _DriveBackupManagerScreenState extends State<DriveBackupManagerScreen> {
                         final name = f['name'] ?? '';
                         final modified = _parseModifiedTime(f['modifiedTime']);
                         final subtitle = modified == null ? (f['modifiedTime'] ?? '') : fmt.format(modified);
+                        final lower = name.toLowerCase();
+                        final isZip = lower.endsWith('.zip');
+                        final isDb = lower.endsWith('.db');
 
                         return ListTile(
-                          leading: const Icon(Icons.backup_outlined),
+                          leading: Icon(isZip ? Icons.archive_outlined : Icons.backup_outlined),
                           title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(subtitle),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: (isZip ? Colors.green : (isDb ? Colors.blueGrey : Colors.black45))
+                                      .withValues(alpha: 0.12),
+                                  border: Border.all(
+                                    color: (isZip ? Colors.green : (isDb ? Colors.blueGrey : Colors.black45))
+                                        .withValues(alpha: 0.30),
+                                  ),
+                                ),
+                                child: Text(
+                                  isZip ? 'ZIP: DB + Ảnh' : (isDb ? 'DB-only' : 'File'),
+                                  style: TextStyle(
+                                    color: isZip ? Colors.green : (isDb ? Colors.blueGrey : Colors.black45),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
                               IconButton(
                                 tooltip: 'Khôi phục',
                                 onPressed: (_restoring || _loading || _backingUp || _deleting)

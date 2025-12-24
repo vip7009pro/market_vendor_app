@@ -2,15 +2,112 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 class DriveSyncService {
   static const String backupFolderName = 'GhiNoBackUp';
   static const String purchaseDocFolderName = 'NhapHangDauVao';
   static const String expenseDocFolderName = 'CHUNGTU';
+
+  static const String _dbFileName = 'market_vendor.db';
+  static const String _imagesDirName = 'product_images';
+
+  bool _looksLikeZip(Uint8List bytes) {
+    return bytes.length >= 2 && bytes[0] == 0x50 && bytes[1] == 0x4B; // PK
+  }
+
+  Future<Uint8List> _buildBackupZipBytes() async {
+    final dbPath = await getDatabasesPath();
+    final dbFile = File(p.join(dbPath, _dbFileName));
+    if (!await dbFile.exists()) {
+      throw Exception('Không tìm thấy tệp cơ sở dữ liệu: ${dbFile.path}');
+    }
+
+    final archive = Archive();
+
+    final dbBytes = await dbFile.readAsBytes();
+    archive.addFile(ArchiveFile(_dbFileName, dbBytes.length, dbBytes));
+
+    final docs = await getApplicationDocumentsDirectory();
+    final imagesDir = Directory(p.join(docs.path, _imagesDirName));
+    if (await imagesDir.exists()) {
+      await for (final ent in imagesDir.list(recursive: true, followLinks: false)) {
+        if (ent is! File) continue;
+        final rel = p.relative(ent.path, from: docs.path);
+        final b = await ent.readAsBytes();
+        archive.addFile(ArchiveFile(p.normalize(rel), b.length, b));
+      }
+    }
+
+    final zipped = ZipEncoder().encode(archive);
+    if (zipped == null) {
+      throw Exception('Không tạo được file zip sao lưu');
+    }
+    return Uint8List.fromList(zipped);
+  }
+
+  Future<void> _restoreFromZipBytes(Uint8List bytes) async {
+    final decoded = ZipDecoder().decodeBytes(bytes);
+
+    Uint8List? dbBytes;
+    final imagesToWrite = <String, Uint8List>{};
+
+    for (final f in decoded) {
+      if (f.isFile != true) continue;
+      final name = (f.name).trim();
+      final content = f.content;
+      if (content is! List<int>) continue;
+      final fileBytes = Uint8List.fromList(content);
+
+      if (p.basename(name) == _dbFileName) {
+        dbBytes = fileBytes;
+        continue;
+      }
+
+      final norm = p.normalize(name);
+      if (norm.startsWith('$_imagesDirName${p.separator}') || norm.startsWith('$_imagesDirName/')) {
+        imagesToWrite[norm] = fileBytes;
+      }
+    }
+
+    if (dbBytes == null) {
+      throw Exception('File zip không có $_dbFileName');
+    }
+
+    // Restore DB
+    final dbPath = await getDatabasesPath();
+    final filePath = p.join(dbPath, _dbFileName);
+    final tmpPath = '$filePath.tmp';
+
+    final tmp = File(tmpPath);
+    await tmp.writeAsBytes(dbBytes, flush: true);
+    final dbFile = File(filePath);
+    if (await dbFile.exists()) {
+      await dbFile.delete();
+    }
+    await tmp.rename(filePath);
+
+    // Restore images
+    final docs = await getApplicationDocumentsDirectory();
+    final imagesDir = Directory(p.join(docs.path, _imagesDirName));
+    if (!await imagesDir.exists()) {
+      await imagesDir.create(recursive: true);
+    }
+
+    for (final e in imagesToWrite.entries) {
+      final outPath = p.join(docs.path, e.key);
+      final outFile = File(outPath);
+      await outFile.parent.create(recursive: true);
+      await outFile.writeAsBytes(e.value, flush: true);
+    }
+  }
 
   /// Ensures the backup folder exists and returns its folderId.
   Future<String> _ensureBackupFolder({required String accessToken}) async {
@@ -60,15 +157,8 @@ class DriveSyncService {
   /// Uploads the local SQLite database file to the user's Google Drive backup folder.
   /// Requires a valid OAuth access token with drive.file scope.
   Future<String> uploadLocalDb({required String accessToken}) async {
-    final dbPath = await getDatabasesPath();
-    final filePath = '$dbPath/market_vendor.db';
-    final file = File(filePath);
-    if (!await file.exists()) {
-      throw Exception('Không tìm thấy tệp cơ sở dữ liệu: $filePath');
-    }
-
-    final fileBytes = await file.readAsBytes();
-    final fileName = 'market_vendor_backup_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.db';
+    final fileBytes = await _buildBackupZipBytes();
+    final fileName = 'market_vendor_backup_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.zip';
 
     final folderId = await _ensureBackupFolder(accessToken: accessToken);
     final uri = Uri.parse('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart');
@@ -344,8 +434,14 @@ class DriveSyncService {
   /// Sau khi khôi phục, sẽ tự động thực hiện migration nếu cần thiết.
   Future<void> restoreToLocal({required String accessToken, required String fileId}) async {
     final bytes = await downloadFile(accessToken: accessToken, fileId: fileId);
+    if (_looksLikeZip(bytes)) {
+      await _restoreFromZipBytes(bytes);
+      return;
+    }
+
+    // Legacy: db-only backup
     final dbPath = await getDatabasesPath();
-    final filePath = '$dbPath/market_vendor.db';
+    final filePath = p.join(dbPath, _dbFileName);
     final tmpPath = '$filePath.tmp';
 
     final tmp = File(tmpPath);

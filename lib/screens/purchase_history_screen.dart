@@ -17,6 +17,7 @@ import '../providers/product_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/database_service.dart';
 import '../services/drive_sync_service.dart';
+import '../services/product_image_service.dart';
 import '../utils/contact_serializer.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
@@ -213,9 +214,34 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                             itemBuilder: (context, index) {
                               final product = filteredProducts[index];
                               return ListTile(
-                                leading: const CircleAvatar(
-                                  child: Icon(Icons.shopping_bag),
+                                leading: CircleAvatar(
                                   radius: 20,
+                                  backgroundColor: Colors.blue.withValues(alpha: 0.12),
+                                  child: Builder(
+                                    builder: (_) {
+                                      final img = product.imagePath;
+                                      if (img != null && img.trim().isNotEmpty) {
+                                        return FutureBuilder<String?>(
+                                          future: ProductImageService.instance.resolvePath(img),
+                                          builder: (context, snap) {
+                                            final full = snap.data;
+                                            if (full == null || full.isEmpty) {
+                                              return const Icon(Icons.shopping_bag);
+                                            }
+                                            return ClipOval(
+                                              child: Image.file(
+                                                File(full),
+                                                width: 40,
+                                                height: 40,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      }
+                                      return const Icon(Icons.shopping_bag);
+                                    },
+                                  ),
                                 ),
                                 title: Text(product.name),
                                 subtitle: Text('${NumberFormat('#,##0').format(product.price)} đ'),
@@ -355,38 +381,108 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     final costPriceCtrl = TextEditingController(text: '0');
     final barcodeCtrl = TextEditingController();
 
+    XFile? pickedImage;
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Thêm sản phẩm'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên sản phẩm')),
-            const SizedBox(height: 8),
-            TextField(
-              controller: priceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-              decoration: const InputDecoration(labelText: 'Giá bán'),
+      builder: (_) => StatefulBuilder(
+        builder: (dialogContext, setStateDialog) {
+          return AlertDialog(
+            title: const Text('Thêm sản phẩm'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(28),
+                          child: Builder(
+                            builder: (_) {
+                              if (pickedImage != null) {
+                                return Image.file(File(pickedImage!.path), fit: BoxFit.cover);
+                              }
+                              return const ColoredBox(
+                                color: Color(0xFFEFEFEF),
+                                child: Center(child: Icon(Icons.inventory_2_outlined)),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final x = await ImagePicker().pickImage(
+                                  source: ImageSource.camera,
+                                  imageQuality: 85,
+                                );
+                                if (x == null) return;
+                                setStateDialog(() => pickedImage = x);
+                              },
+                              icon: const Icon(Icons.photo_camera),
+                              label: const Text('Chụp'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final x = await ImagePicker().pickImage(
+                                  source: ImageSource.gallery,
+                                  imageQuality: 85,
+                                );
+                                if (x == null) return;
+                                setStateDialog(() => pickedImage = x);
+                              },
+                              icon: const Icon(Icons.photo_library_outlined),
+                              label: const Text('Chọn'),
+                            ),
+                            if (pickedImage != null)
+                              TextButton.icon(
+                                onPressed: () => setStateDialog(() => pickedImage = null),
+                                icon: const Icon(Icons.delete_outline),
+                                label: const Text('Bỏ ảnh'),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên sản phẩm')),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: priceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                    decoration: const InputDecoration(labelText: 'Giá bán'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: costPriceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                    decoration: const InputDecoration(labelText: 'Giá vốn'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')),
+                  const SizedBox(height: 8),
+                  TextField(controller: barcodeCtrl, decoration: const InputDecoration(labelText: 'Mã vạch (tuỳ chọn)')),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: costPriceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-              decoration: const InputDecoration(labelText: 'Giá vốn'),
-            ),
-            const SizedBox(height: 8),
-            TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')),
-            const SizedBox(height: 8),
-            TextField(controller: barcodeCtrl, decoration: const InputDecoration(labelText: 'Mã vạch (tuỳ chọn)')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
-        ],
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Hủy')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Lưu')),
+            ],
+          );
+        },
       ),
     );
 
@@ -411,6 +507,15 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
       currentStock: 0,
     );
+
+    if (pickedImage != null) {
+      final relPath = await ProductImageService.instance.saveFromXFile(
+        source: pickedImage!,
+        productId: p.id,
+      );
+      p.imagePath = relPath;
+    }
+
     await provider.add(p);
     await context.read<ProductProvider>().load();
     return p;
@@ -1141,6 +1246,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   Widget build(BuildContext context) {
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+    final products = context.watch<ProductProvider>().products;
+    final productById = {for (final p in products) p.id: p};
 
     final content = Column(
         children: [
@@ -1215,6 +1322,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     final r = rows[i];
                     final createdAt = DateTime.tryParse(r['createdAt'] as String? ?? '') ?? DateTime.now();
                     final name = (r['productName'] as String?) ?? '';
+                    final pid = (r['productId'] as String?) ?? '';
+                    final prod = pid.isEmpty ? null : productById[pid];
                     final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
                     final unitCost = (r['unitCost'] as num?)?.toDouble() ?? 0;
                     final totalCost = (r['totalCost'] as num?)?.toDouble() ?? (qty * unitCost);
@@ -1228,8 +1337,31 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: Colors.green.withValues(alpha: 0.12),
-                        foregroundColor: Colors.green,
-                        child: const Icon(Icons.add_shopping_cart),
+                        child: Builder(
+                          builder: (_) {
+                            final img = prod?.imagePath;
+                            if (img != null && img.trim().isNotEmpty) {
+                              return FutureBuilder<String?>(
+                                future: ProductImageService.instance.resolvePath(img),
+                                builder: (context, snap) {
+                                  final full = snap.data;
+                                  if (full == null || full.isEmpty) {
+                                    return const Icon(Icons.add_shopping_cart, color: Colors.green);
+                                  }
+                                  return ClipOval(
+                                    child: Image.file(
+                                      File(full),
+                                      width: 40,
+                                      height: 40,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  );
+                                },
+                              );
+                            }
+                            return const Icon(Icons.add_shopping_cart, color: Colors.green);
+                          },
+                        ),
                       ),
                       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: Column(

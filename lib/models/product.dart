@@ -10,6 +10,7 @@ class Product {
   double currentStock; // Tồn hiện tại
   String unit; // e.g., kg, cái, bó
   String? barcode;
+  String? imagePath;
   bool isActive;
   ProductItemType itemType;
   bool isStocked;
@@ -22,6 +23,7 @@ class Product {
     this.currentStock = 0, // Tồn hiện tại mặc định là 0
     required this.unit,
     this.barcode,
+    this.imagePath,
     this.isActive = true,
     this.itemType = ProductItemType.raw,
     bool? isStocked,
@@ -51,6 +53,7 @@ class Product {
         currentStock: (map['currentStock'] as num?)?.toDouble() ?? 0,
         unit: map['unit'],
         barcode: map['barcode'],
+        imagePath: map['imagePath']?.toString(),
         isActive: map['isActive'] == 1 || map['isActive'] == true,
         itemType: _parseItemType(map['itemType']),
         isStocked: map['isStocked'] == null ? true : (map['isStocked'] == 1 || map['isStocked'] == true),
@@ -64,6 +67,7 @@ class Product {
         'currentStock': currentStock,
         'unit': unit,
         'barcode': barcode,
+        'imagePath': imagePath,
         'isActive': isActive ? 1 : 0,
         'itemType': _itemTypeToDb(itemType),
         'isStocked': isStocked ? 1 : 0,

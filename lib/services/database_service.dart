@@ -748,6 +748,17 @@ class DatabaseService {
       }
     }
 
+    // Migration lên version 21: Thêm cột imagePath vào bảng products (lưu đường dẫn ảnh trong thư mục app)
+    if (oldVersion < 21) {
+      try {
+        print('Đang thêm cột imagePath vào bảng products...');
+        await safeAddColumn(db, 'products', 'imagePath', 'TEXT');
+        print('Đã cập nhật bảng products (imagePath) thành công');
+      } catch (e) {
+        print('Lỗi khi cập nhật bảng products (imagePath): $e');
+      }
+    }
+
     // Migration từ version 10 lên 11: Thêm bảng tồn đầu kỳ theo tháng/năm
     if (oldVersion < 11) {
       try {
@@ -890,7 +901,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 20, // Tăng version để áp dụng migration
+      version: 21, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -905,6 +916,7 @@ class DatabaseService {
             isActive INTEGER NOT NULL DEFAULT 1,
             itemType TEXT NOT NULL DEFAULT 'RAW',
             isStocked INTEGER NOT NULL DEFAULT 1,
+            imagePath TEXT,
             updatedAt TEXT NOT NULL,
             deviceId TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0

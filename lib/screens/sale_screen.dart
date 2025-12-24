@@ -14,11 +14,14 @@ import 'package:intl/intl.dart';
 import 'scan_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:image_picker/image_picker.dart';
 import '../utils/contact_serializer.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
 import '../services/database_service.dart';
+import '../services/product_image_service.dart';
 
 class SaleScreen extends StatefulWidget {
   const SaleScreen({super.key});
@@ -455,7 +458,33 @@ class _SaleScreenState extends State<SaleScreen> {
                             itemBuilder: (context, index) {
                               final product = filteredProducts[index];
                               return ListTile(
-                                leading: const CircleAvatar(child: Icon(Icons.inventory_2_outlined)),
+                                leading: CircleAvatar(
+                                  child: Builder(
+                                    builder: (_) {
+                                      final img = product.imagePath;
+                                      if (img != null && img.trim().isNotEmpty) {
+                                        return FutureBuilder<String?>(
+                                          future: ProductImageService.instance.resolvePath(img),
+                                          builder: (context, snap) {
+                                            final full = snap.data;
+                                            if (full == null || full.isEmpty) {
+                                              return const Icon(Icons.inventory_2_outlined);
+                                            }
+                                            return ClipOval(
+                                              child: Image.file(
+                                                File(full),
+                                                width: 40,
+                                                height: 40,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      }
+                                      return const Icon(Icons.inventory_2_outlined);
+                                    },
+                                  ),
+                                ),
                                 title: Text(product.name),
                                 subtitle: Text('${NumberFormat('#,##0').format(product.price)} đ'),
                                 trailing: Text('Tồn: ${product.currentStock} ${product.unit}'),
@@ -622,6 +651,8 @@ class _SaleScreenState extends State<SaleScreen> {
     final unitCtrl = TextEditingController(text: lastUnit);
     final barcodeCtrl = TextEditingController();
     var isMix = false;
+
+    XFile? pickedImage;
     final ok = await showDialog<bool>(
       context: context,
       builder:
@@ -632,6 +663,68 @@ class _SaleScreenState extends State<SaleScreen> {
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 56,
+                          height: 56,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(28),
+                            child: Builder(
+                              builder: (_) {
+                                if (pickedImage != null) {
+                                  return Image.file(File(pickedImage!.path), fit: BoxFit.cover);
+                                }
+                                return const ColoredBox(
+                                  color: Color(0xFFEFEFEF),
+                                  child: Center(child: Icon(Icons.inventory_2_outlined)),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final x = await ImagePicker().pickImage(
+                                    source: ImageSource.camera,
+                                    imageQuality: 85,
+                                  );
+                                  if (x == null) return;
+                                  setState(() => pickedImage = x);
+                                },
+                                icon: const Icon(Icons.photo_camera),
+                                label: const Text('Chụp'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final x = await ImagePicker().pickImage(
+                                    source: ImageSource.gallery,
+                                    imageQuality: 85,
+                                  );
+                                  if (x == null) return;
+                                  setState(() => pickedImage = x);
+                                },
+                                icon: const Icon(Icons.photo_library_outlined),
+                                label: const Text('Chọn'),
+                              ),
+                              if (pickedImage != null)
+                                TextButton.icon(
+                                  onPressed: () => setState(() => pickedImage = null),
+                                  icon: const Icon(Icons.delete_outline),
+                                  label: const Text('Bỏ ảnh'),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       value: isMix,
@@ -748,6 +841,14 @@ class _SaleScreenState extends State<SaleScreen> {
         itemType: isMix ? ProductItemType.mix : ProductItemType.raw,
         isStocked: isMix ? false : true,
       );
+
+      if (pickedImage != null) {
+        final relPath = await ProductImageService.instance.saveFromXFile(
+          source: pickedImage!,
+          productId: p.id,
+        );
+        p.imagePath = relPath;
+      }
       final unitToSave = p.unit.trim();
       if (unitToSave.isNotEmpty) {
         await prefs.setString('last_product_unit', unitToSave);
@@ -963,7 +1064,31 @@ class _SaleScreenState extends State<SaleScreen> {
                                 return ListTile(
                                   leading: CircleAvatar(
                                     radius: 20,
-                                    child: Icon(Icons.shopping_bag, color: iconColor),
+                                    child: Builder(
+                                      builder: (_) {
+                                        final img = product.imagePath;
+                                        if (img != null && img.trim().isNotEmpty) {
+                                          return FutureBuilder<String?>(
+                                            future: ProductImageService.instance.resolvePath(img),
+                                            builder: (context, snap) {
+                                              final full = snap.data;
+                                              if (full == null || full.isEmpty) {
+                                                return Icon(Icons.shopping_bag, color: iconColor);
+                                              }
+                                              return ClipOval(
+                                                child: Image.file(
+                                                  File(full),
+                                                  width: 40,
+                                                  height: 40,
+                                                  fit: BoxFit.cover,
+                                                ),
+                                              );
+                                            },
+                                          );
+                                        }
+                                        return Icon(Icons.shopping_bag, color: iconColor);
+                                      },
+                                    ),
                                   ),
                                   title: Text(product.name),
                                   subtitle: Text(
@@ -1581,6 +1706,36 @@ class _SaleScreenState extends State<SaleScreen> {
                             children: [
                             Row(
                               children: [
+                                CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: Colors.green.withValues(alpha: 0.10),
+                                  child: Builder(
+                                    builder: (_) {
+                                      final img = prod?.imagePath;
+                                      if (img != null && img.trim().isNotEmpty) {
+                                        return FutureBuilder<String?>(
+                                          future: ProductImageService.instance.resolvePath(img),
+                                          builder: (context, snap) {
+                                            final full = snap.data;
+                                            if (full == null || full.isEmpty) {
+                                              return Icon(isMixLine ? Icons.shopping_bag : Icons.inventory_2_outlined, color: Colors.green);
+                                            }
+                                            return ClipOval(
+                                              child: Image.file(
+                                                File(full),
+                                                width: 40,
+                                                height: 40,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      }
+                                      return Icon(isMixLine ? Icons.shopping_bag : Icons.inventory_2_outlined, color: Colors.green);
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
