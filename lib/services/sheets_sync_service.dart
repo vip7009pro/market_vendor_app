@@ -352,8 +352,8 @@ class SheetsSyncService {
         'unitPrice',
         'quantity',
         'lineTotal',
-        'productCostPrice',
-        'lineCostTotal'
+        'unitCostSnap',
+        'lineCostTotalSnap'
       ],
       rows: saleItems.map((it) {
         final saleId = it['saleId'] as String?;
@@ -365,8 +365,8 @@ class SheetsSyncService {
         final unitPrice = (it['unitPrice'] as num?)?.toDouble() ?? 0;
         final qty = (it['quantity'] as num?)?.toDouble() ?? 0;
         final lineTotal = unitPrice * qty;
-        final costPrice = (prod?['costPrice'] as num?)?.toDouble() ?? 0;
-        final lineCostTotal = costPrice * qty;
+        final unitCostSnap = (it['unitCost'] as num?)?.toDouble() ?? 0.0;
+        final lineCostTotalSnap = unitCostSnap * qty;
         return [
           saleId,
           sale['createdAt'],
@@ -383,8 +383,8 @@ class SheetsSyncService {
           unitPrice,
           qty,
           lineTotal,
-          costPrice,
-          lineCostTotal,
+          unitCostSnap,
+          lineCostTotalSnap,
         ];
       }).where((r) => r.isNotEmpty),
     );

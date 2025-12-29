@@ -207,7 +207,9 @@ class _ReportScreenState extends State<ReportScreen> {
           si.productId as productId,
           si.name as name,
           si.unit as unit,
+          si.unitPrice as unitPrice,
           si.quantity as quantity,
+          si.unitCost as unitCost,
           si.itemType as itemType,
           si.mixItemsJson as mixItemsJson
         FROM sale_items si
@@ -217,6 +219,25 @@ class _ReportScreenState extends State<ReportScreen> {
         ''',
         [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
       );
+
+      final saleSubtotalRowsInRange = await db.rawQuery(
+        '''
+        SELECT
+          s.id as saleId,
+          SUM(si.unitPrice * si.quantity) as subtotal
+        FROM sales s
+        JOIN sale_items si ON si.saleId = s.id
+        WHERE s.createdAt >= ? AND s.createdAt <= ?
+        GROUP BY s.id
+        ''',
+        [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+      );
+      final saleSubtotalById = <String, double>{};
+      for (final r in saleSubtotalRowsInRange) {
+        final sid = (r['saleId']?.toString() ?? '').trim();
+        if (sid.isEmpty) continue;
+        saleSubtotalById[sid] = (r['subtotal'] as num?)?.toDouble() ?? 0.0;
+      }
 
       final expenses = await db.query(
         'expenses',
@@ -451,6 +472,10 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('productName'),
         _cv('unit'),
         _cv('quantity'),
+        _cv('unitPriceSnap'),
+        _cv('lineTotalSnap'),
+        _cv('unitCostSnap'),
+        _cv('lineCostTotalSnap'),
         _cv('source'),
       ]);
       for (final r in saleItemsInRange) {
@@ -465,6 +490,8 @@ class _ReportScreenState extends State<ReportScreen> {
                 if (e is Map) {
                   final rid = (e['rawProductId']?.toString() ?? '').trim();
                   if (rid.isEmpty) continue;
+                  final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
+                  final ruc = (e['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
                   exportHistorySheet.appendRow([
                     _cv(r['saleId']),
                     _cv(r['saleCreatedAt']),
@@ -472,7 +499,11 @@ class _ReportScreenState extends State<ReportScreen> {
                     _cv(rid),
                     _cv(e['rawName']),
                     _cv(e['rawUnit']),
-                    _cv((e['rawQty'] as num?)?.toDouble() ?? 0.0),
+                    _cv(rq),
+                    null,
+                    null,
+                    _cv(ruc),
+                    _cv(rq * ruc),
                     _cv('MIX'),
                   ]);
                 }
@@ -484,6 +515,10 @@ class _ReportScreenState extends State<ReportScreen> {
         } else {
           final pid = (r['productId']?.toString() ?? '').trim();
           if (pid.isEmpty) continue;
+          final qty = (r['quantity'] as num?)?.toDouble() ?? 0.0;
+          final unitPriceSnap = (r['unitPrice'] as num?)?.toDouble() ?? 0.0;
+          final lineTotalSnap = unitPriceSnap * qty;
+          final unitCostSnap = (r['unitCost'] as num?)?.toDouble() ?? 0.0;
           exportHistorySheet.appendRow([
             _cv(r['saleId']),
             _cv(r['saleCreatedAt']),
@@ -491,7 +526,11 @@ class _ReportScreenState extends State<ReportScreen> {
             _cv(pid),
             _cv(r['name']),
             _cv(r['unit']),
-            _cv((r['quantity'] as num?)?.toDouble() ?? 0.0),
+            _cv(qty),
+            _cv(unitPriceSnap),
+            _cv(lineTotalSnap),
+            _cv(unitCostSnap),
+            _cv(qty * unitCostSnap),
             _cv('RAW'),
           ]);
         }
@@ -548,8 +587,8 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('unitPrice'),
         _cv('quantity'),
         _cv('lineTotal'),
-        _cv('productCostPrice'),
-        _cv('lineCostTotal'),
+        _cv('unitCostSnap'),
+        _cv('lineCostTotalSnap'),
       ]);
       for (final it in saleItems) {
         final saleId = it['saleId'] as String?;
@@ -561,8 +600,8 @@ class _ReportScreenState extends State<ReportScreen> {
         final unitPrice = (it['unitPrice'] as num?)?.toDouble() ?? 0;
         final qty = (it['quantity'] as num?)?.toDouble() ?? 0;
         final lineTotal = unitPrice * qty;
-        final costPrice = (prod?['costPrice'] as num?)?.toDouble() ?? 0;
-        final lineCostTotal = costPrice * qty;
+        final unitCostSnap = (it['unitCost'] as num?)?.toDouble() ?? 0.0;
+        final lineCostTotalSnap = unitCostSnap * qty;
         saleSheet.appendRow([
           _cv(saleId),
           _cv(sale['createdAt']),
@@ -579,9 +618,189 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(unitPrice),
           _cv(qty),
           _cv(lineTotal),
-          _cv(costPrice),
-          _cv(lineCostTotal),
+          _cv(unitCostSnap),
+          _cv(lineCostTotalSnap),
         ]);
+      }
+
+      final listOrdersSheet = excel['list đơn hàng'];
+      listOrdersSheet.appendRow([
+        _cv('saleId'),
+        _cv('saleCreatedAt'),
+        _cv('customerId'),
+        _cv('customerName'),
+        _cv('saleDiscount'),
+        _cv('salePaidAmount'),
+        _cv('salePaymentType'),
+        _cv('saleTotalCost'),
+        _cv('saleNote'),
+        _cv('saleTotal'),
+      ]);
+
+      for (final s in sales) {
+        final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
+        if (createdAt == null) continue;
+        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+
+        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
+        final saleId = (s['id']?.toString() ?? '').trim();
+        if (saleId.isEmpty) continue;
+        final subtotal = saleSubtotalById[saleId] ?? 0.0;
+        final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+
+        listOrdersSheet.appendRow([
+          _cv(saleId),
+          _cv(s['createdAt']),
+          _cv(s['customerId']),
+          _cv(s['customerName']),
+          _cv(discount),
+          _cv(s['paidAmount']),
+          _cv(s['paymentType']),
+          _cv(s['totalCost']),
+          _cv(s['note']),
+          _cv(total),
+        ]);
+      }
+
+      final tripleBackdataSheet = excel['backdata_triple_kpi'];
+      tripleBackdataSheet.appendRow([
+        _cv('saleId'),
+        _cv('createdAt'),
+        _cv('customerName'),
+        _cv('subtotal'),
+        _cv('discount'),
+        _cv('total'),
+        _cv('paidAmount'),
+        _cv('paymentType'),
+        _cv('saleTotalCost'),
+      ]);
+      for (final s in sales) {
+        final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
+        if (createdAt == null) continue;
+        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
+        final saleId = (s['id']?.toString() ?? '').trim();
+        if (saleId.isEmpty) continue;
+        final subtotal = saleSubtotalById[saleId] ?? 0.0;
+        final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+        tripleBackdataSheet.appendRow([
+          _cv(saleId),
+          _cv(s['createdAt']),
+          _cv(s['customerName']),
+          _cv(subtotal),
+          _cv(discount),
+          _cv(total),
+          _cv(s['paidAmount']),
+          _cv(s['paymentType']),
+          _cv(s['totalCost']),
+        ]);
+      }
+
+      final paymentPaidSheet = excel['backdata_payment_paid_amount'];
+      paymentPaidSheet.appendRow([
+        _cv('saleId'),
+        _cv('createdAt'),
+        _cv('paidAmount'),
+        _cv('paymentType'),
+      ]);
+
+      final paymentDebtPaidSheet = excel['backdata_payment_debt_paid'];
+      paymentDebtPaidSheet.appendRow([
+        _cv('saleId'),
+        _cv('debtId'),
+        _cv('paidCash'),
+        _cv('paidBank'),
+        _cv('paidUnset'),
+        _cv('paidTotal'),
+      ]);
+
+      final paymentOutstandingSheet = excel['backdata_payment_outstanding_sale_debt'];
+      paymentOutstandingSheet.appendRow([
+        _cv('saleId'),
+        _cv('debtId'),
+        _cv('remain'),
+      ]);
+
+      final saleRowsInRange = await db.query(
+        'sales',
+        columns: ['id', 'createdAt', 'paidAmount', 'paymentType'],
+        where: 'createdAt >= ? AND createdAt <= ?',
+        whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+      );
+      final saleIdsInRange = <String>[];
+      for (final r in saleRowsInRange) {
+        final sid = (r['id']?.toString() ?? '').trim();
+        if (sid.isEmpty) continue;
+        saleIdsInRange.add(sid);
+        final paid = (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
+        paymentPaidSheet.appendRow([
+          _cv(sid),
+          _cv(r['createdAt']),
+          _cv(paid),
+          _cv(r['paymentType']),
+        ]);
+      }
+
+      if (saleIdsInRange.isNotEmpty) {
+        final placeholders = List.filled(saleIdsInRange.length, '?').join(',');
+        final debtsForSales = await db.query(
+          'debts',
+          columns: ['id', 'amount', 'sourceId'],
+          where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+          whereArgs: saleIdsInRange,
+        );
+        final debtIds = <String>[];
+        for (final d in debtsForSales) {
+          final did = (d['id']?.toString() ?? '').trim();
+          if (did.isEmpty) continue;
+          debtIds.add(did);
+          final sid = (d['sourceId']?.toString() ?? '').trim();
+          final remain = (d['amount'] as num?)?.toDouble() ?? 0.0;
+          if (remain > 0) {
+            paymentOutstandingSheet.appendRow([
+              _cv(sid),
+              _cv(did),
+              _cv(remain),
+            ]);
+          }
+        }
+
+        if (debtIds.isNotEmpty) {
+          final dph = List.filled(debtIds.length, '?').join(',');
+          final payAgg = await db.rawQuery(
+            '''
+            SELECT
+              d.id as debtId,
+              d.sourceId as saleId,
+              SUM(CASE WHEN dp.paymentType = 'cash' THEN dp.amount ELSE 0 END) as paidCash,
+              SUM(CASE WHEN dp.paymentType = 'bank' THEN dp.amount ELSE 0 END) as paidBank,
+              SUM(CASE WHEN dp.paymentType IS NULL OR TRIM(dp.paymentType) = '' THEN dp.amount ELSE 0 END) as paidUnset,
+              SUM(dp.amount) as paidTotal
+            FROM debts d
+            LEFT JOIN debt_payments dp ON dp.debtId = d.id
+            WHERE d.id IN ($dph)
+            GROUP BY d.id, d.sourceId
+            ''',
+            debtIds,
+          );
+          for (final r in payAgg) {
+            final did = (r['debtId']?.toString() ?? '').trim();
+            final sid = (r['saleId']?.toString() ?? '').trim();
+            if (did.isEmpty || sid.isEmpty) continue;
+            final paidCash = (r['paidCash'] as num?)?.toDouble() ?? 0.0;
+            final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
+            final paidUnset = (r['paidUnset'] as num?)?.toDouble() ?? 0.0;
+            final paidTotal = (r['paidTotal'] as num?)?.toDouble() ?? 0.0;
+            paymentDebtPaidSheet.appendRow([
+              _cv(sid),
+              _cv(did),
+              _cv(paidCash),
+              _cv(paidBank),
+              _cv(paidUnset),
+              _cv(paidTotal),
+            ]);
+          }
+        }
       }
 
       final openingSheet = excel['list tồn đầu kỳ'];

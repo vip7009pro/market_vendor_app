@@ -117,12 +117,29 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   String _query = '';
   bool _onlyDebtIssues = false;
 
+  bool _didBackfillUnitCost = false;
+
   final Map<String, _DebtIssueInfo> _debtIssueBySaleId = {};
   String _lastIssueKey = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_didBackfillUnitCost) return;
+      _didBackfillUnitCost = true;
+      try {
+        await DatabaseService.instance.backfillSaleItemsUnitCostFromProducts();
+      } catch (_) {
+        // ignore
+      }
+    });
+  }
 
   Future<void> _refreshDebtIssuesFor(List<Sale> sales) async {
     // Only compute for sales that currently have debt
     final withDebt = sales.where((s) => s.debt > 0).toList();
+
     if (withDebt.isEmpty) {
       if (!mounted) return;
       setState(() {

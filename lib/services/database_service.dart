@@ -1442,6 +1442,36 @@ class DatabaseService {
     }
   }
 
+  Future<int> backfillSaleItemsUnitCostFromProducts() async {
+    // Backfill legacy data where sale_items.unitCost was missing (0)
+    // by using current products.costPrice.
+    // Only applies to RAW / non-MIX items.
+    try {
+      final rows = await db.rawUpdate(
+        '''
+        UPDATE sale_items
+        SET unitCost = (
+          SELECT p.costPrice
+          FROM products p
+          WHERE p.id = sale_items.productId
+        )
+        WHERE (unitCost IS NULL OR unitCost = 0)
+          AND productId IS NOT NULL
+          AND TRIM(COALESCE(itemType, '')) != 'MIX'
+          AND (
+            SELECT COALESCE(p.costPrice, 0)
+            FROM products p
+            WHERE p.id = sale_items.productId
+          ) > 0
+        ''',
+      );
+      return rows;
+    } catch (e) {
+      developer.log('Error backfilling sale_items.unitCost:', error: e);
+      rethrow;
+    }
+  }
+
   // Sales
   Future<void> insertSale(Sale s) async {
     try {
@@ -1492,12 +1522,16 @@ class DatabaseService {
         }, conflictAlgorithm: ConflictAlgorithm.replace);
 
         for (final it in s.items) {
+          final t = (it.itemType ?? '').toUpperCase().trim();
+          final snapUnitCost = (t == 'MIX')
+              ? it.unitCost
+              : (productMap[it.productId] ?? it.unitCost);
           await txn.insert('sale_items', {
             'saleId': s.id,
             'productId': it.productId,
             'name': it.name,
             'unitPrice': it.unitPrice,
-            'unitCost': it.unitCost,
+            'unitCost': snapUnitCost,
             'quantity': it.quantity,
             'unit': it.unit,
             'itemType': it.itemType,
@@ -1652,12 +1686,16 @@ class DatabaseService {
 
         await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [newSale.id]);
         for (final it in newSale.items) {
+          final t = (it.itemType ?? '').toUpperCase().trim();
+          final snapUnitCost = (t == 'MIX')
+              ? it.unitCost
+              : (productMap[it.productId] ?? it.unitCost);
           await txn.insert('sale_items', {
             'saleId': newSale.id,
             'productId': it.productId,
             'name': it.name,
             'unitPrice': it.unitPrice,
-            'unitCost': it.unitCost,
+            'unitCost': snapUnitCost,
             'quantity': it.quantity,
             'unit': it.unit,
             'itemType': it.itemType,
@@ -1727,12 +1765,16 @@ class DatabaseService {
 
         await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [s.id]);
         for (final it in s.items) {
+          final t = (it.itemType ?? '').toUpperCase().trim();
+          final snapUnitCost = (t == 'MIX')
+              ? it.unitCost
+              : (productMap[it.productId] ?? it.unitCost);
           await txn.insert('sale_items', {
             'saleId': s.id,
             'productId': it.productId,
             'name': it.name,
             'unitPrice': it.unitPrice,
-            'unitCost': it.unitCost,
+            'unitCost': snapUnitCost,
             'quantity': it.quantity,
             'unit': it.unit,
             'itemType': it.itemType,
