@@ -1,23 +1,18 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-
 import '../providers/debt_provider.dart';
 import '../providers/sale_provider.dart';
 import '../models/sale.dart';
 import '../models/debt.dart';
-
 import '../services/database_service.dart';
 import '../utils/file_helper.dart';
 // Import file mới
 import 'receipt_preview_screen.dart'; // Thêm dòng này
-
 import 'sales_item_history_screen.dart';
 import 'sale_edit_screen.dart';
-
 // Vietnamese diacritics removal (accent-insensitive search)
 String _vn(String s) {
   const groups = <String, String>{
@@ -43,18 +38,13 @@ String _vn(String s) {
   });
   return s;
 }
-
 // --- MÀN HÌNH CHÍNH: SalesHistoryScreen ---
-
 class SalesHistoryScreen extends StatefulWidget {
   const SalesHistoryScreen({super.key});
-
   @override
   State<SalesHistoryScreen> createState() => _SalesHistoryScreenState();
 }
-
 enum _DebtIssueKind { ok, missing, mismatch }
-
 class _DebtIssueInfo {
   final String saleId;
   final _DebtIssueKind kind;
@@ -62,7 +52,6 @@ class _DebtIssueInfo {
   final double paid;
   final double remain;
   final double initial;
-
   const _DebtIssueInfo._({
     required this.saleId,
     required this.kind,
@@ -71,7 +60,6 @@ class _DebtIssueInfo {
     this.remain = 0,
     this.initial = 0,
   });
-
   factory _DebtIssueInfo.ok({
     required String saleId,
     required double paid,
@@ -86,14 +74,12 @@ class _DebtIssueInfo {
       initial: initial,
     );
   }
-
   factory _DebtIssueInfo.missing({required String saleId}) {
     return _DebtIssueInfo._(
       saleId: saleId,
       kind: _DebtIssueKind.missing,
     );
   }
-
   factory _DebtIssueInfo.mismatch({
     required String saleId,
     required Debt debt,
@@ -111,17 +97,14 @@ class _DebtIssueInfo {
     );
   }
 }
-
 class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   DateTimeRange? _range;
   String _query = '';
   bool _onlyDebtIssues = false;
-
+  bool _isTableView = false;
   bool _didBackfillUnitCost = false;
-
   final Map<String, _DebtIssueInfo> _debtIssueBySaleId = {};
   String _lastIssueKey = '';
-
   @override
   void initState() {
     super.initState();
@@ -135,11 +118,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       }
     });
   }
-
   Future<void> _refreshDebtIssuesFor(List<Sale> sales) async {
     // Only compute for sales that currently have debt
     final withDebt = sales.where((s) => s.debt > 0).toList();
-
     if (withDebt.isEmpty) {
       if (!mounted) return;
       setState(() {
@@ -149,23 +130,19 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       });
       return;
     }
-
     // Deduplicate by id
     final saleIds = withDebt.map((e) => e.id).toSet().toList();
     saleIds.sort();
     final key = saleIds.join(',');
     if (key == _lastIssueKey) return;
-
     final db = DatabaseService.instance.db;
     final placeholders = List.filled(saleIds.length, '?').join(',');
-
     final debtRows = await db.query(
       'debts',
       columns: ['id', 'sourceId', 'amount', 'settled', 'type', 'partyId', 'partyName', 'description', 'createdAt', 'dueDate', 'sourceType'],
       where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
       whereArgs: saleIds,
     );
-
     final debtBySaleId = <String, Map<String, dynamic>>{};
     final debtIds = <String>[];
     for (final r in debtRows) {
@@ -175,7 +152,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       debtBySaleId[sid] = r;
       debtIds.add(did);
     }
-
     final paidByDebtId = <String, double>{};
     if (debtIds.isNotEmpty) {
       final dph = List.filled(debtIds.length, '?').join(',');
@@ -194,7 +170,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         paidByDebtId[did] = (r['total'] as num?)?.toDouble() ?? 0.0;
       }
     }
-
     final next = <String, _DebtIssueInfo>{};
     for (final s in withDebt) {
       final debtRow = debtBySaleId[s.id];
@@ -202,13 +177,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         next[s.id] = _DebtIssueInfo.missing(saleId: s.id);
         continue;
       }
-
       final did = (debtRow['id']?.toString() ?? '').trim();
       final remain = (debtRow['amount'] as num?)?.toDouble() ?? 0.0;
       final paid = paidByDebtId[did] ?? 0.0;
       final initial = (remain + paid).clamp(0.0, double.infinity).toDouble();
       final mismatch = (initial - s.debt).abs() > 0.5;
-
       if (mismatch) {
         // Rebuild Debt object for actions
         final createdAtRaw = debtRow['createdAt']?.toString();
@@ -228,7 +201,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           sourceType: debtRow['sourceType']?.toString(),
           sourceId: debtRow['sourceId']?.toString(),
         );
-
         next[s.id] = _DebtIssueInfo.mismatch(
           saleId: s.id,
           debt: debt,
@@ -245,7 +217,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         );
       }
     }
-
     if (!mounted) return;
     setState(() {
       _debtIssueBySaleId
@@ -254,9 +225,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       _lastIssueKey = key;
     });
   }
-
   _DebtIssueInfo? _getIssue(String saleId) => _debtIssueBySaleId[saleId];
-
   Future<void> _createDebtForSale(Sale s) async {
     final partyName = (s.customerName?.trim().isNotEmpty == true) ? s.customerName!.trim() : 'Khách lẻ';
     final newDebt = Debt(
@@ -274,7 +243,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tạo ghi nợ cho hóa đơn')));
   }
-
   Future<void> _syncInitialDebtForSale({required Sale s, required Debt debt, required double alreadyPaid}) async {
     final newRemain = (s.debt - alreadyPaid).clamp(0.0, double.infinity).toDouble();
     final updated = Debt(
@@ -295,28 +263,24 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã đồng bộ nợ ban đầu theo hóa đơn')));
   }
-
   IconData _paymentTypeIcon(String? t) {
     final v = (t ?? '').trim().toLowerCase();
     if (v == 'cash') return Icons.payments_outlined;
     if (v == 'bank') return Icons.account_balance_outlined;
     return Icons.help_outline;
   }
-
   Color? _paymentTypeColor(BuildContext context, String? t) {
     final v = (t ?? '').trim().toLowerCase();
     if (v == 'cash') return Colors.green;
     if (v == 'bank') return Colors.blue;
     return Theme.of(context).colorScheme.onSurface.withOpacity(0.55);
   }
-
   String _paymentTypeLabel(String? t) {
     final v = (t ?? '').trim().toLowerCase();
     if (v == 'cash') return 'Tiền mặt';
     if (v == 'bank') return 'Chuyển khoản';
     return 'Chưa phân loại';
   }
-
   Future<void> _setSalePaymentType({required Sale sale}) async {
     final picked = await showModalBottomSheet<String>(
       context: context,
@@ -346,7 +310,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         );
       },
     );
-
     if (picked == null) return;
     await DatabaseService.instance.updateSalePaymentType(
       saleId: sale.id,
@@ -357,14 +320,288 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (!mounted) return;
     setState(() {});
   }
-
+  Future<void> _showSaleActionSheet(Sale s) async {
+    final issue = _getIssue(s.id);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (issue != null && issue.kind == _DebtIssueKind.missing)
+                ListTile(
+                  leading: const Icon(Icons.add_card_outlined),
+                  title: const Text('Tạo nợ'),
+                  subtitle: const Text('Tạo ghi nợ cho hóa đơn này'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _createDebtForSale(s);
+                    if (!mounted) return;
+                    await context.read<SaleProvider>().load();
+                    if (!mounted) return;
+                    setState(() {
+                      _lastIssueKey = '';
+                    });
+                  },
+                ),
+              if (issue != null && issue.kind == _DebtIssueKind.mismatch)
+                ListTile(
+                  leading: const Icon(Icons.sync_outlined),
+                  title: const Text('Đồng bộ tiền nợ ban đầu'),
+                  subtitle: const Text('Sửa số nợ để khớp theo hóa đơn'),
+                  onTap: () async {
+                    final debt = issue.debt;
+                    if (debt == null) return;
+                    Navigator.pop(ctx);
+                    await _syncInitialDebtForSale(
+                      s: s,
+                      debt: debt,
+                      alreadyPaid: issue.paid,
+                    );
+                    if (!mounted) return;
+                    await context.read<SaleProvider>().load();
+                    if (!mounted) return;
+                    setState(() {
+                      _lastIssueKey = '';
+                    });
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.tune),
+                title: const Text('Set kiểu thanh toán'),
+                subtitle: Text(
+                  s.paidAmount > 0 ? _paymentTypeLabel(s.paymentType) : 'Chỉ áp dụng khi có số tiền đã trả > 0',
+                ),
+                onTap: s.paidAmount > 0
+                    ? () async {
+                        Navigator.pop(ctx);
+                        await _setSalePaymentType(sale: s);
+                      }
+                    : null,
+              ),
+            ], // <-- Đã thêm đóng ngoặc này
+          ),
+        );
+      },
+    );
+  }
+  Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
+    return Container(
+      alignment: align == TextAlign.right
+          ? Alignment.centerRight
+          : align == TextAlign.center
+              ? Alignment.center
+              : Alignment.centerLeft,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+  Widget _tableCell(Widget child, {double? width, Alignment alignment = Alignment.centerLeft}) {
+    return Container(
+      alignment: alignment,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: child,
+    );
+  }
+  Widget _buildSalesTable({
+    required List<Sale> rows,
+    required DateFormat fmtDate,
+    required NumberFormat currency,
+  }) {
+    if (rows.isEmpty) {
+      return const Center(child: Text('Chưa có dữ liệu'));
+    }
+    const wDate = 150.0;
+    const wCustomer = 200.0;
+    const wTotal = 120.0;
+    const wDiscount = 100.0;
+    const wPaid = 120.0;
+    const wDebt = 120.0;
+    const wPayType = 130.0;
+    const wIssue = 140.0;
+    const wItems = 420.0;
+    const wActions = 170.0;
+    const tableWidth = wDate + wCustomer + wTotal + wDiscount + wPaid + wDebt + wPayType + wIssue + wItems + wActions;
+    String issueText(Sale s) {
+      if (s.debt <= 0) return 'Đã thanh toán';
+      final issue = _getIssue(s.id);
+      if (issue == null) return 'Còn nợ';
+      if (issue.kind == _DebtIssueKind.missing) return 'Thiếu ghi nợ';
+      if (issue.kind == _DebtIssueKind.mismatch) return 'Lệch nợ';
+      return 'Còn nợ';
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: tableWidth,
+            height: constraints.maxHeight,
+            child: Column(
+              children: [
+                Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 1,
+                  child: Row(
+                    children: [
+                      _tableHeaderCell('Ngày', width: wDate),
+                      _tableHeaderCell('Khách', width: wCustomer),
+                      _tableHeaderCell('Tổng', width: wTotal, align: TextAlign.right),
+                      _tableHeaderCell('Giảm', width: wDiscount, align: TextAlign.right),
+                      _tableHeaderCell('Đã trả', width: wPaid, align: TextAlign.right),
+                      _tableHeaderCell('Còn nợ', width: wDebt, align: TextAlign.right),
+                      _tableHeaderCell('Thanh toán', width: wPayType),
+                      _tableHeaderCell('Trạng thái', width: wIssue),
+                      _tableHeaderCell('Mặt hàng', width: wItems),
+                      _tableHeaderCell('Thao tác', width: wActions, align: TextAlign.center),
+                    ], // <-- Đã thêm đóng ngoặc này
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final s = rows[i];
+                      final customer = s.customerName?.trim().isEmpty == false ? s.customerName!.trim() : 'Khách lẻ';
+                      final items = s.items
+                          .map((item) =>
+                              '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}')
+                          .join(', ');
+                      return InkWell(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => _SaleDetailScreen(sale: s),
+                            ),
+                          );
+                        },
+                        onLongPress: () async {
+                          await _showSaleActionSheet(s);
+                        },
+                        child: Row(
+                          children: [
+                            _tableCell(Text(fmtDate.format(s.createdAt)), width: wDate),
+                            _tableCell(
+                              Text(customer, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wCustomer,
+                            ),
+                            _tableCell(
+                              Text(currency.format(s.total), style: const TextStyle(fontWeight: FontWeight.w700)),
+                              width: wTotal,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(currency.format(s.discount)),
+                              width: wDiscount,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(currency.format(s.paidAmount)),
+                              width: wPaid,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(currency.format(s.debt)),
+                              width: wDebt,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(s.paidAmount > 0 ? _paymentTypeLabel(s.paymentType) : ''),
+                              width: wPayType,
+                            ),
+                            _tableCell(Text(issueText(s)), width: wIssue),
+                            _tableCell(
+                              Text(items, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wItems,
+                            ),
+                            _tableCell(
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'In hóa đơn',
+                                    icon: const Icon(Icons.print_outlined),
+                                    onPressed: () => _showPrintPreview(context, s, currency),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Sửa hóa đơn',
+                                    icon: const Icon(Icons.edit_outlined),
+                                    onPressed: () async {
+                                      final ok = await Navigator.push<bool>(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => SaleEditScreen(sale: s),
+                                        ),
+                                      );
+                                      if (ok == true) {
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Đã cập nhật bán hàng')),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Xóa hóa đơn',
+                                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                    onPressed: () async {
+                                      final ok = await showDialog<bool>(
+                                        context: context,
+                                        builder: (_) => AlertDialog(
+                                          title: const Text('Xóa hóa đơn'),
+                                          content: const Text('Bạn có chắc muốn xóa hóa đơn này?'),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(context, false),
+                                              child: const Text('Hủy'),
+                                            ),
+                                            FilledButton(
+                                              onPressed: () => Navigator.pop(context, true),
+                                              child: const Text('Xóa'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (ok == true) {
+                                        await context.read<SaleProvider>().delete(s.id);
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Đã xóa hóa đơn')),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                              width: wActions,
+                              alignment: Alignment.center,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
   @override
   Widget build(BuildContext context) {
     final sales = context.watch<SaleProvider>().sales;
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
     final currency =
         NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
-
     var filtered = sales;
     if (_range != null) {
       final start =
@@ -386,15 +623,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         return customer.contains(q) || items.contains(q);
       }).toList();
     }
-
     // Tạo bản sao và sắp xếp theo createdAt giảm dần (mới nhất lên đầu)
     final List<Sale> sortedFiltered = List.from(filtered)
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshDebtIssuesFor(sortedFiltered);
     });
-
     final List<Sale> finalList;
     if (_onlyDebtIssues) {
       finalList = sortedFiltered.where((s) {
@@ -405,11 +639,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     } else {
       finalList = sortedFiltered;
     }
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Lịch sử bán hàng'),
         actions: [
+          IconButton(
+            tooltip: _isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng',
+            icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
+            onPressed: () => setState(() => _isTableView = !_isTableView),
+          ),
           IconButton(
             tooltip: 'Bán hàng chi tiết',
             icon: const Icon(Icons.view_list),
@@ -543,469 +781,388 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           ),
           const Divider(height: 1),
           Expanded(
-            child: ListView.separated(
-              itemCount: finalList.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 1),
-              itemBuilder: (context, i) {
-                final s = finalList[i];
-                final customer = s.customerName?.trim().isEmpty == false
-                    ? s.customerName!.trim()
-                    : 'Khách lẻ';
-
-                return Card(
-                  margin:
-                      const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                  elevation: 1,
-                  child: InkWell(
-                    onLongPress: () async {
-                      final issue = _getIssue(s.id);
-
-                      await showModalBottomSheet<void>(
-                        context: context,
-                        showDragHandle: true,
-                        builder: (ctx) {
-                          return SafeArea(
+            child: _isTableView
+                ? _buildSalesTable(rows: finalList, fmtDate: fmtDate, currency: currency)
+                : ListView.separated(
+                    itemCount: finalList.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 1),
+                    itemBuilder: (context, i) {
+                      final s = finalList[i];
+                      final customer = s.customerName?.trim().isNotEmpty == false
+                          ? 'Khách lẻ'
+                          : s.customerName!.trim();
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        elevation: 1,
+                        child: InkWell(
+                          onLongPress: () async {
+                            await _showSaleActionSheet(s);
+                          },
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => _SaleDetailScreen(sale: s),
+                              ),
+                            );
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
                             child: Column(
-                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (issue != null && issue.kind == _DebtIssueKind.missing)
-                                  ListTile(
-                                    leading: const Icon(Icons.add_card_outlined),
-                                    title: const Text('Tạo nợ'),
-                                    subtitle: const Text('Tạo ghi nợ cho hóa đơn này'),
-                                    onTap: () async {
-                                      Navigator.pop(ctx);
-                                      await _createDebtForSale(s);
-                                      if (!mounted) return;
-                                      await context.read<SaleProvider>().load();
-                                      if (!mounted) return;
-                                      setState(() {
-                                        _lastIssueKey = '';
-                                      });
-                                    },
-                                  ),
-                                if (issue != null && issue.kind == _DebtIssueKind.mismatch)
-                                  ListTile(
-                                    leading: const Icon(Icons.sync_outlined),
-                                    title: const Text('Đồng bộ tiền nợ ban đầu'),
-                                    subtitle: const Text('Sửa số nợ để khớp theo hóa đơn'),
-                                    onTap: () async {
-                                      final debt = issue.debt;
-                                      if (debt == null) return;
-                                      Navigator.pop(ctx);
-                                      await _syncInitialDebtForSale(
-                                        s: s,
-                                        debt: debt,
-                                        alreadyPaid: issue.paid,
-                                      );
-                                      if (!mounted) return;
-                                      await context.read<SaleProvider>().load();
-                                      if (!mounted) return;
-                                      setState(() {
-                                        _lastIssueKey = '';
-                                      });
-                                    },
-                                  ),
-                                ListTile(
-                                  leading: const Icon(Icons.tune),
-                                  title: const Text('Set kiểu thanh toán'),
-                                  subtitle: Text(
-                                    s.paidAmount > 0
-                                        ? _paymentTypeLabel(s.paymentType)
-                                        : 'Chỉ áp dụng khi có số tiền đã trả > 0',
-                                  ),
-                                  onTap: s.paidAmount > 0
-                                      ? () async {
-                                          Navigator.pop(ctx);
-                                          await _setSalePaymentType(sale: s);
-                                        }
-                                      : null,
+                                // Header row with customer and total
+                                Row(
+                                  children: [
+                                    if (s.paidAmount > 0) ...[
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: Icon(
+                                          _paymentTypeIcon(s.paymentType),
+                                          size: 18,
+                                          color: _paymentTypeColor(context, s.paymentType),
+                                        ),
+                                      ),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        customer,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: s.debt > 0
+                                            ? Colors.red.withOpacity(0.1)
+                                            : Colors.green.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        currency.format(s.total),
+                                        style: TextStyle(
+                                          color:
+                                              s.debt > 0 ? Colors.red : Colors.green,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          );
-                        },
-                      );
-                    },
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => _SaleDetailScreen(sale: s),
-                        ),
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Header row with customer and total
-                          Row(
-                            children: [
-                              if (s.paidAmount > 0) ...[
+                                // Date and time
                                 Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: Icon(
-                                    _paymentTypeIcon(s.paymentType),
-                                    size: 18,
-                                    color: _paymentTypeColor(context, s.paymentType),
-                                  ),
-                                ),
-                              ],
-                              Expanded(
-                                child: Text(
-                                  customer,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: s.debt > 0
-                                      ? Colors.red.withOpacity(0.1)
-                                      : Colors.green.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  currency.format(s.total),
-                                  style: TextStyle(
-                                    color:
-                                        s.debt > 0 ? Colors.red : Colors.green,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          // Date and time
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              fmtDate.format(s.createdAt),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ),
-
-                          // Items list
-                          const SizedBox(height: 8),
-                          ...s.items
-                              .map((item) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 6,
-                                          height: 6,
-                                          margin:
-                                              const EdgeInsets.only(right: 8),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.blue,
-                                            shape: BoxShape.circle,
-                                          ),
-                                        ),
-                                        if (((item.itemType ?? '').toUpperCase().trim()) == 'MIX')
-                                          Padding(
-                                            padding: const EdgeInsets.only(right: 6),
-                                            child: Icon(
-                                              Icons.blender,
-                                              size: 16,
-                                              color: Colors.deepPurple[400],
-                                            ),
-                                          )
-                                        else
-                                          Padding(
-                                            padding: const EdgeInsets.only(right: 6),
-                                            child: Icon(
-                                              Icons.inventory_2_outlined,
-                                              size: 16,
-                                              color: Colors.blueGrey[400],
-                                            ),
-                                          ),
-                                        Expanded(
-                                          child: Text(
-                                            '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}',
-                                            style: const TextStyle(fontSize: 13),
-                                          ),
-                                        ),
-                                        Text(
-                                          '${currency.format(item.unitPrice)} x ${item.quantity} = ${currency.format(item.unitPrice * item.quantity)}',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ))
-                              .toList(),
-
-                          // Payment status and actions
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              if (s.discount > 0)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
+                                  padding: const EdgeInsets.only(top: 4),
                                   child: Text(
-                                    'Giảm: ${currency.format(s.discount)}',
-                                    style: const TextStyle(
-                                      color: Colors.deepOrange,
+                                    fmtDate.format(s.createdAt),
+                                    style: TextStyle(
                                       fontSize: 12,
-                                      fontWeight: FontWeight.w500,
+                                      color: Colors.grey[600],
                                     ),
                                   ),
-                                )
-                              else
-                              if (s.debt > 0)
-                                FutureBuilder<Debt?>(
-                                  future: DatabaseService.instance.getDebtBySource(
-                                    sourceType: 'sale',
-                                    sourceId: s.id,
-                                  ),
-                                  builder: (context, snap) {
-                                    if (snap.connectionState != ConnectionState.done) {
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          'Còn nợ: ${currency.format(s.debt)}',
-                                          style: const TextStyle(
-                                            color: Colors.red,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
+                                ),
+                                // Items list
+                                const SizedBox(height: 8),
+                                ...s.items
+                                    .map((item) => Padding(
+                                          padding: const EdgeInsets.only(bottom: 4),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                width: 6,
+                                                height: 6,
+                                                margin:
+                                                    const EdgeInsets.only(right: 8),
+                                                decoration: const BoxDecoration(
+                                                  color: Colors.blue,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              if (((item.itemType ?? '').toUpperCase().trim()) == 'MIX')
+                                                Padding(
+                                                  padding: const EdgeInsets.only(right: 6),
+                                                  child: Icon(
+                                                    Icons.blender,
+                                                    size: 16,
+                                                    color: Colors.deepPurple[400],
+                                                  ),
+                                                )
+                                              else
+                                                Padding(
+                                                  padding: const EdgeInsets.only(right: 6),
+                                                  child: Icon(
+                                                    Icons.inventory_2_outlined,
+                                                    size: 16,
+                                                    color: Colors.blueGrey[400],
+                                                  ),
+                                                ),
+                                              Expanded(
+                                                child: Text(
+                                                  '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}',
+                                                  style: const TextStyle(fontSize: 13),
+                                                ),
+                                              ),
+                                              Text(
+                                                '${currency.format(item.unitPrice)} x ${item.quantity} = ${currency.format(item.unitPrice * item.quantity)}',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
                                           ),
-                                        ),
-                                      );
-                                    }
-
-                                    final d = snap.data;
-                                    if (d == null) {
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        ))
+                                    .toList(),
+                                // Payment status and actions
+                                const SizedBox(height: 8),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    if (s.discount > 0)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: Colors.deepOrange.withOpacity(0.12),
+                                          color: Colors.orange.withOpacity(0.12),
                                           borderRadius: BorderRadius.circular(4),
                                         ),
                                         child: Text(
-                                          'Còn nợ: ${currency.format(s.debt)} • Thiếu ghi nợ',
+                                          'Giảm: ${currency.format(s.discount)}',
                                           style: const TextStyle(
                                             color: Colors.deepOrange,
                                             fontSize: 12,
-                                            fontWeight: FontWeight.w700,
+                                            fontWeight: FontWeight.w500,
                                           ),
                                         ),
-                                      );
-                                    }
-
-                                    return FutureBuilder<double>(
-                                      future: DatabaseService.instance.getTotalPaidForDebt(d.id),
-                                      builder: (context, paidSnap) {
-                                        if (paidSnap.connectionState != ConnectionState.done) {
-                                          return Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: Colors.red.withOpacity(0.1),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              'Còn nợ: ${currency.format(s.debt)}',
-                                              style: const TextStyle(
-                                                color: Colors.red,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          );
-                                        }
-
-                                        final paid = paidSnap.data ?? 0;
-                                        final remain = d.amount;
-                                        final initialDebt = (remain + paid).clamp(0.0, double.infinity).toDouble();
-
-                                        final mismatch = (initialDebt - s.debt).abs() > 0.5;
-                                        if (mismatch) {
-                                          return Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: Colors.orange.withOpacity(0.16),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              'Lệch nợ • Sale: ${currency.format(s.debt)} | Debt gốc: ${currency.format(initialDebt)} | Còn: ${currency.format(remain)}',
-                                              style: const TextStyle(
-                                                color: Colors.deepOrange,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          );
-                                        }
-
-                                        final settled = d.settled || remain <= 0;
-                                        final bg = settled ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1);
-                                        final fg = settled ? Colors.green : Colors.red;
-                                        final text = settled
-                                            ? 'Đã tất toán'
-                                            : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
-
-                                        return Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      )
+                                    else
+                                      if (s.debt > 0)
+                                        FutureBuilder<Debt?>(
+                                          future: DatabaseService.instance.getDebtBySource(
+                                            sourceType: 'sale',
+                                            sourceId: s.id,
+                                          ),
+                                          builder: (context, snap) {
+                                            if (snap.connectionState != ConnectionState.done) {
+                                              return Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.red.withOpacity(0.1),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  'Còn nợ: ${currency.format(s.debt)}',
+                                                  style: const TextStyle(
+                                                    color: Colors.red,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                            final d = snap.data;
+                                            if (d == null) {
+                                              return Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.deepOrange.withOpacity(0.12),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  'Còn nợ: ${currency.format(s.debt)} • Thiếu ghi nợ',
+                                                  style: const TextStyle(
+                                                    color: Colors.deepOrange,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                            return FutureBuilder<double>(
+                                              future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                                              builder: (context, paidSnap) {
+                                                if (paidSnap.connectionState != ConnectionState.done) {
+                                                  return Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.red.withOpacity(0.1),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      'Còn nợ: ${currency.format(s.debt)}',
+                                                      style: const TextStyle(
+                                                        color: Colors.red,
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                  );
+                                                }
+                                                final paid = paidSnap.data ?? 0;
+                                                final remain = d.amount;
+                                                final initialDebt = (remain + paid).clamp(0.0, double.infinity).toDouble();
+                                                final mismatch = (initialDebt - s.debt).abs() > 0.5;
+                                                if (mismatch) {
+                                                  return Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.orange.withOpacity(0.16),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      'Lệch nợ • Sale: ${currency.format(s.debt)} | Debt gốc: ${currency.format(initialDebt)} | Còn: ${currency.format(remain)}',
+                                                      style: const TextStyle(
+                                                        color: Colors.deepOrange,
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  );
+                                                }
+                                                final settled = d.settled || remain <= 0;
+                                                final bg = settled ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1);
+                                                final fg = settled ? Colors.green : Colors.red;
+                                                final text = settled
+                                                    ? 'Đã tất toán'
+                                                    : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
+                                                return Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: bg,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    text,
+                                                    style: TextStyle(
+                                                      color: fg,
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            );
+                                          },
+                                        )
+                                      else
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 4),
                                           decoration: BoxDecoration(
-                                            color: bg,
+                                            color: Colors.green.withOpacity(0.1),
                                             borderRadius: BorderRadius.circular(4),
                                           ),
-                                          child: Text(
-                                            text,
+                                          child: const Text(
+                                            'Đã thanh toán',
                                             style: TextStyle(
-                                              color: fg,
+                                              color: Colors.green,
                                               fontSize: 12,
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
-                                        );
-                                      },
-                                    );
-                                  },
-                                )
-                              else
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'Đã thanh toán',
-                                    style: TextStyle(
-                                      color: Colors.green,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-
-                              // New Print Button & Delete Button
-                              Row(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.print_outlined,
-                                        color: Colors.blueAccent, size: 20),
-                                    tooltip: 'In hóa đơn',
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    onPressed: () => _showPrintPreview(
-                                        context, s, currency), // Gọi hàm hiển thị preview
-                                  ),
-                                  const SizedBox(width: 8),
-                                  // Delete button
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline,
-                                        color: Colors.redAccent, size: 20),
-                                    tooltip: 'Xóa hóa đơn',
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    onPressed: () async {
-                                      final ok = await showDialog<bool>(
-                                        context: context,
-                                        builder: (_) => AlertDialog(
-                                          title: const Text('Xóa hóa đơn'),
-                                          content: const Text(
-                                              'Bạn có chắc muốn xóa hóa đơn này?'),
-                                          actions: [
-                                            TextButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(
-                                                        context, false),
-                                                child: const Text('Hủy')),
-                                            FilledButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(context, true),
-                                                child: const Text('Xóa')),
-                                          ],
                                         ),
-                                      );
-                                      if (ok == true) {
-                                        await context
-                                            .read<SaleProvider>()
-                                            .delete(s.id);
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                              content: Text('Đã xóa hóa đơn')),
-                                        );
-                                      }
-                                    },
-                                  ),
-                                  const SizedBox(width: 8),
-                                  // Edit button
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_outlined,
-                                        color: Colors.blueAccent, size: 20),
-                                    tooltip: 'Sửa hóa đơn',
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    onPressed: () async {
-                                      final ok = await Navigator.push<bool>(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => SaleEditScreen(
-                                            sale: s,
-                                          ),
+                                    // New Print Button & Delete Button & Edit Button
+                                    Row(
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.print_outlined,
+                                              color: Colors.blueAccent, size: 20),
+                                          tooltip: 'In hóa đơn',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () => _showPrintPreview(
+                                              context, s, currency),
                                         ),
-                                      );
-                                      if (ok == true) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                              content: Text('Đã cập nhật bán hàng')),
-                                        );
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ],
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline,
+                                              color: Colors.redAccent, size: 20),
+                                          tooltip: 'Xóa hóa đơn',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () async {
+                                            final ok = await showDialog<bool>(
+                                              context: context,
+                                              builder: (_) => AlertDialog(
+                                                title: const Text('Xóa hóa đơn'),
+                                                content: const Text(
+                                                    'Bạn có chắc muốn xóa hóa đơn này?'),
+                                                actions: [
+                                                  TextButton(
+                                                      onPressed: () =>
+                                                          Navigator.pop(
+                                                              context, false),
+                                                      child: const Text('Hủy')),
+                                                  FilledButton(
+                                                      onPressed: () =>
+                                                          Navigator.pop(context, true),
+                                                      child: const Text('Xóa')),
+                                                ],
+                                              ),
+                                            );
+                                            if (ok == true) {
+                                              await context
+                                                  .read<SaleProvider>()
+                                                  .delete(s.id);
+                                              if (!context.mounted) return;
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
+                                                const SnackBar(
+                                                    content: Text('Đã xóa hóa đơn')),
+                                              );
+                                            }
+                                          },
+                                        ),
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.edit_outlined,
+                                              color: Colors.blueAccent, size: 20),
+                                          tooltip: 'Sửa hóa đơn',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () async {
+                                            final ok = await Navigator.push<bool>(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) => SaleEditScreen(
+                                                  sale: s,
+                                                ),
+                                              ),
+                                            );
+                                            if (ok == true) {
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
+                                                const SnackBar(
+                                                    content: Text('Đã cập nhật bán hàng')),
+                                              );
+                                            }
+                                          },
+                                        ),
+                                      ],
+                                    ), // <-- Đã thêm đóng ngoặc Row này
+                                  ],
+                                ), // <-- Đã thêm đóng ngoặc Row lớn này
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
     );
   }
-
-  // Hàm hiển thị màn hình preview và in (Cập nhật: Thay showDialog bằng Navigator.push)
+  // Hàm hiển thị màn hình preview và in
   Future<void> _showPrintPreview(
       BuildContext context, Sale sale, NumberFormat currency) async {
-    // Chuyển sang màn hình riêng thay vì dialog
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -1013,10 +1170,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       ),
     );
   }
-
   Future<void> _exportCsv(BuildContext context, List<Sale> sales) async {
     if (!context.mounted) return;
-
     // Tạo nội dung CSV
     final buffer = StringBuffer();
     buffer.writeln(
@@ -1028,7 +1183,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       buffer.writeln(
           '${s.id},${s.createdAt.toIso8601String()},${s.customerId ?? ''},${s.customerName ?? ''},${s.subtotal},${s.discount},${s.paidAmount},${s.total},${s.debt},"${items.replaceAll('"', '""')}"');
     }
-
     // Sử dụng helper để xuất file
     await FileHelper.exportCsv(
       context: context,
@@ -1038,25 +1192,19 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
   }
 }
-
 class _SaleDetailScreen extends StatefulWidget {
   const _SaleDetailScreen({required this.sale});
-
   final Sale sale;
-
   @override
   State<_SaleDetailScreen> createState() => _SaleDetailScreenState();
 }
-
 class _SaleDetailScreenState extends State<_SaleDetailScreen> {
   late Sale _sale;
-
   List<Map<String, dynamic>> _decodeMixItems(String? raw) {
     final s = (raw ?? '').trim();
     if (s.isEmpty) return <Map<String, dynamic>>[];
     try {
       final decoded = jsonDecode(s);
-
       if (decoded is List) {
         return decoded
             .whereType<Map>()
@@ -1066,13 +1214,11 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
     } catch (_) {}
     return <Map<String, dynamic>>[];
   }
-
   @override
   void initState() {
     super.initState();
     _sale = widget.sale;
   }
-
   Future<void> _editSale() async {
     final ok = await Navigator.push<bool>(
       context,
@@ -1099,19 +1245,15 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
           .showSnackBar(const SnackBar(content: Text('Đã cập nhật bán hàng')));
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final sale = _sale;
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
-
     final customer = sale.customerName?.trim().isNotEmpty == true ? sale.customerName!.trim() : 'Khách lẻ';
-
     final paidAll = sale.debt <= 0;
     final statusBg = paidAll ? Colors.green.withOpacity(0.12) : Colors.red.withOpacity(0.12);
     final statusFg = paidAll ? Colors.green : Colors.red;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Chi tiết bán hàng'),
@@ -1234,11 +1376,9 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
                 ? it.displayName!.trim()
                 : it.name;
             final mixItems = isMix ? _decodeMixItems(it.mixItemsJson) : const <Map<String, dynamic>>[];
-
             final leading = isMix
                 ? Icon(Icons.blender, color: Colors.deepPurple[400])
                 : Icon(Icons.inventory_2_outlined, color: Colors.blueGrey[400]);
-
             if (!isMix) {
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
@@ -1250,7 +1390,6 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
                 ),
               );
             }
-
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
               child: ExpansionTile(

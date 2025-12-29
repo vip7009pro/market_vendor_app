@@ -41,6 +41,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   DateTimeRange? _range;
   String _query = '';
 
+  bool _isTableView = false;
+
   final Set<String> _docUploading = <String>{};
 
   static const _prefLastSupplierName = 'purchase_last_supplier_name';
@@ -53,8 +55,69 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     for (int i = 0; i < withDiacritics.length; i++) {
       result = result.replaceAll(withDiacritics[i], withoutDiacritics[i]);
     }
-
     return result;
+  }
+
+  Widget _buildTable({
+    required List<Map<String, dynamic>> rows,
+    required NumberFormat currency,
+    required DateFormat fmtDate,
+  }) {
+    if (rows.isEmpty) {
+      return const Center(child: Text('Chưa có dữ liệu'));
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SingleChildScrollView(
+        child: DataTable(
+          columns: const [
+            DataColumn(label: Text('Ngày')),
+            DataColumn(label: Text('Sản phẩm')),
+            DataColumn(label: Text('SL')),
+            DataColumn(label: Text('Giá nhập')),
+            DataColumn(label: Text('Thành tiền')),
+            DataColumn(label: Text('Còn nợ')),
+            DataColumn(label: Text('NCC')),
+            DataColumn(label: Text('Ghi chú')),
+          ],
+          rows: rows.map((r) {
+            final createdAt = DateTime.tryParse(r['createdAt'] as String? ?? '') ?? DateTime.now();
+            final name = (r['productName'] as String?) ?? '';
+            final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
+            final unitCost = (r['unitCost'] as num?)?.toDouble() ?? 0;
+            final totalCost = (r['totalCost'] as num?)?.toDouble() ?? (qty * unitCost);
+            final paidAmount = (r['paidAmount'] as num?)?.toDouble() ?? 0;
+            final remainDebt = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
+            final note = (r['note'] as String?)?.trim();
+            final supplierName = (r['supplierName'] as String?)?.trim();
+
+            return DataRow(
+              cells: [
+                DataCell(Text(fmtDate.format(createdAt))),
+                DataCell(Text(name)),
+                DataCell(Text(qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2))),
+                DataCell(Text(currency.format(unitCost))),
+                DataCell(Text(currency.format(totalCost))),
+                DataCell(Text(currency.format(remainDebt))),
+                DataCell(Text(supplierName ?? '')),
+                DataCell(
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 280),
+                    child: Text(note ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ],
+              onSelectChanged: (_) async {
+                await _editPurchaseDialog(r);
+                if (!mounted) return;
+                setState(() {});
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
   }
 
   bool _looksLikeLocalPurchaseDocPath(String? fileIdOrPath) {
@@ -1348,6 +1411,10 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                   return const Center(child: Text('Chưa có lịch sử nhập hàng'));
                 }
 
+                if (_isTableView) {
+                  return _buildTable(rows: rows, currency: currency, fmtDate: fmtDate);
+                }
+
                 return ListView.separated(
                   itemCount: rows.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
@@ -1506,6 +1573,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       appBar: AppBar(
         title: const Text('Lịch sử nhập hàng'),
         actions: [
+          IconButton(
+            tooltip: _isTableView ? 'Hiển thị dạng thẻ' : 'Hiển thị dạng bảng',
+            icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_chart_outlined),
+            onPressed: () => setState(() => _isTableView = !_isTableView),
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Nhập hàng',

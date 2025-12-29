@@ -27,6 +27,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   String _query = '';
   String _category = 'all';
 
+  bool _isTableView = false;
+
   final Set<String> _docUploading = <String>{};
 
   static const List<String> _categories = <String>[
@@ -482,6 +484,160 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa chi phí')));
   }
 
+  Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
+    return Container(
+      alignment: align == TextAlign.right
+          ? Alignment.centerRight
+          : align == TextAlign.center
+              ? Alignment.center
+              : Alignment.centerLeft,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _tableCell(Widget child, {double? width, Alignment alignment = Alignment.centerLeft}) {
+    return Container(
+      alignment: alignment,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: child,
+    );
+  }
+
+  Widget _buildExpenseTable({
+    required List<Map<String, dynamic>> rows,
+    required NumberFormat currency,
+  }) {
+    if (rows.isEmpty) {
+      return const Center(child: Text('Chưa có chi phí'));
+    }
+
+    final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
+
+    const wDate = 150.0;
+    const wAmount = 120.0;
+    const wCategory = 220.0;
+    const wNote = 320.0;
+    const wDoc = 110.0;
+    const wActions = 140.0;
+    const tableWidth = wDate + wAmount + wCategory + wNote + wDoc + wActions;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: tableWidth,
+            height: constraints.maxHeight,
+            child: Column(
+              children: [
+                Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 1,
+                  child: Row(
+                    children: [
+                      _tableHeaderCell('Ngày', width: wDate),
+                      _tableHeaderCell('Số tiền', width: wAmount, align: TextAlign.right),
+                      _tableHeaderCell('Phân loại', width: wCategory),
+                      _tableHeaderCell('Ghi chú', width: wNote),
+                      _tableHeaderCell('Chứng từ', width: wDoc, align: TextAlign.center),
+                      _tableHeaderCell('Thao tác', width: wActions, align: TextAlign.center),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final r = rows[i];
+                      final expenseId = r['id'] as String;
+                      final occurredAt = DateTime.tryParse(r['occurredAt'] as String? ?? '') ?? DateTime.now();
+                      final amount = (r['amount'] as num?)?.toDouble() ?? 0;
+                      final category = (r['category'] as String?) ?? '';
+                      final note = (r['note'] as String?)?.trim() ?? '';
+                      final docUploaded = (r['expenseDocUploaded'] as int?) == 1;
+                      final docUploading = _docUploading.contains(expenseId);
+
+                      return InkWell(
+                        onTap: () => _addOrEditExpense(existing: r),
+                        child: Row(
+                          children: [
+                            _tableCell(Text(fmtDate.format(occurredAt)), width: wDate),
+                            _tableCell(
+                              Text(currency.format(amount), style: const TextStyle(fontWeight: FontWeight.w700)),
+                              width: wAmount,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(Text(category), width: wCategory),
+                            _tableCell(
+                              Text(note, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wNote,
+                            ),
+                            _tableCell(
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    docUploaded ? 'Đã upload' : 'Chưa upload',
+                                    style: TextStyle(
+                                      color: docUploaded ? Colors.green : Colors.black54,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (docUploading) ...[
+                                    const SizedBox(width: 6),
+                                    const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                                  ],
+                                ],
+                              ),
+                              width: wDoc,
+                              alignment: Alignment.center,
+                            ),
+                            _tableCell(
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Chứng từ',
+                                    onPressed: () => _showDocActions(row: r),
+                                    icon: Icon(
+                                      docUploaded ? Icons.verified_outlined : Icons.description_outlined,
+                                      color: docUploaded ? Colors.green : null,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Sửa',
+                                    onPressed: () => _addOrEditExpense(existing: r),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Xóa',
+                                    onPressed: () => _deleteExpense(r),
+                                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                  ),
+                                ],
+                              ),
+                              width: wActions,
+                              alignment: Alignment.center,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
@@ -490,6 +646,11 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       appBar: AppBar(
         title: const Text('Chi phí'),
         actions: [
+          IconButton(
+            tooltip: _isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng',
+            icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
+            onPressed: () => setState(() => _isTableView = !_isTableView),
+          ),
           IconButton(
             tooltip: 'Thêm chi phí',
             icon: const Icon(Icons.add),
@@ -566,6 +727,10 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 final rows = snap.data ?? const [];
                 if (rows.isEmpty) {
                   return const Center(child: Text('Chưa có chi phí'));
+                }
+
+                if (_isTableView) {
+                  return _buildExpenseTable(rows: rows, currency: currency);
                 }
 
                 return ListView.separated(

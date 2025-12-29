@@ -28,9 +28,13 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
   // Tab 0 (Products)
   String _productsQuery = '';
 
+  bool _isTableViewProducts = false;
+
   // Tab 2 (Export history - RAW)
   DateTimeRange? _exportRange;
   String _exportQuery = '';
+
+  bool _isTableViewExportRaw = false;
 
   @override
   void initState() {
@@ -46,6 +50,135 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
+    return Container(
+      alignment: align == TextAlign.right
+          ? Alignment.centerRight
+          : align == TextAlign.center
+              ? Alignment.center
+              : Alignment.centerLeft,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _tableCell(Widget child, {double? width, Alignment alignment = Alignment.centerLeft}) {
+    return Container(
+      alignment: alignment,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: child,
+    );
+  }
+
+  Widget _buildProductsTable({
+    required List<Product> rows,
+    required NumberFormat currency,
+  }) {
+    if (rows.isEmpty) {
+      return const Center(child: Text('Chưa có sản phẩm'));
+    }
+
+    const wName = 260.0;
+    const wBarcode = 140.0;
+    const wPrice = 110.0;
+    const wCost = 110.0;
+    const wStock = 90.0;
+    const wUnit = 90.0;
+    const wActions = 140.0;
+    const tableWidth = wName + wBarcode + wPrice + wCost + wStock + wUnit + wActions;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: tableWidth,
+            height: constraints.maxHeight,
+            child: Column(
+              children: [
+                Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 1,
+                  child: Row(
+                    children: [
+                      _tableHeaderCell('Tên', width: wName),
+                      _tableHeaderCell('Mã vạch', width: wBarcode),
+                      _tableHeaderCell('Giá bán', width: wPrice, align: TextAlign.right),
+                      _tableHeaderCell('Giá vốn', width: wCost, align: TextAlign.right),
+                      _tableHeaderCell('Tồn', width: wStock, align: TextAlign.right),
+                      _tableHeaderCell('Đơn vị', width: wUnit),
+                      _tableHeaderCell('Thao tác', width: wActions, align: TextAlign.center),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final p = rows[i];
+                      final barcode = (p.barcode ?? '').trim();
+                      final stockText = p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2);
+
+                      return InkWell(
+                        onTap: () => _showProductDialog(context, existing: p),
+                        child: Row(
+                          children: [
+                            _tableCell(
+                              Text(p.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wName,
+                            ),
+                            _tableCell(Text(barcode), width: wBarcode),
+                            _tableCell(
+                              Text(currency.format(p.price), style: const TextStyle(fontWeight: FontWeight.w600)),
+                              width: wPrice,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(currency.format(p.costPrice)),
+                              width: wCost,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(stockText),
+                              width: wStock,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(Text(p.unit), width: wUnit),
+                            _tableCell(
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, size: 18),
+                                    onPressed: () => _showProductDialog(context, existing: p),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                                    onPressed: () => _confirmDelete(context, p),
+                                  ),
+                                ],
+                              ),
+                              width: wActions,
+                              alignment: Alignment.center,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _pickRangeForTab(int tabIndex) async {
@@ -185,75 +318,77 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
         ),
         const Divider(height: 1),
         Expanded(
-          child: ListView.separated(
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, i) {
-              final p = filtered[i];
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.blue.withValues(alpha: 0.12),
-                  child: Builder(
-                    builder: (_) {
-                      final img = p.imagePath;
-                      if (img != null && img.trim().isNotEmpty) {
-                        return FutureBuilder<String?>(
-                          future: ProductImageService.instance.resolvePath(img),
-                          builder: (context, snap) {
-                            final full = snap.data;
-                            if (full == null || full.isEmpty) {
-                              return Icon(
-                                (p.barcode != null && p.barcode!.trim().isNotEmpty)
-                                    ? Icons.qr_code
-                                    : Icons.inventory_2_outlined,
-                                color: Colors.blue,
+          child: _isTableViewProducts
+              ? _buildProductsTable(rows: filtered, currency: currency)
+              : ListView.separated(
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final p = filtered[i];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.blue.withValues(alpha: 0.12),
+                        child: Builder(
+                          builder: (_) {
+                            final img = p.imagePath;
+                            if (img != null && img.trim().isNotEmpty) {
+                              return FutureBuilder<String?>(
+                                future: ProductImageService.instance.resolvePath(img),
+                                builder: (context, snap) {
+                                  final full = snap.data;
+                                  if (full == null || full.isEmpty) {
+                                    return Icon(
+                                      (p.barcode != null && p.barcode!.trim().isNotEmpty)
+                                          ? Icons.qr_code
+                                          : Icons.inventory_2_outlined,
+                                      color: Colors.blue,
+                                    );
+                                  }
+                                  return ClipOval(
+                                    child: Image.file(
+                                      File(full),
+                                      width: 40,
+                                      height: 40,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  );
+                                },
                               );
                             }
-                            return ClipOval(
-                              child: Image.file(
-                                File(full),
-                                width: 40,
-                                height: 40,
-                                fit: BoxFit.cover,
-                              ),
+                            return Icon(
+                              (p.barcode != null && p.barcode!.trim().isNotEmpty)
+                                  ? Icons.qr_code
+                                  : Icons.inventory_2_outlined,
+                              color: Colors.blue,
                             );
                           },
-                        );
-                      }
-                      return Icon(
-                        (p.barcode != null && p.barcode!.trim().isNotEmpty)
-                            ? Icons.qr_code
-                            : Icons.inventory_2_outlined,
-                        color: Colors.blue,
-                      );
-                    },
-                  ),
+                        ),
+                      ),
+                      title: Text(p.name),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Giá bán: ${currency.format(p.price)} / ${p.unit}'),
+                          Text('Giá vốn: ${currency.format(p.costPrice)}'),
+                          Text('Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}'),
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit),
+                            onPressed: () => _showProductDialog(context, existing: p),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            onPressed: () => _confirmDelete(context, p),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-                title: Text(p.name),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Giá bán: ${currency.format(p.price)} / ${p.unit}'),
-                    Text('Giá vốn: ${currency.format(p.costPrice)}'),
-                    Text('Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}'),
-                  ],
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit),
-                      onPressed: () => _showProductDialog(context, existing: p),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () => _confirmDelete(context, p),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
         ),
       ],
     );
@@ -320,6 +455,91 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
               final rows = snap.data ?? const [];
               if (rows.isEmpty) {
                 return const Center(child: Text('Chưa có lịch sử xuất kho'));
+              }
+
+              if (_isTableViewExportRaw) {
+                const wDate = 150.0;
+                const wProduct = 320.0;
+                const wQty = 80.0;
+                const wUnit = 90.0;
+                const wCustomer = 220.0;
+                const wSource = 90.0;
+                const wSaleId = 140.0;
+                const tableWidth = wDate + wProduct + wQty + wUnit + wCustomer + wSource + wSaleId;
+
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: tableWidth,
+                        height: constraints.maxHeight,
+                        child: Column(
+                          children: [
+                            Material(
+                              color: Theme.of(context).colorScheme.surface,
+                              elevation: 1,
+                              child: Row(
+                                children: [
+                                  _tableHeaderCell('Ngày xuất', width: wDate),
+                                  _tableHeaderCell('Sản phẩm', width: wProduct),
+                                  _tableHeaderCell('SL', width: wQty, align: TextAlign.right),
+                                  _tableHeaderCell('Đơn vị', width: wUnit),
+                                  _tableHeaderCell('Khách', width: wCustomer),
+                                  _tableHeaderCell('Nguồn', width: wSource, align: TextAlign.center),
+                                  _tableHeaderCell('Sale ID', width: wSaleId),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            Expanded(
+                              child: ListView.separated(
+                                itemCount: rows.length,
+                                separatorBuilder: (_, __) => const Divider(height: 1),
+                                itemBuilder: (context, i) {
+                                  final r = rows[i];
+                                  final createdAt = DateTime.tryParse(r['saleCreatedAt'] as String? ?? '') ?? DateTime.now();
+                                  final productName = (r['productName'] as String?) ?? '';
+                                  final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
+                                  final unit = (r['unit'] as String?) ?? '';
+                                  final customerName = (r['customerName'] as String?)?.trim() ?? '';
+                                  final source = (r['source'] as String?) ?? '';
+                                  final saleId = (r['saleId'] as String?) ?? '';
+
+                                  return Row(
+                                    children: [
+                                      _tableCell(Text(fmtDate.format(createdAt)), width: wDate),
+                                      _tableCell(
+                                        Text(productName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                        width: wProduct,
+                                      ),
+                                      _tableCell(
+                                        Text(qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)),
+                                        width: wQty,
+                                        alignment: Alignment.centerRight,
+                                      ),
+                                      _tableCell(Text(unit), width: wUnit),
+                                      _tableCell(
+                                        Text(customerName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                        width: wCustomer,
+                                      ),
+                                      _tableCell(
+                                        Text(source),
+                                        width: wSource,
+                                        alignment: Alignment.center,
+                                      ),
+                                      _tableCell(Text(saleId), width: wSaleId),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
               }
 
               return ListView.separated(
@@ -406,6 +626,11 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
         actions: [
           if (tabIndex == 0) ...[
             IconButton(
+              tooltip: _isTableViewProducts ? 'Xem dạng thẻ' : 'Xem dạng bảng',
+              icon: Icon(_isTableViewProducts ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
+              onPressed: () => setState(() => _isTableViewProducts = !_isTableViewProducts),
+            ),
+            IconButton(
               icon: const Icon(Icons.table_chart_outlined),
               tooltip: 'Bảng kê tồn kho',
               onPressed: () {
@@ -426,6 +651,11 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
               tooltip: 'Thêm sản phẩm',
             ),
           ] else if (tabIndex == 2) ...[
+            IconButton(
+              tooltip: _isTableViewExportRaw ? 'Xem dạng thẻ' : 'Xem dạng bảng',
+              icon: Icon(_isTableViewExportRaw ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
+              onPressed: () => setState(() => _isTableViewExportRaw = !_isTableViewExportRaw),
+            ),
             IconButton(
               tooltip: 'Chọn khoảng ngày',
               icon: const Icon(Icons.filter_list),

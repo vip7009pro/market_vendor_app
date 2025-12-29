@@ -473,6 +473,162 @@ class DebtList extends StatelessWidget {
   final bool isTableView;
   const DebtList({required this.debts, required this.color, required this.isTableView});
 
+  Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
+    return Container(
+      alignment: align == TextAlign.right
+          ? Alignment.centerRight
+          : align == TextAlign.center
+              ? Alignment.center
+              : Alignment.centerLeft,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _tableCell(Widget child, {double? width, Alignment alignment = Alignment.centerLeft}) {
+    return Container(
+      alignment: alignment,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: child,
+    );
+  }
+
+  Future<void> _linkDebtTransaction(BuildContext context, Debt d) async {
+    String? picked;
+    String? type;
+    if (d.type == DebtType.othersOweMe) {
+      picked = await _pickSaleId(context);
+      type = 'sale';
+    } else {
+      picked = await _pickPurchaseId(context);
+      type = 'purchase';
+    }
+    if (picked == null || picked.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xác nhận gán giao dịch'),
+        content: const Text('Bạn có chắc chắn muốn gán giao dịch này cho công nợ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Đồng ý'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    d.sourceType = type;
+    d.sourceId = picked;
+    await context.read<DebtProvider>().update(d);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã gán giao dịch cho công nợ')),
+    );
+  }
+
+  Future<void> _deleteDebt(BuildContext context, Debt d) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Xóa công nợ'),
+        content: const Text('Bạn có chắc muốn xóa công nợ này? Mọi lịch sử thanh toán sẽ bị xóa.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final deleted = await context.read<DebtProvider>().deleteDebt(d.id);
+    if (!context.mounted) return;
+    if (!deleted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không được xóa công nợ của hóa đơn còn nợ. Vui lòng trả/tất toán.')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa công nợ')));
+  }
+
+  Future<void> _showDebtActionSheet(BuildContext context, Debt d, NumberFormat currency) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.link_outlined),
+                title: const Text('Gán giao dịch'),
+                subtitle: Text(d.type == DebtType.othersOweMe ? 'Chọn hóa đơn bán' : 'Chọn phiếu nhập'),
+                onTap: () => Navigator.of(context).pop('link'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.payments_outlined),
+                title: const Text('Trả nợ một phần'),
+                onTap: () => Navigator.of(context).pop('pay'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.done_all),
+                title: const Text('Tất toán'),
+                onTap: d.amount <= 0 ? null : () => Navigator.of(context).pop('settle'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('Lịch sử thanh toán'),
+                onTap: () => Navigator.of(context).pop('history'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                title: const Text('Xóa công nợ', style: TextStyle(color: Colors.redAccent)),
+                onTap: () => Navigator.of(context).pop('delete'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (action == 'link') {
+      await _linkDebtTransaction(context, d);
+      return;
+    }
+    if (action == 'pay') {
+      await _showPayDialog(context, d, currency);
+      return;
+    }
+    if (action == 'settle') {
+      await _settleDebt(context, d, currency);
+      return;
+    }
+    if (action == 'history') {
+      await _showPaymentHistory(context, d, currency);
+      return;
+    }
+    if (action == 'delete') {
+      await _deleteDebt(context, d);
+      return;
+    }
+  }
+
   Widget _buildAssignmentChip(Debt d) {
     final isAssigned = (d.sourceId ?? '').trim().isNotEmpty;
     final bg = isAssigned ? Colors.green.withOpacity(0.12) : Colors.orange.withOpacity(0.12);
@@ -677,39 +833,146 @@ class DebtList extends StatelessWidget {
     }
 
     if (isTableView) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SingleChildScrollView(
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('Ngày')),
-              DataColumn(label: Text('Người')),
-              DataColumn(label: Text('Còn nợ')),
-              DataColumn(label: Text('Loại')),
-              DataColumn(label: Text('Gán')),
-            ],
-            rows: debts.map((d) {
-              final st = (d.sourceType ?? '').trim();
-              final sid = (d.sourceId ?? '').trim();
-              final assigned = sid.isNotEmpty;
-              final kind = st == 'sale' ? 'Bán hàng' : (st == 'purchase' ? 'Nhập hàng' : (st.isEmpty ? 'Nợ ngoài' : st));
-              return DataRow(
-                cells: [
-                  DataCell(Text(DateFormat('dd/MM/yyyy').format(d.createdAt))),
-                  DataCell(Text(d.partyName)),
-                  DataCell(Text(currency.format(d.amount))),
-                  DataCell(Text(kind)),
-                  DataCell(Text(assigned ? 'Có' : 'Không')),
+      final fmt = DateFormat('dd/MM/yyyy');
+
+      const wDate = 110.0;
+      const wParty = 200.0;
+      const wRemain = 130.0;
+      const wInitial = 140.0;
+      const wAssigned = 110.0;
+      const wKind = 110.0;
+      const wStatus = 110.0;
+      const wDesc = 220.0;
+      const wActions = 220.0;
+      const tableWidth = wDate + wParty + wRemain + wInitial + wAssigned + wKind + wStatus + wDesc + wActions;
+
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: tableWidth,
+              height: constraints.maxHeight,
+              child: Column(
+                children: [
+                  Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    elevation: 1,
+                    child: Row(
+                      children: [
+                        _tableHeaderCell('Ngày', width: wDate),
+                        _tableHeaderCell('Người', width: wParty),
+                        _tableHeaderCell('Còn nợ', width: wRemain, align: TextAlign.right),
+                        _tableHeaderCell('Nợ ban đầu', width: wInitial, align: TextAlign.right),
+                        _tableHeaderCell('Gán', width: wAssigned, align: TextAlign.center),
+                        _tableHeaderCell('Loại', width: wKind),
+                        _tableHeaderCell('Trạng thái', width: wStatus),
+                        _tableHeaderCell('Mô tả', width: wDesc),
+                        _tableHeaderCell('Thao tác', width: wActions, align: TextAlign.center),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: debts.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        final d = debts[i];
+                        final st = (d.sourceType ?? '').trim();
+                        final kind = st == 'sale' ? 'Bán hàng' : (st == 'purchase' ? 'Nhập hàng' : (st.isEmpty ? 'Nợ ngoài' : st));
+                        final statusText = d.settled || d.amount <= 0 ? 'Đã tất toán' : 'Chưa tất toán';
+                        final desc = (d.description ?? '').trim();
+
+                        return InkWell(
+                          onTap: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => DebtDetailScreen(debt: d)),
+                            );
+                          },
+                          onLongPress: () async {
+                            await _showDebtActionSheet(context, d, currency);
+                          },
+                          child: Row(
+                            children: [
+                              _tableCell(Text(fmt.format(d.createdAt)), width: wDate),
+                              _tableCell(
+                                Text(d.partyName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                width: wParty,
+                              ),
+                              _tableCell(
+                                Text(currency.format(d.amount), style: TextStyle(fontWeight: FontWeight.w700, color: color)),
+                                width: wRemain,
+                                alignment: Alignment.centerRight,
+                              ),
+                              _tableCell(
+                                FutureBuilder<double>(
+                                  future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                                  builder: (context, snap) {
+                                    final paid = snap.data ?? 0;
+                                    final initial = paid + d.amount;
+                                    return Text(currency.format(initial));
+                                  },
+                                ),
+                                width: wInitial,
+                                alignment: Alignment.centerRight,
+                              ),
+                              _tableCell(
+                                Center(child: _buildAssignmentChip(d)),
+                                width: wAssigned,
+                                alignment: Alignment.center,
+                              ),
+                              _tableCell(Text(kind), width: wKind),
+                              _tableCell(Text(statusText), width: wStatus),
+                              _tableCell(
+                                Text(desc, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                width: wDesc,
+                              ),
+                              _tableCell(
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Trả nợ',
+                                      icon: const Icon(Icons.payments_outlined, color: Colors.green),
+                                      onPressed: () => _showPayDialog(context, d, currency),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Tất toán',
+                                      icon: Icon(Icons.done_all, color: d.amount <= 0 ? Colors.grey : Colors.orange),
+                                      onPressed: d.amount <= 0 ? null : () => _settleDebt(context, d, currency),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Lịch sử',
+                                      icon: const Icon(Icons.history, color: Colors.blue),
+                                      onPressed: () => _showPaymentHistory(context, d, currency),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Gán',
+                                      icon: const Icon(Icons.link_outlined),
+                                      onPressed: () => _linkDebtTransaction(context, d),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Xóa',
+                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                      onPressed: () => _deleteDebt(context, d),
+                                    ),
+                                  ],
+                                ),
+                                width: wActions,
+                                alignment: Alignment.center,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ],
-                onSelectChanged: (_) async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => DebtDetailScreen(debt: d)),
-                  );
-                },
-              );
-            }).toList(),
-          ),
-        ),
+              ),
+            ),
+          );
+        },
       );
     }
 

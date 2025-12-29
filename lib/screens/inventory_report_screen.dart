@@ -29,6 +29,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
   String _query = '';
   bool _loading = false;
 
+  bool _isTableView = false;
+
   _AmountMode _amountMode = _AmountMode.sell;
 
   late Future<List<_InventoryRow>> _rowsFuture;
@@ -102,6 +104,183 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
   }
 
   String _fmtQty(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
+
+  Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
+    return Container(
+      alignment: align == TextAlign.right
+          ? Alignment.centerRight
+          : align == TextAlign.center
+              ? Alignment.center
+              : Alignment.centerLeft,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _tableCell(Widget child, {double? width, Alignment alignment = Alignment.centerLeft}) {
+    return Container(
+      alignment: alignment,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: child,
+    );
+  }
+
+  Widget _buildInventoryTable({
+    required List<_InventoryRow> rows,
+    required Map<String, Product> productById,
+    required NumberFormat currency,
+  }) {
+    const wName = 240.0;
+    const wUnit = 70.0;
+    const wCurrent = 90.0;
+    const wOpenQty = 90.0;
+    const wOpenAmt = 150.0;
+    const wImpQty = 90.0;
+    const wImpAmt = 150.0;
+    const wExpQty = 90.0;
+    const wExpAmt = 150.0;
+    const wEndQty = 90.0;
+    const wEndAmt = 150.0;
+    const wActions = 90.0;
+    const tableWidth = wName + wUnit + wCurrent + wOpenQty + wOpenAmt + wImpQty + wImpAmt + wExpQty + wExpAmt + wEndQty + wEndAmt + wActions;
+
+    String amountText({required double cost, required double sell}) {
+      if (_amountMode == _AmountMode.cost) return currency.format(cost);
+      if (_amountMode == _AmountMode.sell) return currency.format(sell);
+      return '${currency.format(cost)} | ${currency.format(sell)}';
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: tableWidth,
+            height: constraints.maxHeight,
+            child: Column(
+              children: [
+                Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 1,
+                  child: Row(
+                    children: [
+                      _tableHeaderCell('Sản phẩm', width: wName),
+                      _tableHeaderCell('ĐVT', width: wUnit),
+                      _tableHeaderCell('Tồn HT', width: wCurrent, align: TextAlign.right),
+                      _tableHeaderCell('Tồn đầu', width: wOpenQty, align: TextAlign.right),
+                      _tableHeaderCell('Tiền tồn đầu', width: wOpenAmt, align: TextAlign.right),
+                      _tableHeaderCell('Nhập', width: wImpQty, align: TextAlign.right),
+                      _tableHeaderCell('Tiền nhập', width: wImpAmt, align: TextAlign.right),
+                      _tableHeaderCell('Xuất', width: wExpQty, align: TextAlign.right),
+                      _tableHeaderCell('Tiền xuất', width: wExpAmt, align: TextAlign.right),
+                      _tableHeaderCell('Tồn cuối', width: wEndQty, align: TextAlign.right),
+                      _tableHeaderCell('Tiền tồn cuối', width: wEndAmt, align: TextAlign.right),
+                      _tableHeaderCell('Sửa', width: wActions, align: TextAlign.center),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final r = rows[i];
+                      final p = productById[r.productId];
+                      final currentStock = p?.currentStock ?? 0;
+
+                      return InkWell(
+                        onTap: p == null
+                            ? null
+                            : () => _editOpeningForProduct(
+                                  productId: r.productId,
+                                  productName: r.productName,
+                                  unit: r.unit,
+                                  currentStock: currentStock,
+                                ),
+                        child: Row(
+                          children: [
+                            _tableCell(
+                              Text(r.productName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wName,
+                            ),
+                            _tableCell(Text(r.unit), width: wUnit),
+                            _tableCell(
+                              Text(_fmtQty(currentStock)),
+                              width: wCurrent,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(_fmtQty(r.openingQty)),
+                              width: wOpenQty,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(amountText(cost: r.openingAmountCost, sell: r.openingAmountSell)),
+                              width: wOpenAmt,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(_fmtQty(r.importQty)),
+                              width: wImpQty,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(amountText(cost: r.importAmountCost, sell: r.importAmountSell)),
+                              width: wImpAmt,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(_fmtQty(r.exportQty)),
+                              width: wExpQty,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(amountText(cost: r.exportAmountCost, sell: r.exportAmountSell)),
+                              width: wExpAmt,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(_fmtQty(r.endingQty)),
+                              width: wEndQty,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(amountText(cost: r.endingAmountCost, sell: r.endingAmountSell)),
+                              width: wEndAmt,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              IconButton(
+                                tooltip: 'Sửa tồn đầu kỳ',
+                                icon: const Icon(Icons.edit_note_outlined),
+                                onPressed: p == null
+                                    ? null
+                                    : () => _editOpeningForProduct(
+                                          productId: r.productId,
+                                          productName: r.productName,
+                                          unit: r.unit,
+                                          currentStock: currentStock,
+                                        ),
+                              ),
+                              width: wActions,
+                              alignment: Alignment.center,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Future<void> _editOpeningForProduct({
     required String productId,
@@ -535,6 +714,11 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       appBar: AppBar(
         title: const Text('Bảng kê tồn kho'),
         actions: [
+          IconButton(
+            tooltip: _isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng',
+            icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
+            onPressed: () => setState(() => _isTableView = !_isTableView),
+          ),
           PopupMenuButton<_AmountMode>(
             initialValue: _amountMode,
             tooltip: 'Kiểu hiển thị tiền',
@@ -655,6 +839,10 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                   totalExportSell += r.exportAmountSell;
                   totalEndingCost += r.endingAmountCost;
                   totalEndingSell += r.endingAmountSell;
+                }
+
+                if (_isTableView) {
+                  return _buildInventoryTable(rows: rows, productById: productById, currency: currency);
                 }
 
                 return ListView.builder(
