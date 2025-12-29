@@ -5,6 +5,8 @@ import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:convert';
+
+import '../models/debt.dart';
 import '../providers/sale_provider.dart';
 import '../providers/debt_provider.dart';
 import '../providers/product_provider.dart';
@@ -19,6 +21,100 @@ class _Point {
   final double profit;
 
   _Point(this.x, this.y, {required this.cost, required this.profit});
+}
+
+class _PayStats {
+  final double cashRevenue;
+  final double bankRevenue;
+  final double outstandingDebt;
+
+  const _PayStats({
+    required this.cashRevenue,
+    required this.bankRevenue,
+    required this.outstandingDebt,
+  });
+}
+
+class _PaymentKpi extends StatelessWidget {
+  final String title;
+  final double totalRevenue;
+  final _PayStats stats;
+  final NumberFormat currency;
+  final Color color;
+
+  const _PaymentKpi({
+    required this.title,
+    required this.totalRevenue,
+    required this.stats,
+    required this.currency,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54);
+    final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800);
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.black.withAlpha(8)),
+        color: color.withOpacity(0.06),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: Text('Tổng DT', style: labelStyle)),
+              Text(currency.format(totalRevenue), style: valueStyle),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(child: Text('Tiền mặt', style: labelStyle)),
+              Text(currency.format(stats.cashRevenue), style: valueStyle),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(child: Text('Chuyển khoản', style: labelStyle)),
+              Text(currency.format(stats.bankRevenue), style: valueStyle),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(child: Text('Nợ chưa trả', style: labelStyle)),
+              Text(currency.format(stats.outstandingDebt), style: valueStyle?.copyWith(color: Colors.redAccent)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class ReportScreen extends StatefulWidget {
@@ -268,6 +364,7 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('partyId'),
         _cv('partyName'),
         _cv('amount'),
+        _cv('paymentType'),
         _cv('note'),
         _cv('createdAt'),
         _cv('isSynced'),
@@ -280,6 +377,7 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(p['partyId']),
           _cv(p['partyName']),
           _cv(p['amount']),
+          _cv(p['paymentType']),
           _cv(p['note']),
           _cv(p['createdAt']),
           _cv(p['isSynced']),
@@ -441,6 +539,7 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('customerName'),
         _cv('saleDiscount'),
         _cv('salePaidAmount'),
+        _cv('salePaymentType'),
         _cv('saleTotalCost'),
         _cv('saleNote'),
         _cv('productId'),
@@ -471,6 +570,7 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(sale['customerName']),
           _cv(sale['discount']),
           _cv(sale['paidAmount']),
+          _cv(sale['paymentType']),
           _cv(sale['totalCost']),
           _cv(sale['note']),
           _cv(pid),
@@ -652,6 +752,84 @@ class _ReportScreenState extends State<ReportScreen> {
     return maxY * 1.1;
   }
 
+  Future<_PayStats> _loadPayStats({required DateTime start, required DateTime end}) async {
+    final db = DatabaseService.instance.db;
+
+    final saleRows = await db.query(
+      'sales',
+      columns: ['id', 'paidAmount', 'paymentType'],
+      where: 'createdAt >= ? AND createdAt <= ?',
+      whereArgs: [start.toIso8601String(), end.toIso8601String()],
+    );
+
+    double cash = 0;
+    double bank = 0;
+    final saleIds = <String>[];
+
+    for (final r in saleRows) {
+      final sid = (r['id']?.toString() ?? '').trim();
+      if (sid.isNotEmpty) saleIds.add(sid);
+
+      final paid = (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
+      if (paid <= 0) continue;
+
+      final t = (r['paymentType']?.toString() ?? '').trim().toLowerCase();
+      if (t == 'cash') {
+        cash += paid;
+      } else {
+        // default: bank (including null/empty)
+        bank += paid;
+      }
+    }
+
+    if (saleIds.isEmpty) {
+      return const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
+    }
+
+    final placeholders = List.filled(saleIds.length, '?').join(',');
+    final debtsForSales = await db.query(
+      'debts',
+      columns: ['id', 'amount'],
+      where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+      whereArgs: saleIds,
+    );
+
+    double outstanding = 0;
+    final debtIds = <String>[];
+    for (final d in debtsForSales) {
+      final did = (d['id']?.toString() ?? '').trim();
+      if (did.isNotEmpty) debtIds.add(did);
+      outstanding += (d['amount'] as num?)?.toDouble() ?? 0.0;
+    }
+
+    if (debtIds.isNotEmpty) {
+      final dph = List.filled(debtIds.length, '?').join(',');
+      final payAgg = await db.rawQuery(
+        '''
+        SELECT paymentType as paymentType, SUM(amount) as total
+        FROM debt_payments
+        WHERE debtId IN ($dph)
+        GROUP BY paymentType
+        ''',
+        debtIds,
+      );
+
+      for (final r in payAgg) {
+        final total = (r['total'] as num?)?.toDouble() ?? 0.0;
+        if (total <= 0) continue;
+        final t = (r['paymentType']?.toString() ?? '').trim().toLowerCase();
+        if (t == 'cash') {
+          cash += total;
+        } else {
+          // default: bank
+          bank += total;
+        }
+      }
+    }
+
+    return _PayStats(cashRevenue: cash, bankRevenue: bank, outstandingDebt: outstanding);
+  }
+
   @override
   void dispose() {
     _chartPageController.dispose();
@@ -666,6 +844,7 @@ class _ReportScreenState extends State<ReportScreen> {
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
     final sales = context.watch<SaleProvider>().sales;
     final products = context.watch<ProductProvider>().products;
+
     final debtsProvider = context.watch<DebtProvider>();
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
@@ -674,9 +853,9 @@ class _ReportScreenState extends State<ReportScreen> {
     final startOfYear = DateTime(now.year, 1, 1);
 
     // Filter sales by selected date range
-    final filteredSales = sales.where((s) => 
-      !s.createdAt.isBefore(DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day)) &&
-      !s.createdAt.isAfter(DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59))
+    final filteredSales = sales.where((s) =>
+        !s.createdAt.isBefore(DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day)) &&
+        !s.createdAt.isAfter(DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59))
     ).toList();
 
     final exportQty = filteredSales.fold<double>(
@@ -703,11 +882,17 @@ class _ReportScreenState extends State<ReportScreen> {
     final yearProfit = yearSales - yearCost;
 
     final totalOweOthers = debtsProvider.totalOweOthers;
-    final totalOthersOweMe = debtsProvider.totalOthersOweMe;
+    final openOthersOweMe = debtsProvider.debts.where((d) => d.type == DebtType.othersOweMe && !d.settled).toList();
+    final totalOthersOweMeFromSales = openOthersOweMe
+        .where((d) => (d.sourceType ?? '').trim() == 'sale' && (d.sourceId ?? '').trim().isNotEmpty)
+        .fold<double>(0.0, (p, d) => p + d.amount);
+    final totalOthersOweMeOutside = openOthersOweMe
+        .where((d) => (d.sourceType ?? '').trim() != 'sale' || (d.sourceId ?? '').trim().isEmpty)
+        .fold<double>(0.0, (p, d) => p + d.amount);
+    final totalOthersOweMe = totalOthersOweMeFromSales + totalOthersOweMeOutside;
 
     final start = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
     final end = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
-    final rangeForQuery = DateTimeRange(start: start, end: end);
 
     final periodRevenue = filteredSales.fold<double>(0, (p, s) => p + s.total);
     final periodCost = filteredSales.fold<double>(0, (p, s) => p + s.totalCost);
@@ -717,16 +902,16 @@ class _ReportScreenState extends State<ReportScreen> {
     final daysInRange = _dateRange.duration.inDays + 1;
     final dailyData = List.generate(daysInRange, (i) {
       final date = _dateRange.start.add(Duration(days: i));
-      final daySales = filteredSales.where((s) => 
-        s.createdAt.year == date.year && 
-        s.createdAt.month == date.month && 
-        s.createdAt.day == date.day
+      final daySales = filteredSales.where((s) =>
+          s.createdAt.year == date.year &&
+          s.createdAt.month == date.month &&
+          s.createdAt.day == date.day
       ).toList();
-      
+
       final revenue = daySales.fold(0.0, (p, s) => p + s.total);
       final cost = daySales.fold(0.0, (p, s) => p + s.totalCost);
       final profit = revenue - cost;
-      
+
       return _Point(
         DateFormat('dd/MM').format(date),
         revenue,
@@ -739,15 +924,15 @@ class _ReportScreenState extends State<ReportScreen> {
     final currentYear = now.year;
     final monthlyDataPoints = List.generate(12, (i) {
       final month = i + 1;
-      final monthSales = filteredSales.where((s) => 
-        s.createdAt.year == currentYear && 
-        s.createdAt.month == month
+      final monthSales = filteredSales.where((s) =>
+          s.createdAt.year == currentYear &&
+          s.createdAt.month == month
       ).toList();
-      
+
       final revenue = monthSales.fold(0.0, (p, s) => p + s.total);
       final cost = monthSales.fold(0.0, (p, s) => p + s.totalCost);
       final profit = revenue - cost;
-      
+
       return _Point(
         '$month',
         revenue,
@@ -755,7 +940,7 @@ class _ReportScreenState extends State<ReportScreen> {
         profit: profit,
       );
     });
-    
+
     // Prepare yearly data
     final years = <int>{};
     for (var s in filteredSales) {
@@ -767,7 +952,7 @@ class _ReportScreenState extends State<ReportScreen> {
       final revenue = yearSales.fold(0.0, (p, s) => p + s.total);
       final cost = yearSales.fold(0.0, (p, s) => p + s.totalCost);
       final profit = revenue - cost;
-      
+
       return _Point(
         year.toString(),
         revenue,
@@ -803,88 +988,284 @@ class _ReportScreenState extends State<ReportScreen> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(5),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                  child: Text(
-                    'Khoảng ngày: ${DateFormat('dd/MM/yyyy').format(_dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(_dateRange.end)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                ),
-                Column(
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.black.withAlpha(8)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
+                        const Icon(Icons.calendar_month, size: 18),
+                        const SizedBox(width: 8),
                         Expanded(
-                          child: _TripleKpi(
-                            title: 'Hôm nay',
-                            revenue: todaySales,
-                            cost: todayCost,
-                            profit: todayProfit,
-                            currency: currency,
-                            color: Colors.blue,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: _TripleKpi(
-                            title: 'Tuần này',
-                            revenue: weekSales,
-                            cost: weekCost,
-                            profit: weekProfit,
-                            currency: currency,
-                            color: Colors.green,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: _TripleKpi(
-                            title: 'Tháng này',
-                            revenue: monthSales,
-                            cost: monthCost,
-                            profit: monthProfit,
-                            currency: currency,
-                            color: Colors.purple,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: _TripleKpi(
-                            title: 'Năm nay',
-                            revenue: yearSales,
-                            cost: yearCost,
-                            profit: yearProfit,
-                            currency: currency,
-                            color: Colors.orange,
+                          child: Text(
+                            'Khoảng ngày: ${DateFormat('dd/MM/yyyy').format(_dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(_dateRange.end)}',
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    FutureBuilder<double>(
-                      future: DatabaseService.instance.getTotalExpensesInRange(rangeForQuery),
+                    const SizedBox(height: 10),
+                    FutureBuilder<List<_PayStats>>(
+                      future: Future.wait([
+                        _loadPayStats(start: startOfDay, end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999)),
+                        _loadPayStats(start: startOfWeek, end: DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day, 23, 59, 59, 999).add(const Duration(days: 6))),
+                        _loadPayStats(start: startOfMonth, end: DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999)),
+                        _loadPayStats(start: startOfYear, end: DateTime(now.year, 12, 31, 23, 59, 59, 999)),
+                      ]),
                       builder: (context, snap) {
-                        final totalExpenses = snap.data ?? 0;
-                        final netProfit = periodProfit - totalExpenses;
+                        if (snap.connectionState != ConnectionState.done) {
+                          return const SizedBox(
+                            height: 92,
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+
+                        final stats = snap.data ?? const <_PayStats>[];
+                        final todayPay = stats.isNotEmpty ? stats[0] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
+                        final weekPay = stats.length > 1 ? stats[1] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
+                        final monthPay = stats.length > 2 ? stats[2] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
+                        final yearPay = stats.length > 3 ? stats[3] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
+
+                        final fixedToday = _PayStats(
+                          cashRevenue: todayPay.cashRevenue,
+                          bankRevenue: todayPay.bankRevenue,
+                          outstandingDebt: todayPay.outstandingDebt,
+                        );
+                        final fixedWeek = _PayStats(
+                          cashRevenue: weekPay.cashRevenue,
+                          bankRevenue: weekPay.bankRevenue,
+                          outstandingDebt: weekPay.outstandingDebt,
+                        );
+                        final fixedMonth = _PayStats(
+                          cashRevenue: monthPay.cashRevenue,
+                          bankRevenue: monthPay.bankRevenue,
+                          outstandingDebt: monthPay.outstandingDebt,
+                        );
+                        final fixedYear = _PayStats(
+                          cashRevenue: yearPay.cashRevenue,
+                          bankRevenue: yearPay.bankRevenue,
+                          outstandingDebt: yearPay.outstandingDebt,
+                        );
+
+                        return LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isNarrow = constraints.maxWidth < 720;
+
+                            final wToday = _PaymentKpi(
+                              title: 'Hôm nay',
+                              stats: fixedToday,
+                              totalRevenue: fixedToday.cashRevenue + fixedToday.bankRevenue + fixedToday.outstandingDebt,
+                              currency: currency,
+                              color: Colors.blue,
+                            );
+                            final wWeek = _PaymentKpi(
+                              title: 'Tuần này',
+                              stats: fixedWeek,
+                              totalRevenue: fixedWeek.cashRevenue + fixedWeek.bankRevenue + fixedWeek.outstandingDebt,
+                              currency: currency,
+                              color: Colors.green,
+                            );
+                            final wMonth = _PaymentKpi(
+                              title: 'Tháng này',
+                              stats: fixedMonth,
+                              totalRevenue: fixedMonth.cashRevenue + fixedMonth.bankRevenue + fixedMonth.outstandingDebt,
+                              currency: currency,
+                              color: Colors.purple,
+                            );
+                            final wYear = _PaymentKpi(
+                              title: 'Năm nay',
+                              stats: fixedYear,
+                              totalRevenue: fixedYear.cashRevenue + fixedYear.bankRevenue + fixedYear.outstandingDebt,
+                              currency: currency,
+                              color: Colors.orange,
+                            );
+
+                            if (!isNarrow) {
+                              return Row(
+                                children: [
+                                  Expanded(child: wToday),
+                                  const SizedBox(width: 6),
+                                  Expanded(child: wWeek),
+                                  const SizedBox(width: 6),
+                                  Expanded(child: wMonth),
+                                  const SizedBox(width: 6),
+                                  Expanded(child: wYear),
+                                ],
+                              );
+                            }
+
+                            return Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(child: wToday),
+                                    const SizedBox(width: 6),
+                                    Expanded(child: wWeek),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Expanded(child: wMonth),
+                                    const SizedBox(width: 6),
+                                    Expanded(child: wYear),
+                                  ],
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isNarrow = constraints.maxWidth < 720;
+
+                        final kpiToday = _TripleKpi(
+                          title: 'Hôm nay',
+                          revenue: todaySales,
+                          cost: todayCost,
+                          profit: todayProfit,
+                          currency: currency,
+                          color: Colors.blue,
+                        );
+                        final kpiWeek = _TripleKpi(
+                          title: 'Tuần này',
+                          revenue: weekSales,
+                          cost: weekCost,
+                          profit: weekProfit,
+                          currency: currency,
+                          color: Colors.green,
+                        );
+                        final kpiMonth = _TripleKpi(
+                          title: 'Tháng này',
+                          revenue: monthSales,
+                          cost: monthCost,
+                          profit: monthProfit,
+                          currency: currency,
+                          color: Colors.purple,
+                        );
+                        final kpiYear = _TripleKpi(
+                          title: 'Năm nay',
+                          revenue: yearSales,
+                          cost: yearCost,
+                          profit: yearProfit,
+                          currency: currency,
+                          color: Colors.orange,
+                        );
+
+                        if (!isNarrow) {
+                          return Row(
+                            children: [
+                              Expanded(child: kpiToday),
+                              const SizedBox(width: 6),
+                              Expanded(child: kpiWeek),
+                              const SizedBox(width: 6),
+                              Expanded(child: kpiMonth),
+                              const SizedBox(width: 6),
+                              Expanded(child: kpiYear),
+                            ],
+                          );
+                        }
+
+                        return Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(child: kpiToday),
+                                const SizedBox(width: 6),
+                                Expanded(child: kpiWeek),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(child: kpiMonth),
+                                const SizedBox(width: 6),
+                                Expanded(child: kpiYear),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: DatabaseService.instance.db.query(
+                        'expenses',
+                        columns: ['amount', 'category', 'occurredAt'],
+                        where: 'occurredAt >= ? AND occurredAt <= ?',
+                        whereArgs: [start.toIso8601String(), end.toIso8601String()],
+                      ),
+                      builder: (context, snap) {
+                        if (snap.connectionState != ConnectionState.done) {
+                          return const SizedBox(
+                            height: 72,
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+
+                        final rows = snap.data ?? const <Map<String, dynamic>>[];
+                        double totalAll = 0;
+                        double totalNonBiz = 0;
+                        for (final r in rows) {
+                          final amount = (r['amount'] as num?)?.toDouble() ?? 0.0;
+                          totalAll += amount;
+                          final cat = (r['category']?.toString() ?? '').trim();
+                          if (cat == 'Chi tiêu ngoài kinh doanh') {
+                            totalNonBiz += amount;
+                          }
+                        }
+                        final totalBusiness = totalAll - totalNonBiz;
+                        final netProfit = periodProfit - totalBusiness;
+
                         return Column(
                           children: [
                             Row(
                               children: [
                                 Expanded(
                                   child: _SingleKpi(
-                                    title: 'Nợ tôi',
+                                    title: 'Tổng nợ tôi',
                                     value: totalOthersOweMe,
                                     currency: currency,
                                     color: Colors.red,
                                   ),
                                 ),
                                 const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Nợ từ bán hàng',
+                                    value: totalOthersOweMeFromSales,
+                                    currency: currency,
+                                    color: Colors.redAccent,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Nợ ngoài',
+                                    value: totalOthersOweMeOutside,
+                                    currency: currency,
+                                    color: Colors.deepOrange,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
                                 Expanded(
                                   child: _SingleKpi(
                                     title: 'Tôi nợ',
@@ -896,10 +1277,19 @@ class _ReportScreenState extends State<ReportScreen> {
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: _SingleKpi(
-                                    title: 'Chi phí',
-                                    value: totalExpenses,
+                                    title: 'Chi phí HL',
+                                    value: totalBusiness,
                                     currency: currency,
                                     color: Colors.deepPurple,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _SingleKpi(
+                                    title: 'Ngoài KD',
+                                    value: totalNonBiz,
+                                    currency: currency,
+                                    color: Colors.brown,
                                   ),
                                 ),
                               ],
@@ -918,8 +1308,8 @@ class _ReportScreenState extends State<ReportScreen> {
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: _SingleKpi(
-                                    title: 'Chi phí kỳ',
-                                    value: totalExpenses,
+                                    title: 'CP HL kỳ',
+                                    value: totalBusiness,
                                     currency: currency,
                                     color: Colors.deepPurple,
                                   ),
@@ -941,9 +1331,14 @@ class _ReportScreenState extends State<ReportScreen> {
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
             const SizedBox(height: 16),
+            const Text(
+              'Tổng quan tồn kho',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
             _buildInventorySummary(
               currency: currency,
               dateRange: _dateRange,
@@ -953,6 +1348,11 @@ class _ReportScreenState extends State<ReportScreen> {
               exportAmountSell: filteredSales.fold<double>(0, (p, s) => p + s.total),
             ),
             const SizedBox(height: 16),
+            const Text(
+              'Biểu đồ doanh thu / vốn / lợi nhuận',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
             SizedBox(
               height: 360,
               child: PageView(
@@ -961,19 +1361,16 @@ class _ReportScreenState extends State<ReportScreen> {
                   _chartPageIndex.value = index;
                 },
                 children: [
-                  // Daily Chart
                   _buildChartCard(
                     title: 'Theo ngày (${_dateRange.start.day}/${_dateRange.start.month} - ${_dateRange.end.day}/${_dateRange.end.month})',
                     points: dailyData,
                     currency: currency,
                   ),
-                  // Monthly Chart
                   _buildChartCard(
                     title: 'Theo tháng (${now.year})',
                     points: monthlyDataPoints,
                     currency: currency,
                   ),
-                  // Yearly Chart
                   _buildChartCard(
                     title: 'Theo năm',
                     points: yearlyDataPoints,
@@ -1009,27 +1406,25 @@ class _ReportScreenState extends State<ReportScreen> {
             FutureBuilder<List<Map<String, dynamic>>>(
               future: DatabaseService.instance.db.query(
                 'expenses',
+                columns: ['amount', 'category', 'occurredAt'],
                 where: 'occurredAt >= ? AND occurredAt <= ?',
                 whereArgs: [start.toIso8601String(), end.toIso8601String()],
               ),
               builder: (context, snap) {
-                if (snap.connectionState != ConnectionState.done) {
-                  return const SizedBox(
-                    height: 320,
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-
-                final expensesRows = snap.data ?? const <Map<String, dynamic>>[];
+                final rows = snap.data ?? const <Map<String, dynamic>>[];
 
                 final expenseByDay = <String, double>{};
                 final expenseByMonth = <int, double>{};
                 final expenseByYear = <int, double>{};
 
-                for (final e in expensesRows) {
+                for (final e in rows) {
                   final occurredAt = DateTime.tryParse(e['occurredAt']?.toString() ?? '');
                   if (occurredAt == null) continue;
                   final amount = (e['amount'] as num?)?.toDouble() ?? 0.0;
+                  final cat = (e['category']?.toString() ?? '').trim();
+                  if (cat == 'Chi tiêu ngoài kinh doanh') {
+                    continue;
+                  }
 
                   final dayKey = DateFormat('dd/MM').format(occurredAt);
                   expenseByDay[dayKey] = (expenseByDay[dayKey] ?? 0) + amount;
@@ -1061,12 +1456,9 @@ class _ReportScreenState extends State<ReportScreen> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 4),
-                      child: Text(
-                        'Biểu đồ lợi nhuận ròng (Doanh - Vốn - Chi phí)',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
+                    const Text(
+                      'Biểu đồ lợi nhuận ròng (Doanh - Vốn - Chi phí)',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                     ),
                     const SizedBox(height: 8),
                     SizedBox(
@@ -1133,6 +1525,11 @@ class _ReportScreenState extends State<ReportScreen> {
     required NumberFormat currency,
   }) {
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.black.withAlpha(8)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1241,6 +1638,11 @@ class _ReportScreenState extends State<ReportScreen> {
     bool isYearly = false,
   }) {
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.black.withAlpha(8)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1433,6 +1835,11 @@ class _ReportScreenState extends State<ReportScreen> {
         final endingAmountSell = openingAmountSell + importAmountSell - exportAmountSell;
 
         return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.black.withAlpha(8)),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(

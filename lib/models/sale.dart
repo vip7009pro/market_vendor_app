@@ -59,6 +59,7 @@ class Sale {
   List<SaleItem> items;
   double discount; // absolute amount (VND)
   double paidAmount; // amount paid now
+  String? paymentType; // 'cash' | 'bank' | null
   String? note;
   double totalCost; // Thêm trường totalCost từ database
 
@@ -70,6 +71,7 @@ class Sale {
     required this.items,
     this.discount = 0,
     this.paidAmount = 0,
+    this.paymentType,
     this.note,
     this.totalCost = 0.0, // Đảm bảo giá trị mặc định là 0.0
   })  : id = id ?? const Uuid().v4(),
@@ -89,6 +91,7 @@ class Sale {
         'items': items.map((e) => e.toMap()).toList(),
         'discount': discount,
         'paidAmount': paidAmount,
+        'paymentType': paymentType,
         'note': note,
         'totalCost': totalCost, // Thêm totalCost vào map
       };
@@ -106,6 +109,7 @@ class Sale {
       items: (map['items'] as List).map((e) => SaleItem.fromMap(e)).toList(),
       discount: (map['discount'] as num).toDouble(),
       paidAmount: (map['paidAmount'] as num).toDouble(),
+      paymentType: map['paymentType']?.toString(),
       note: map['note'],
       totalCost: totalCost, // Sử dụng giá trị đã kiểm tra
     );

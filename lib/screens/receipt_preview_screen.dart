@@ -12,6 +12,9 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/sale.dart';
 import '../services/database_service.dart';
+import '../services/thermal_printer_service.dart';
+import '../services/thermal_printer_settings_service.dart';
+import 'printer_settings_screen.dart';
 
 class ReceiptPreviewScreen extends StatefulWidget {
   final Sale sale;
@@ -30,6 +33,102 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
   String _storeName = 'CỬA HÀNG ABC';
   String _storeAddress = 'Địa chỉ: 123 Đường XYZ';
   String _storePhone = 'Hotline: 090xxxxxxx';
+
+  Future<void> _printToThermal() async {
+    final printers = await ThermalPrinterSettingsService.instance.loadPrinters();
+    if (!mounted) return;
+
+    if (printers.isEmpty) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Chưa có máy in'),
+          content: const Text('Bạn cần thêm máy in LAN trước khi in.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Đóng')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Thiết lập')),
+          ],
+        ),
+      );
+      if (go == true && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const PrinterSettingsScreen()),
+        );
+      }
+      return;
+    }
+
+    final def = await ThermalPrinterSettingsService.instance.getDefaultPrinter();
+    if (!mounted) return;
+
+    final chosen = await showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Chọn máy in', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: printers.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final p = printers[i];
+                    final isDefault = def?.id == p.id;
+                    return ListTile(
+                      leading: Icon(isDefault ? Icons.check_circle : Icons.print_outlined),
+                      title: Text(p.name),
+                      subtitle: Text('${p.ip}:${p.port}'),
+                      onTap: () => Navigator.pop(ctx, p),
+                    );
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const PrinterSettingsScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.settings),
+                  label: const Text('Quản lý máy in'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (chosen == null) return;
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đang in...')));
+    try {
+      await ThermalPrinterService.instance.printSaleReceipt(
+        printerConfig: chosen,
+        sale: widget.sale,
+        currency: widget.currency,
+        storeName: _storeName,
+        storeAddress: _storeAddress,
+        storePhone: _storePhone,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã gửi lệnh in')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi in: $e')));
+    }
+  }
 
   @override
   void initState() {
@@ -749,6 +848,14 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
         child: Wrap(
           children: <Widget>[
             ListTile(
+              leading: const Icon(Icons.print_outlined),
+              title: const Text('In máy in nhiệt (LAN)'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _printToThermal();
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.image),
               title: const Text('Chia sẻ dạng ảnh (PNG)'),
               onTap: () {
@@ -764,6 +871,16 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                 _selectedSize == 'A4 (Màu)'
                     ? _shareA4Pdf(widget.sale)
                     : _sharePdf(receiptContent); // Gọi hàm share PDF
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: const Text('Thiết lập máy in'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PrinterSettingsScreen()),
+                );
               },
             ),
           ],
@@ -820,6 +937,23 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                   pw.Text(
                     receiptContent,
                     style: pw.TextStyle(font: ttfFont, fontSize: 8),
+                  ),
+                  pw.SizedBox(height: 12),
+                  pw.Center(
+                    child: pw.BarcodeWidget(
+                      barcode: Barcode.qrCode(),
+                      data: widget.sale.id,
+                      width: 110,
+                      height: 110,
+                      drawText: false,
+                    ),
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Center(
+                    child: pw.Text(
+                      widget.sale.id,
+                      style: pw.TextStyle(font: ttfFont, fontSize: 9),
+                    ),
                   ),
                 ],
               ),
@@ -916,18 +1050,38 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                         color: Colors.white,
                       ),
                       child: SingleChildScrollView(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Text(
-                            receiptContent,
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: fontSize,
-                              height: 1.2,
-                              color: Colors.black,
+                        child: Column(
+                          children: [
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Text(
+                                receiptContent,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: fontSize,
+                                  height: 1.2,
+                                  color: Colors.black,
+                                ),
+                                softWrap: false,
+                              ),
                             ),
-                            softWrap: false,
-                          ),
+                            const SizedBox(height: 8),
+                            QrImageView(
+                              data: widget.sale.id,
+                              version: QrVersions.auto,
+                              size: _selectedSize == '57mm' ? 110 : 140,
+                              gapless: true,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              widget.sale.id,
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: fontSize,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),

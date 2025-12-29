@@ -18,6 +18,8 @@ class DriveSyncService {
 
   static const String _dbFileName = 'market_vendor.db';
   static const String _imagesDirName = 'product_images';
+  static const String _purchaseDocsDirName = 'purchase_docs';
+  static const String _expenseDocsDirName = 'expense_docs';
 
   bool _looksLikeZip(Uint8List bytes) {
     return bytes.length >= 2 && bytes[0] == 0x50 && bytes[1] == 0x4B; // PK
@@ -46,6 +48,26 @@ class DriveSyncService {
       }
     }
 
+    final purchaseDocsDir = Directory(p.join(docs.path, _purchaseDocsDirName));
+    if (await purchaseDocsDir.exists()) {
+      await for (final ent in purchaseDocsDir.list(recursive: true, followLinks: false)) {
+        if (ent is! File) continue;
+        final rel = p.relative(ent.path, from: docs.path);
+        final b = await ent.readAsBytes();
+        archive.addFile(ArchiveFile(p.normalize(rel), b.length, b));
+      }
+    }
+
+    final expenseDocsDir = Directory(p.join(docs.path, _expenseDocsDirName));
+    if (await expenseDocsDir.exists()) {
+      await for (final ent in expenseDocsDir.list(recursive: true, followLinks: false)) {
+        if (ent is! File) continue;
+        final rel = p.relative(ent.path, from: docs.path);
+        final b = await ent.readAsBytes();
+        archive.addFile(ArchiveFile(p.normalize(rel), b.length, b));
+      }
+    }
+
     final zipped = ZipEncoder().encode(archive);
     if (zipped == null) {
       throw Exception('Không tạo được file zip sao lưu');
@@ -58,6 +80,8 @@ class DriveSyncService {
 
     Uint8List? dbBytes;
     final imagesToWrite = <String, Uint8List>{};
+    final purchaseDocsToWrite = <String, Uint8List>{};
+    final expenseDocsToWrite = <String, Uint8List>{};
 
     for (final f in decoded) {
       if (f.isFile != true) continue;
@@ -74,6 +98,16 @@ class DriveSyncService {
       final norm = p.normalize(name);
       if (norm.startsWith('$_imagesDirName${p.separator}') || norm.startsWith('$_imagesDirName/')) {
         imagesToWrite[norm] = fileBytes;
+        continue;
+      }
+
+      if (norm.startsWith('$_purchaseDocsDirName${p.separator}') || norm.startsWith('$_purchaseDocsDirName/')) {
+        purchaseDocsToWrite[norm] = fileBytes;
+        continue;
+      }
+
+      if (norm.startsWith('$_expenseDocsDirName${p.separator}') || norm.startsWith('$_expenseDocsDirName/')) {
+        expenseDocsToWrite[norm] = fileBytes;
       }
     }
 
@@ -102,6 +136,28 @@ class DriveSyncService {
     }
 
     for (final e in imagesToWrite.entries) {
+      final outPath = p.join(docs.path, e.key);
+      final outFile = File(outPath);
+      await outFile.parent.create(recursive: true);
+      await outFile.writeAsBytes(e.value, flush: true);
+    }
+
+    final purchaseDocsDir = Directory(p.join(docs.path, _purchaseDocsDirName));
+    if (!await purchaseDocsDir.exists()) {
+      await purchaseDocsDir.create(recursive: true);
+    }
+    for (final e in purchaseDocsToWrite.entries) {
+      final outPath = p.join(docs.path, e.key);
+      final outFile = File(outPath);
+      await outFile.parent.create(recursive: true);
+      await outFile.writeAsBytes(e.value, flush: true);
+    }
+
+    final expenseDocsDir = Directory(p.join(docs.path, _expenseDocsDirName));
+    if (!await expenseDocsDir.exists()) {
+      await expenseDocsDir.create(recursive: true);
+    }
+    for (final e in expenseDocsToWrite.entries) {
       final outPath = p.join(docs.path, e.key);
       final outFile = File(outPath);
       await outFile.parent.create(recursive: true);

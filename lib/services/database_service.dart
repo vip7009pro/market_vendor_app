@@ -893,6 +893,15 @@ class DatabaseService {
         print('Lỗi khi tạo bảng debt_reminder_settings: $e');
       }
     }
+
+    if (oldVersion < 22) {
+      try {
+        await safeAddColumn(db, 'sales', 'paymentType', 'TEXT');
+      } catch (_) {}
+      try {
+        await safeAddColumn(db, 'debt_payments', 'paymentType', 'TEXT');
+      } catch (_) {}
+    }
   }
 
   Future<void> init() async {
@@ -901,7 +910,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 21, // Tăng version để áp dụng migration
+      version: 22, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -944,6 +953,7 @@ class DatabaseService {
             customerName TEXT,
             discount REAL NOT NULL DEFAULT 0,
             paidAmount REAL NOT NULL DEFAULT 0,
+            paymentType TEXT,
             totalCost REAL NOT NULL DEFAULT 0, -- Thêm cột totalCost
             note TEXT,
             updatedAt TEXT NOT NULL,
@@ -1006,6 +1016,7 @@ class DatabaseService {
             debtId TEXT NOT NULL,
             amount REAL NOT NULL,
             note TEXT,
+            paymentType TEXT,
             createdAt TEXT NOT NULL,
             isSynced INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (debtId) REFERENCES debts(id) ON DELETE CASCADE
@@ -1474,6 +1485,7 @@ class DatabaseService {
           'customerName': s.customerName,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
+          'paymentType': s.paymentType,
           'totalCost': totalCost,
           'note': encryptedNote,
           'updatedAt': DateTime.now().toIso8601String(),
@@ -1632,6 +1644,7 @@ class DatabaseService {
           'customerName': newSale.customerName,
           'discount': newSale.discount,
           'paidAmount': newSale.paidAmount,
+          'paymentType': newSale.paymentType,
           'totalCost': totalCost,
           'note': encryptedNote,
           'updatedAt': DateTime.now().toIso8601String(),
@@ -1706,6 +1719,7 @@ class DatabaseService {
           'customerName': s.customerName,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
+          'paymentType': s.paymentType,
           'totalCost': totalCost,
           'note': encryptedNote,
           'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
@@ -1774,6 +1788,7 @@ class DatabaseService {
               items: saleItems,
               discount: (row['discount'] as num).toDouble(),
               paidAmount: (row['paidAmount'] as num).toDouble(),
+              paymentType: row['paymentType'] as String?,
               note: decryptedNote,
               totalCost: totalCost,
             ),
@@ -2065,6 +2080,26 @@ class DatabaseService {
     return await db.query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
   }
 
+  Future<Map<String, double>?> getSaleTotals(String saleId) async {
+    final rows = await db.query(
+      'sales',
+      columns: ['totalCost', 'discount', 'paidAmount'],
+      where: 'id = ?',
+      whereArgs: [saleId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final m = rows.first;
+    final totalCost = (m['totalCost'] as num?)?.toDouble() ?? 0.0;
+    final discount = (m['discount'] as num?)?.toDouble() ?? 0.0;
+    final paidAmount = (m['paidAmount'] as num?)?.toDouble() ?? 0.0;
+    final total = (totalCost - discount).clamp(0.0, double.infinity).toDouble();
+    return {
+      'total': total,
+      'paidAmount': paidAmount,
+    };
+  }
+
   // Sum of payments for a debt
   Future<double> getTotalPaidForDebt(String debtId) async {
     final rows = await db.rawQuery(
@@ -2293,8 +2328,46 @@ class DatabaseService {
     };
   }
 
+  Future<void> updateSalePaymentType({required String saleId, String? paymentType}) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'sales',
+      {
+        'paymentType': (paymentType == null || paymentType.trim().isEmpty) ? null : paymentType.trim(),
+        'updatedAt': now,
+        'isSynced': 0,
+      },
+      where: 'id = ?',
+      whereArgs: [saleId],
+    );
+  }
+
+  Future<void> updateDebtPaymentType({required int paymentId, String? paymentType}) async {
+    await db.update(
+      'debt_payments',
+      {
+        'paymentType': (paymentType == null || paymentType.trim().isEmpty) ? null : paymentType.trim(),
+        'isSynced': 0,
+      },
+      where: 'id = ?',
+      whereArgs: [paymentId],
+    );
+  }
+
+  Future<void> updateAllDebtPaymentsPaymentType({required String debtId, String? paymentType}) async {
+    await db.update(
+      'debt_payments',
+      {
+        'paymentType': (paymentType == null || paymentType.trim().isEmpty) ? null : paymentType.trim(),
+        'isSynced': 0,
+      },
+      where: 'debtId = ?',
+      whereArgs: [debtId],
+    );
+  }
+
   // Debt payments API
-  Future<void> insertDebtPayment({required String debtId, required double amount, String? note, DateTime? createdAt}) async {
+  Future<void> insertDebtPayment({required String debtId, required double amount, String? note, DateTime? createdAt, String? paymentType}) async {
     try {
       // Initialize encryption service
       await EncryptionService.instance.init();
@@ -2308,6 +2381,7 @@ class DatabaseService {
         'debtId': debtId,
         'amount': amount,
         'note': encryptedNote,
+        'paymentType': paymentType,
         'createdAt': (createdAt ?? DateTime.now()).toIso8601String(),
         'isSynced': 0, // Chưa đồng bộ
       });
@@ -2323,6 +2397,7 @@ class DatabaseService {
     required double newAmount,
     required DateTime newCreatedAt,
     String? newNote,
+    String? newPaymentType,
   }) async {
     if (newAmount <= 0) return;
     await db.transaction((txn) async {
@@ -2346,6 +2421,7 @@ class DatabaseService {
         {
           'amount': newAmount,
           'note': encryptedNote,
+          'paymentType': newPaymentType,
           'createdAt': newCreatedAt.toIso8601String(),
           'isSynced': 0,
         },
@@ -2433,6 +2509,7 @@ class DatabaseService {
           p.debtId as debtId,
           p.amount as amount,
           p.note as note,
+          p.paymentType as paymentType,
           p.createdAt as createdAt,
           p.isSynced as isSynced,
           d.type as debtType,

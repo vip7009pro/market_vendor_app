@@ -50,6 +50,33 @@ class _SaleScreenState extends State<SaleScreen> {
   List<Customer> _recentCustomers = [];
   List<Product> _recentProducts = [];
 
+  Future<String?> _pickPaymentTypeForPaidAmount() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.payments_outlined),
+                title: const Text('Tiền mặt'),
+                onTap: () => Navigator.pop(ctx, 'cash'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_balance_outlined),
+                title: const Text('Chuyển khoản'),
+                onTap: () => Navigator.pop(ctx, 'bank'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    return picked;
+  }
+
   TextEditingController _getQtyController(SaleItem it) {
     return _qtyControllers.putIfAbsent(
       it.productId,
@@ -2419,10 +2446,17 @@ class _SaleScreenState extends State<SaleScreen> {
                               0.0,
                               (p, e) => p + e.totalCost,
                             );
+
+                            String? paymentType;
+                            if (_paid > 0) {
+                              paymentType = await _pickPaymentTypeForPaidAmount();
+                              if (paymentType == null) return;
+                            }
                             final sale = Sale(
                               items: _items.toList(),
                               discount: _discount,
                               paidAmount: _paid,
+                              paymentType: paymentType,
                               customerId: _customerId,
                               customerName: _customerName,
                               totalCost:

@@ -20,6 +20,7 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
   final TextEditingController _searchCtrl = TextEditingController();
   DateTimeRange? _range;
   bool _showOnlyUnpaid = true;
+  _DebtLinkFilter _linkFilter = _DebtLinkFilter.all;
 
   @override
   void initState() {
@@ -54,6 +55,28 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
     if (_showOnlyUnpaid) {
       othersOwe = othersOwe.where((d) => d.amount > 0).toList();
       iOwe = iOwe.where((d) => d.amount > 0).toList();
+    }
+
+    bool isLinked(Debt d) {
+      final st = (d.sourceType ?? '').trim();
+      final sid = (d.sourceId ?? '').trim();
+      if (sid.isEmpty) return false;
+      return st == 'sale' || st == 'purchase';
+    }
+
+    bool isExternal(Debt d) {
+      final st = (d.sourceType ?? '').trim();
+      final sid = (d.sourceId ?? '').trim();
+      if (sid.isEmpty) return true;
+      return !(st == 'sale' || st == 'purchase');
+    }
+
+    if (_linkFilter == _DebtLinkFilter.linked) {
+      othersOwe = othersOwe.where(isLinked).toList();
+      iOwe = iOwe.where(isLinked).toList();
+    } else if (_linkFilter == _DebtLinkFilter.external) {
+      othersOwe = othersOwe.where(isExternal).toList();
+      iOwe = iOwe.where(isExternal).toList();
     }
 
     return Scaffold(
@@ -144,6 +167,30 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 2.0),
+            child: Row(
+              children: [
+                FilterChip(
+                  label: const Text('Tất cả'),
+                  selected: _linkFilter == _DebtLinkFilter.all,
+                  onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.all),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('Có giao dịch'),
+                  selected: _linkFilter == _DebtLinkFilter.linked,
+                  onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.linked),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('Nợ ngoài'),
+                  selected: _linkFilter == _DebtLinkFilter.external,
+                  onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.external),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 4),
           Expanded(
             child: TabBarView(
@@ -160,6 +207,8 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
   }
 
 }
+
+enum _DebtLinkFilter { all, linked, external }
 
 // Vietnamese diacritics removal (accent-insensitive search) without external deps
 String _vn(String s) {
@@ -185,6 +234,62 @@ String _vn(String s) {
     }
   });
   return s;
+}
+
+Future<String?> _pickPaymentTypeRequired(BuildContext context) async {
+  final picked = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) {
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.payments_outlined),
+              title: const Text('Tiền mặt'),
+              onTap: () => Navigator.pop(ctx, 'cash'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_outlined),
+              title: const Text('Chuyển khoản'),
+              onTap: () => Navigator.pop(ctx, 'bank'),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+  return picked;
+}
+
+Future<void> _settleDebt(BuildContext context, Debt d, NumberFormat currency) async {
+  if (d.amount <= 0) return;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Tất toán công nợ'),
+      content: Text('Bạn có chắc muốn tất toán ${currency.format(d.amount)} không?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xác nhận')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+
+  final paymentType = await _pickPaymentTypeRequired(context);
+  if (paymentType == null) return;
+
+  final remain = d.amount;
+  await context.read<DebtProvider>().addPayment(
+        debt: d,
+        amount: remain,
+        note: 'Tất toán',
+        paymentType: paymentType,
+      );
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tất toán')));
 }
 
 Future<void> _showPayDialog(BuildContext context, Debt d, NumberFormat currency) async {
@@ -224,10 +329,15 @@ Future<void> _showPayDialog(BuildContext context, Debt d, NumberFormat currency)
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Số tiền không hợp lệ')));
       return;
     }
+
+    final paymentType = await _pickPaymentTypeRequired(context);
+    if (paymentType == null) return;
+
     await context.read<DebtProvider>().addPayment(
       debt: d,
       amount: amount,
       note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+      paymentType: paymentType,
     );
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã ghi nhận thanh toán')));
   }
@@ -388,13 +498,32 @@ class DebtList extends StatelessWidget {
 
   Future<String?> _pickSaleId(BuildContext context) async {
     final sales = await DatabaseService.instance.getSales();
+
+    final searchCtrl = TextEditingController();
+    String query = '';
+    List<Sale> filtered = List.from(sales);
+
+    void applyFilter(void Function(void Function()) setState) {
+      final q = _vn(query.trim()).toLowerCase();
+      setState(() {
+        if (q.isEmpty) {
+          filtered = List.from(sales);
+          return;
+        }
+        filtered = sales.where((s) {
+          final customerRaw = (s.customerName ?? '').trim();
+          final customer = _vn(customerRaw).toLowerCase();
+          final items = _vn(s.items.map((e) => e.name).join(', ')).toLowerCase();
+          return customer.contains(q) || items.contains(q);
+        }).toList();
+      });
+    }
+
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) {
-        final searchCtrl = TextEditingController();
-        List<Sale> filtered = List.from(sales);
         final fmt = DateFormat('dd/MM/yyyy HH:mm');
         final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
         return StatefulBuilder(
@@ -417,18 +546,8 @@ class DebtList extends StatelessWidget {
                       prefixIcon: Icon(Icons.search),
                     ),
                     onChanged: (v) {
-                      final q = v.trim().toLowerCase();
-                      setState(() {
-                        if (q.isEmpty) {
-                          filtered = List.from(sales);
-                        } else {
-                          filtered = sales.where((s) {
-                            final customer = (s.customerName ?? '').toLowerCase();
-                            final items = s.items.map((e) => e.name).join(', ').toLowerCase();
-                            return customer.contains(q) || items.contains(q);
-                          }).toList();
-                        }
-                      });
+                      query = v;
+                      applyFilter(setState);
                     },
                   ),
                   const SizedBox(height: 12),
@@ -460,13 +579,31 @@ class DebtList extends StatelessWidget {
 
   Future<String?> _pickPurchaseId(BuildContext context) async {
     final rows = await DatabaseService.instance.getPurchaseHistory();
+
+    final searchCtrl = TextEditingController();
+    String query = '';
+    List<Map<String, dynamic>> filtered = List.from(rows);
+
+    void applyFilter(void Function(void Function()) setState) {
+      final q = _vn(query.trim()).toLowerCase();
+      setState(() {
+        if (q.isEmpty) {
+          filtered = List.from(rows);
+          return;
+        }
+        filtered = rows.where((r) {
+          final name = _vn((r['productName'] as String? ?? '').trim()).toLowerCase();
+          final supplier = _vn((r['supplierName'] as String? ?? '').trim()).toLowerCase();
+          return name.contains(q) || supplier.contains(q);
+        }).toList();
+      });
+    }
+
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) {
-        final searchCtrl = TextEditingController();
-        List<Map<String, dynamic>> filtered = List.from(rows);
         final fmt = DateFormat('dd/MM/yyyy HH:mm');
         final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
         return StatefulBuilder(
@@ -489,18 +626,8 @@ class DebtList extends StatelessWidget {
                       prefixIcon: Icon(Icons.search),
                     ),
                     onChanged: (v) {
-                      final q = v.trim().toLowerCase();
-                      setState(() {
-                        if (q.isEmpty) {
-                          filtered = List.from(rows);
-                        } else {
-                          filtered = rows.where((r) {
-                            final name = (r['productName'] as String? ?? '').toLowerCase();
-                            final supplier = (r['supplierName'] as String? ?? '').toLowerCase();
-                            return name.contains(q) || supplier.contains(q);
-                          }).toList();
-                        }
-                      });
+                      query = v;
+                      applyFilter(setState);
                     },
                   ),
                   const SizedBox(height: 12),
@@ -558,7 +685,7 @@ class DebtList extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if ((d.sourceId == null || d.sourceId!.isEmpty))
+                      if (true)
                         ListTile(
                           leading: const Icon(Icons.link_outlined),
                           title: const Text('Gán giao dịch'),
@@ -641,11 +768,15 @@ class DebtList extends StatelessWidget {
                 ),
               );
               if (ok == true) {
-                await context.read<DebtProvider>().deleteDebt(d.id);
+                final deleted = await context.read<DebtProvider>().deleteDebt(d.id);
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Đã xóa công nợ')),
-                );
+                if (!deleted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Không được xóa công nợ của hóa đơn còn nợ. Vui lòng trả/tất toán.')),
+                  );
+                  return;
+                }
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa công nợ')));
               }
             }
           },
@@ -798,6 +929,21 @@ class DebtList extends StatelessWidget {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: const Icon(Icons.payments_outlined, size: 18, color: Colors.green),
+                          ),
+                        ),
+                        
+                        const SizedBox(width: 6),
+
+                        // Settle button
+                        GestureDetector(
+                          onTap: d.amount <= 0 ? null : () => _settleDebt(context, d, currency),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Icon(Icons.done_all, size: 18, color: d.amount <= 0 ? Colors.grey : Colors.orange),
                           ),
                         ),
                         

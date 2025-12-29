@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:io';
@@ -17,6 +19,7 @@ import '../providers/product_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/database_service.dart';
 import '../services/drive_sync_service.dart';
+import '../services/document_storage_service.dart';
 import '../services/product_image_service.dart';
 import '../utils/contact_serializer.dart';
 import '../utils/number_input_formatter.dart';
@@ -54,20 +57,40 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     return result;
   }
 
-  Future<void> _deletePurchaseDoc({required String purchaseId, String? fileIdFromDb}) async {
+  bool _looksLikeLocalPurchaseDocPath(String? fileIdOrPath) {
+    final s = (fileIdOrPath ?? '').trim();
+    return s.startsWith('purchase_docs/') || s.startsWith('purchase_docs\\');
+  }
+
+  Future<String?> _ensurePurchaseDocLocal({
+    required String purchaseId,
+    String? fileIdFromDb,
+  }) async {
+    final existing = (fileIdFromDb ?? '').trim();
+    if (existing.isEmpty) return null;
+    if (_looksLikeLocalPurchaseDocPath(existing)) return existing;
+
+    // Legacy: Drive fileId (old versions uploaded jpg)
     final token = await _getDriveToken();
-    if (token == null) return;
+    if (token == null) return null;
 
-    var fileId = (fileIdFromDb ?? '').trim();
-    if (fileId.isEmpty) {
-      final info = await DriveSyncService().getPurchaseDocByName(
-        accessToken: token,
-        purchaseId: purchaseId,
-      );
-      fileId = (info?['id'] ?? '').trim();
-    }
+    final bytes = await DriveSyncService().downloadFile(accessToken: token, fileId: existing);
+    final dir = await getTemporaryDirectory();
+    final tmp = File('${dir.path}/$purchaseId');
+    await tmp.writeAsBytes(bytes, flush: true);
 
-    if (fileId.isEmpty) {
+    final rel = await DocumentStorageService.instance.savePurchaseDoc(
+      purchaseId: purchaseId,
+      sourcePath: tmp.path,
+      extension: '.jpg',
+    );
+    await DatabaseService.instance.markPurchaseDocUploaded(purchaseId: purchaseId, fileId: rel);
+    return rel;
+  }
+
+  Future<void> _deletePurchaseDoc({required String purchaseId, String? fileIdFromDb}) async {
+    final existing = (fileIdFromDb ?? '').trim();
+    if (existing.isEmpty) {
       await DatabaseService.instance.clearPurchaseDoc(purchaseId: purchaseId);
       if (!mounted) return;
       setState(() {});
@@ -77,7 +100,9 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       return;
     }
 
-    await DriveSyncService().deleteFile(accessToken: token, fileId: fileId);
+    if (_looksLikeLocalPurchaseDocPath(existing)) {
+      await DocumentStorageService.instance.delete(existing);
+    }
     await DatabaseService.instance.clearPurchaseDoc(purchaseId: purchaseId);
     if (!mounted) return;
     setState(() {});
@@ -1119,11 +1144,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   }
 
   Future<void> _uploadPurchaseDoc({required String purchaseId}) async {
-    final token = await _getDriveToken();
-    if (token == null) return;
-
-    final picker = ImagePicker();
-    final source = await showModalBottomSheet<ImageSource>(
+    final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (ctx) {
@@ -1133,23 +1154,21 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.photo_camera),
-                title: const Text('Chụp ảnh'),
-                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+                title: const Text('Chụp ảnh (JPG)'),
+                onTap: () => Navigator.pop(ctx, 'camera'),
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Chọn ảnh trong máy'),
-                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+                leading: const Icon(Icons.upload_file_outlined),
+                title: const Text('Chọn file (PDF/Ảnh)'),
+                onTap: () => Navigator.pop(ctx, 'file'),
               ),
             ],
           ),
         );
       },
     );
-    if (source == null) return;
 
-    final picked = await picker.pickImage(source: source, imageQuality: 85);
-    if (picked == null) return;
+    if (action == null) return;
 
     if (mounted) {
       setState(() {
@@ -1157,20 +1176,41 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       });
     }
 
-    final bytes = await picked.readAsBytes();
     try {
-      final meta = await DriveSyncService().uploadOrUpdatePurchaseDocJpg(
-        accessToken: token,
-        purchaseId: purchaseId,
-        bytes: bytes,
-      );
-      final fileId = (meta['id'] ?? '').trim();
-      if (fileId.isNotEmpty) {
-        await DatabaseService.instance.markPurchaseDocUploaded(purchaseId: purchaseId, fileId: fileId);
+      String? relPath;
+
+      if (action == 'camera') {
+        final picker = ImagePicker();
+        final picked = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+        if (picked != null) {
+          relPath = await DocumentStorageService.instance.savePurchaseDoc(
+            purchaseId: purchaseId,
+            sourcePath: picked.path,
+            extension: '.jpg',
+          );
+        }
+      } else {
+        final res = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowMultiple: false,
+          allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+          withData: false,
+        );
+        final path = res?.files.single.path;
+        if (path != null && path.trim().isNotEmpty) {
+          relPath = await DocumentStorageService.instance.savePurchaseDoc(
+            purchaseId: purchaseId,
+            sourcePath: path,
+          );
+        }
       }
+
+      if (relPath == null || relPath.trim().isEmpty) return;
+      await DatabaseService.instance.markPurchaseDocUploaded(purchaseId: purchaseId, fileId: relPath);
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đã tải chứng từ lên Google Drive')),
+        const SnackBar(content: Text('Đã lưu chứng từ vào ứng dụng')),
       );
       setState(() {});
     } finally {
@@ -1183,22 +1223,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   }
 
   Future<void> _openPurchaseDoc({required String purchaseId, String? fileIdFromDb}) async {
-    final token = await _getDriveToken();
-    if (token == null) return;
-
-    var fileId = (fileIdFromDb ?? '').trim();
-    if (fileId.isEmpty) {
-      final info = await DriveSyncService().getPurchaseDocByName(
-        accessToken: token,
-        purchaseId: purchaseId,
-      );
-      fileId = (info?['id'] ?? '').trim();
-      if (fileId.isNotEmpty) {
-        await DatabaseService.instance.markPurchaseDocUploaded(purchaseId: purchaseId, fileId: fileId);
-      }
-    }
-
-    if (fileId.isEmpty) {
+    final localRel = await _ensurePurchaseDocLocal(purchaseId: purchaseId, fileIdFromDb: fileIdFromDb);
+    if (localRel == null || localRel.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Chưa có chứng từ cho phiếu nhập này')),
@@ -1206,28 +1232,37 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       return;
     }
 
-    final bytes = await DriveSyncService().downloadFile(accessToken: token, fileId: fileId);
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (_) => Dialog(
-        child: InteractiveViewer(
-          child: Image.memory(bytes, fit: BoxFit.contain),
+    final full = await DocumentStorageService.instance.resolvePath(localRel);
+    if (full == null) return;
+    final ext = full.toLowerCase();
+    if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png')) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          child: InteractiveViewer(
+            child: Image.file(File(full), fit: BoxFit.contain),
+          ),
         ),
-      ),
-    );
+      );
+      return;
+    }
+
+    await OpenFilex.open(full);
   }
 
   Future<void> _downloadPurchaseDoc({required String purchaseId}) async {
-    final token = await _getDriveToken();
-    if (token == null) return;
-
-    final info = await DriveSyncService().getPurchaseDocByName(
-      accessToken: token,
-      purchaseId: purchaseId,
+    final row = await DatabaseService.instance.db.query(
+      'purchase_history',
+      columns: ['purchaseDocFileId'],
+      where: 'id = ?',
+      whereArgs: [purchaseId],
+      limit: 1,
     );
-    final fileId = (info?['id'] ?? '').trim();
-    if (fileId.isEmpty) {
+    final fileIdOrPath = row.isNotEmpty ? (row.first['purchaseDocFileId'] as String?) : null;
+
+    final localRel = await _ensurePurchaseDocLocal(purchaseId: purchaseId, fileIdFromDb: fileIdOrPath);
+    if (localRel == null || localRel.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Chưa có chứng từ để tải')),
@@ -1235,11 +1270,9 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       return;
     }
 
-    final bytes = await DriveSyncService().downloadFile(accessToken: token, fileId: fileId);
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$purchaseId.jpg');
-    await file.writeAsBytes(bytes, flush: true);
-    await Share.shareXFiles([XFile(file.path)], text: 'Chứng từ nhập hàng: $purchaseId');
+    final full = await DocumentStorageService.instance.resolvePath(localRel);
+    if (full == null) return;
+    await Share.shareXFiles([XFile(full)], text: 'Chứng từ nhập hàng: $purchaseId');
   }
 
   @override

@@ -311,6 +311,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
       items: _items,
       discount: discount,
       paidAmount: paid,
+      paymentType: oldSale.paymentType,
       note: oldSale.note,
     );
 

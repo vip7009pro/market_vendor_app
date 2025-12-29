@@ -1,15 +1,15 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../providers/debt_provider.dart';
 import '../providers/sale_provider.dart';
 import '../models/sale.dart';
+import '../models/debt.dart';
+
 import '../services/database_service.dart';
 import '../utils/file_helper.dart';
 // Import file mới
@@ -53,9 +53,293 @@ class SalesHistoryScreen extends StatefulWidget {
   State<SalesHistoryScreen> createState() => _SalesHistoryScreenState();
 }
 
+enum _DebtIssueKind { ok, missing, mismatch }
+
+class _DebtIssueInfo {
+  final String saleId;
+  final _DebtIssueKind kind;
+  final Debt? debt;
+  final double paid;
+  final double remain;
+  final double initial;
+
+  const _DebtIssueInfo._({
+    required this.saleId,
+    required this.kind,
+    this.debt,
+    this.paid = 0,
+    this.remain = 0,
+    this.initial = 0,
+  });
+
+  factory _DebtIssueInfo.ok({
+    required String saleId,
+    required double paid,
+    required double remain,
+    required double initial,
+  }) {
+    return _DebtIssueInfo._(
+      saleId: saleId,
+      kind: _DebtIssueKind.ok,
+      paid: paid,
+      remain: remain,
+      initial: initial,
+    );
+  }
+
+  factory _DebtIssueInfo.missing({required String saleId}) {
+    return _DebtIssueInfo._(
+      saleId: saleId,
+      kind: _DebtIssueKind.missing,
+    );
+  }
+
+  factory _DebtIssueInfo.mismatch({
+    required String saleId,
+    required Debt debt,
+    required double paid,
+    required double remain,
+    required double initial,
+  }) {
+    return _DebtIssueInfo._(
+      saleId: saleId,
+      kind: _DebtIssueKind.mismatch,
+      debt: debt,
+      paid: paid,
+      remain: remain,
+      initial: initial,
+    );
+  }
+}
+
 class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   DateTimeRange? _range;
   String _query = '';
+  bool _onlyDebtIssues = false;
+
+  final Map<String, _DebtIssueInfo> _debtIssueBySaleId = {};
+  String _lastIssueKey = '';
+
+  Future<void> _refreshDebtIssuesFor(List<Sale> sales) async {
+    // Only compute for sales that currently have debt
+    final withDebt = sales.where((s) => s.debt > 0).toList();
+    if (withDebt.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _debtIssueBySaleId
+          ..clear();
+        _lastIssueKey = '';
+      });
+      return;
+    }
+
+    // Deduplicate by id
+    final saleIds = withDebt.map((e) => e.id).toSet().toList();
+    saleIds.sort();
+    final key = saleIds.join(',');
+    if (key == _lastIssueKey) return;
+
+    final db = DatabaseService.instance.db;
+    final placeholders = List.filled(saleIds.length, '?').join(',');
+
+    final debtRows = await db.query(
+      'debts',
+      columns: ['id', 'sourceId', 'amount', 'settled', 'type', 'partyId', 'partyName', 'description', 'createdAt', 'dueDate', 'sourceType'],
+      where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+      whereArgs: saleIds,
+    );
+
+    final debtBySaleId = <String, Map<String, dynamic>>{};
+    final debtIds = <String>[];
+    for (final r in debtRows) {
+      final sid = (r['sourceId']?.toString() ?? '').trim();
+      final did = (r['id']?.toString() ?? '').trim();
+      if (sid.isEmpty || did.isEmpty) continue;
+      debtBySaleId[sid] = r;
+      debtIds.add(did);
+    }
+
+    final paidByDebtId = <String, double>{};
+    if (debtIds.isNotEmpty) {
+      final dph = List.filled(debtIds.length, '?').join(',');
+      final payAgg = await db.rawQuery(
+        '''
+        SELECT debtId as debtId, SUM(amount) as total
+        FROM debt_payments
+        WHERE debtId IN ($dph)
+        GROUP BY debtId
+        ''',
+        debtIds,
+      );
+      for (final r in payAgg) {
+        final did = (r['debtId']?.toString() ?? '').trim();
+        if (did.isEmpty) continue;
+        paidByDebtId[did] = (r['total'] as num?)?.toDouble() ?? 0.0;
+      }
+    }
+
+    final next = <String, _DebtIssueInfo>{};
+    for (final s in withDebt) {
+      final debtRow = debtBySaleId[s.id];
+      if (debtRow == null) {
+        next[s.id] = _DebtIssueInfo.missing(saleId: s.id);
+        continue;
+      }
+
+      final did = (debtRow['id']?.toString() ?? '').trim();
+      final remain = (debtRow['amount'] as num?)?.toDouble() ?? 0.0;
+      final paid = paidByDebtId[did] ?? 0.0;
+      final initial = (remain + paid).clamp(0.0, double.infinity).toDouble();
+      final mismatch = (initial - s.debt).abs() > 0.5;
+
+      if (mismatch) {
+        // Rebuild Debt object for actions
+        final createdAtRaw = debtRow['createdAt']?.toString();
+        final dueDateRaw = debtRow['dueDate']?.toString();
+        final typeInt = (debtRow['type'] as int?) ?? 1;
+        final settled = ((debtRow['settled'] as int?) ?? 0) == 1;
+        final debt = Debt(
+          id: did,
+          createdAt: createdAtRaw != null ? DateTime.parse(createdAtRaw) : DateTime.now(),
+          type: typeInt == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
+          partyId: (debtRow['partyId']?.toString() ?? '').trim(),
+          partyName: (debtRow['partyName']?.toString() ?? '').trim(),
+          amount: remain,
+          description: debtRow['description']?.toString(),
+          dueDate: (dueDateRaw != null && dueDateRaw.trim().isNotEmpty) ? DateTime.tryParse(dueDateRaw) : null,
+          settled: settled,
+          sourceType: debtRow['sourceType']?.toString(),
+          sourceId: debtRow['sourceId']?.toString(),
+        );
+
+        next[s.id] = _DebtIssueInfo.mismatch(
+          saleId: s.id,
+          debt: debt,
+          paid: paid,
+          remain: remain,
+          initial: initial,
+        );
+      } else {
+        next[s.id] = _DebtIssueInfo.ok(
+          saleId: s.id,
+          paid: paid,
+          remain: remain,
+          initial: initial,
+        );
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _debtIssueBySaleId
+        ..clear()
+        ..addAll(next);
+      _lastIssueKey = key;
+    });
+  }
+
+  _DebtIssueInfo? _getIssue(String saleId) => _debtIssueBySaleId[saleId];
+
+  Future<void> _createDebtForSale(Sale s) async {
+    final partyName = (s.customerName?.trim().isNotEmpty == true) ? s.customerName!.trim() : 'Khách lẻ';
+    final newDebt = Debt(
+      createdAt: s.createdAt,
+      type: DebtType.othersOweMe,
+      partyId: (s.customerId?.trim().isNotEmpty == true) ? s.customerId!.trim() : 'customer_unknown',
+      partyName: partyName,
+      amount: s.debt,
+      description: 'Bán hàng: $partyName, Tổng ${s.total.toStringAsFixed(0)}, Đã trả ${s.paidAmount.toStringAsFixed(0)}',
+      sourceType: 'sale',
+      sourceId: s.id,
+    );
+    await context.read<DebtProvider>().add(newDebt);
+    await context.read<DebtProvider>().load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tạo ghi nợ cho hóa đơn')));
+  }
+
+  Future<void> _syncInitialDebtForSale({required Sale s, required Debt debt, required double alreadyPaid}) async {
+    final newRemain = (s.debt - alreadyPaid).clamp(0.0, double.infinity).toDouble();
+    final updated = Debt(
+      id: debt.id,
+      createdAt: debt.createdAt,
+      type: debt.type,
+      partyId: debt.partyId,
+      partyName: debt.partyName,
+      amount: newRemain,
+      description: debt.description,
+      dueDate: debt.dueDate,
+      settled: newRemain <= 0,
+      sourceType: debt.sourceType,
+      sourceId: debt.sourceId,
+    );
+    await DatabaseService.instance.updateDebt(updated);
+    await context.read<DebtProvider>().load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã đồng bộ nợ ban đầu theo hóa đơn')));
+  }
+
+  IconData _paymentTypeIcon(String? t) {
+    final v = (t ?? '').trim().toLowerCase();
+    if (v == 'cash') return Icons.payments_outlined;
+    if (v == 'bank') return Icons.account_balance_outlined;
+    return Icons.help_outline;
+  }
+
+  Color? _paymentTypeColor(BuildContext context, String? t) {
+    final v = (t ?? '').trim().toLowerCase();
+    if (v == 'cash') return Colors.green;
+    if (v == 'bank') return Colors.blue;
+    return Theme.of(context).colorScheme.onSurface.withOpacity(0.55);
+  }
+
+  String _paymentTypeLabel(String? t) {
+    final v = (t ?? '').trim().toLowerCase();
+    if (v == 'cash') return 'Tiền mặt';
+    if (v == 'bank') return 'Chuyển khoản';
+    return 'Chưa phân loại';
+  }
+
+  Future<void> _setSalePaymentType({required Sale sale}) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.payments_outlined),
+                title: const Text('Tiền mặt'),
+                onTap: () => Navigator.pop(ctx, 'cash'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_balance_outlined),
+                title: const Text('Chuyển khoản'),
+                onTap: () => Navigator.pop(ctx, 'bank'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.clear),
+                title: const Text('Bỏ phân loại'),
+                onTap: () => Navigator.pop(ctx, ''),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (picked == null) return;
+    await DatabaseService.instance.updateSalePaymentType(
+      saleId: sale.id,
+      paymentType: picked.trim().isEmpty ? null : picked.trim(),
+    );
+    if (!mounted) return;
+    await context.read<SaleProvider>().load();
+    if (!mounted) return;
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,6 +374,21 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final List<Sale> sortedFiltered = List.from(filtered)
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshDebtIssuesFor(sortedFiltered);
+    });
+
+    final List<Sale> finalList;
+    if (_onlyDebtIssues) {
+      finalList = sortedFiltered.where((s) {
+        if (s.debt <= 0) return false;
+        final issue = _getIssue(s.id);
+        return issue != null && issue.kind != _DebtIssueKind.ok;
+      }).toList();
+    } else {
+      finalList = sortedFiltered;
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Lịch sử bán hàng'),
@@ -118,6 +417,18 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               );
               if (picked != null) setState(() => _range = picked);
             },
+          ),
+          if (_range != null)
+            IconButton(
+              tooltip: 'Xoá lọc ngày',
+              icon: const Icon(Icons.clear),
+              onPressed: () => setState(() => _range = null),
+            ),
+          const SizedBox(width: 6),
+          FilterChip(
+            label: const Text('Nợ lỗi'),
+            selected: _onlyDebtIssues,
+            onSelected: (v) => setState(() => _onlyDebtIssues = v),
           ),
           PopupMenuButton<String>(
             onSelected: (val) async {
@@ -216,18 +527,89 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           const Divider(height: 1),
           Expanded(
             child: ListView.separated(
-              itemCount: sortedFiltered.length,
+              itemCount: finalList.length,
               separatorBuilder: (_, __) => const SizedBox(height: 1),
               itemBuilder: (context, i) {
-                final s = sortedFiltered[i];
+                final s = finalList[i];
                 final customer = s.customerName?.trim().isEmpty == false
                     ? s.customerName!.trim()
                     : 'Khách lẻ';
+
                 return Card(
                   margin:
                       const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                   elevation: 1,
                   child: InkWell(
+                    onLongPress: () async {
+                      final issue = _getIssue(s.id);
+
+                      await showModalBottomSheet<void>(
+                        context: context,
+                        showDragHandle: true,
+                        builder: (ctx) {
+                          return SafeArea(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (issue != null && issue.kind == _DebtIssueKind.missing)
+                                  ListTile(
+                                    leading: const Icon(Icons.add_card_outlined),
+                                    title: const Text('Tạo nợ'),
+                                    subtitle: const Text('Tạo ghi nợ cho hóa đơn này'),
+                                    onTap: () async {
+                                      Navigator.pop(ctx);
+                                      await _createDebtForSale(s);
+                                      if (!mounted) return;
+                                      await context.read<SaleProvider>().load();
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _lastIssueKey = '';
+                                      });
+                                    },
+                                  ),
+                                if (issue != null && issue.kind == _DebtIssueKind.mismatch)
+                                  ListTile(
+                                    leading: const Icon(Icons.sync_outlined),
+                                    title: const Text('Đồng bộ tiền nợ ban đầu'),
+                                    subtitle: const Text('Sửa số nợ để khớp theo hóa đơn'),
+                                    onTap: () async {
+                                      final debt = issue.debt;
+                                      if (debt == null) return;
+                                      Navigator.pop(ctx);
+                                      await _syncInitialDebtForSale(
+                                        s: s,
+                                        debt: debt,
+                                        alreadyPaid: issue.paid,
+                                      );
+                                      if (!mounted) return;
+                                      await context.read<SaleProvider>().load();
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _lastIssueKey = '';
+                                      });
+                                    },
+                                  ),
+                                ListTile(
+                                  leading: const Icon(Icons.tune),
+                                  title: const Text('Set kiểu thanh toán'),
+                                  subtitle: Text(
+                                    s.paidAmount > 0
+                                        ? _paymentTypeLabel(s.paymentType)
+                                        : 'Chỉ áp dụng khi có số tiền đã trả > 0',
+                                  ),
+                                  onTap: s.paidAmount > 0
+                                      ? () async {
+                                          Navigator.pop(ctx);
+                                          await _setSalePaymentType(sale: s);
+                                        }
+                                      : null,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
                     onTap: () {
                       Navigator.push(
                         context,
@@ -244,6 +626,16 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                           // Header row with customer and total
                           Row(
                             children: [
+                              if (s.paidAmount > 0) ...[
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: Icon(
+                                    _paymentTypeIcon(s.paymentType),
+                                    size: 18,
+                                    color: _paymentTypeColor(context, s.paymentType),
+                                  ),
+                                ),
+                              ],
                               Expanded(
                                 child: Text(
                                   customer,
@@ -366,14 +758,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                 )
                               else
                               if (s.debt > 0)
-                                FutureBuilder(
+                                FutureBuilder<Debt?>(
                                   future: DatabaseService.instance.getDebtBySource(
                                     sourceType: 'sale',
                                     sourceId: s.id,
                                   ),
                                   builder: (context, snap) {
-                                    final d = snap.data;
-                                    if (snap.connectionState != ConnectionState.done || d == null) {
+                                    if (snap.connectionState != ConnectionState.done) {
                                       return Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
@@ -391,11 +782,69 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                       );
                                     }
 
+                                    final d = snap.data;
+                                    if (d == null) {
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.deepOrange.withOpacity(0.12),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          'Còn nợ: ${currency.format(s.debt)} • Thiếu ghi nợ',
+                                          style: const TextStyle(
+                                            color: Colors.deepOrange,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      );
+                                    }
+
                                     return FutureBuilder<double>(
                                       future: DatabaseService.instance.getTotalPaidForDebt(d.id),
                                       builder: (context, paidSnap) {
+                                        if (paidSnap.connectionState != ConnectionState.done) {
+                                          return Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Còn nợ: ${currency.format(s.debt)}',
+                                              style: const TextStyle(
+                                                color: Colors.red,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          );
+                                        }
+
                                         final paid = paidSnap.data ?? 0;
                                         final remain = d.amount;
+                                        final initialDebt = (remain + paid).clamp(0.0, double.infinity).toDouble();
+
+                                        final mismatch = (initialDebt - s.debt).abs() > 0.5;
+                                        if (mismatch) {
+                                          return Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.withOpacity(0.16),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Lệch nợ • Sale: ${currency.format(s.debt)} | Debt gốc: ${currency.format(initialDebt)} | Còn: ${currency.format(remain)}',
+                                              style: const TextStyle(
+                                                color: Colors.deepOrange,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          );
+                                        }
+
                                         final settled = d.settled || remain <= 0;
                                         final bg = settled ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1);
                                         final fg = settled ? Colors.green : Colors.red;

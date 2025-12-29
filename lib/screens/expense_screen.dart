@@ -1,13 +1,16 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../providers/auth_provider.dart';
+import '../services/document_storage_service.dart';
 import '../services/database_service.dart';
 import '../services/drive_sync_service.dart';
 import '../utils/number_input_formatter.dart';
@@ -28,10 +31,14 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
   static const List<String> _categories = <String>[
     'all',
+    'Nhân công',
+    'Thuê mặt bằng-kho bãi',
+    'Phí quản lý (vpp, dụng cụ, công cụ .v.v.)',
     'Điện',
     'Nước',
     'Internet',
     'Xăng xe',
+    'Chi tiêu ngoài kinh doanh',
     'Chi phí khác',
   ];
 
@@ -55,18 +62,47 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     return token;
   }
 
-  Future<void> _uploadExpenseDoc({required String expenseId}) async {
-    final token = await _getDriveToken();
-    if (token == null) return;
+  bool _looksLikeLocalDocPath(String? fileIdOrPath) {
+    final s = (fileIdOrPath ?? '').trim();
+    return s.startsWith('expense_docs/') || s.startsWith('expense_docs\\');
+  }
 
+  Future<String?> _ensureExpenseDocLocal({
+    required String expenseId,
+    String? fileIdFromDb,
+  }) async {
+    final existing = (fileIdFromDb ?? '').trim();
+    if (existing.isEmpty) return null;
+    if (_looksLikeLocalDocPath(existing)) return existing;
+
+    // Legacy: Drive fileId
+    final token = await _getDriveToken();
+    if (token == null) return null;
+
+    final bytes = await DriveSyncService().downloadFile(accessToken: token, fileId: existing);
+
+    final dir = await getTemporaryDirectory();
+    final tmp = File('${dir.path}/$expenseId');
+    await tmp.writeAsBytes(bytes, flush: true);
+
+    // Default to jpg when migrating (old versions uploaded jpg)
+    final rel = await DocumentStorageService.instance.saveExpenseDoc(
+      expenseId: expenseId,
+      sourcePath: tmp.path,
+      extension: '.jpg',
+    );
+    await DatabaseService.instance.markExpenseDocUploaded(expenseId: expenseId, fileId: rel);
+    return rel;
+  }
+
+  Future<void> _uploadExpenseDoc({required String expenseId}) async {
     if (mounted) {
       setState(() {
         _docUploading.add(expenseId);
       });
     }
 
-    final picker = ImagePicker();
-    final source = await showModalBottomSheet<ImageSource>(
+    final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (ctx) {
@@ -76,13 +112,13 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.photo_camera),
-                title: const Text('Chụp ảnh'),
-                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+                title: const Text('Chụp ảnh (JPG)'),
+                onTap: () => Navigator.pop(ctx, 'camera'),
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Chọn ảnh trong máy'),
-                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+                leading: const Icon(Icons.upload_file_outlined),
+                title: const Text('Chọn file (PDF/Ảnh)'),
+                onTap: () => Navigator.pop(ctx, 'file'),
               ),
             ],
           ),
@@ -90,7 +126,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       },
     );
 
-    if (source == null) {
+    if (action == null) {
       if (mounted) {
         setState(() {
           _docUploading.remove(expenseId);
@@ -98,32 +134,42 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       }
       return;
     }
-
-    final picked = await picker.pickImage(source: source, imageQuality: 85);
-    if (picked == null) {
-      if (mounted) {
-        setState(() {
-          _docUploading.remove(expenseId);
-        });
-      }
-      return;
-    }
-
-    final bytes = await picked.readAsBytes();
 
     try {
-      final meta = await DriveSyncService().uploadOrUpdateExpenseDocJpg(
-        accessToken: token,
-        expenseId: expenseId,
-        bytes: bytes,
-      );
-      final fileId = (meta['id'] ?? '').trim();
-      if (fileId.isNotEmpty) {
-        await DatabaseService.instance.markExpenseDocUploaded(expenseId: expenseId, fileId: fileId);
+      String? relPath;
+
+      if (action == 'camera') {
+        final picker = ImagePicker();
+        final picked = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+        if (picked != null) {
+          relPath = await DocumentStorageService.instance.saveExpenseDoc(
+            expenseId: expenseId,
+            sourcePath: picked.path,
+            extension: '.jpg',
+          );
+        }
+      } else {
+        final res = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowMultiple: false,
+          allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+          withData: false,
+        );
+        final path = res?.files.single.path;
+        if (path != null && path.trim().isNotEmpty) {
+          relPath = await DocumentStorageService.instance.saveExpenseDoc(
+            expenseId: expenseId,
+            sourcePath: path,
+          );
+        }
       }
+
+      if (relPath == null || relPath.trim().isEmpty) return;
+      await DatabaseService.instance.markExpenseDocUploaded(expenseId: expenseId, fileId: relPath);
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đã tải chứng từ chi phí lên Google Drive')),
+        const SnackBar(content: Text('Đã lưu chứng từ vào ứng dụng')),
       );
       setState(() {});
     } finally {
@@ -136,19 +182,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   }
 
   Future<void> _openExpenseDoc({required String expenseId, String? fileIdFromDb}) async {
-    final token = await _getDriveToken();
-    if (token == null) return;
-
-    var fileId = (fileIdFromDb ?? '').trim();
-    if (fileId.isEmpty) {
-      final info = await DriveSyncService().getExpenseDocByName(accessToken: token, expenseId: expenseId);
-      fileId = (info?['id'] ?? '').trim();
-      if (fileId.isNotEmpty) {
-        await DatabaseService.instance.markExpenseDocUploaded(expenseId: expenseId, fileId: fileId);
-      }
-    }
-
-    if (fileId.isEmpty) {
+    final localRel = await _ensureExpenseDocLocal(expenseId: expenseId, fileIdFromDb: fileIdFromDb);
+    if (localRel == null || localRel.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Chưa có chứng từ cho chi phí này')),
@@ -156,32 +191,31 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       return;
     }
 
-    final bytes = await DriveSyncService().downloadFile(accessToken: token, fileId: fileId);
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (_) => Dialog(
-        child: InteractiveViewer(
-          child: Image.memory(bytes, fit: BoxFit.contain),
+    final full = await DocumentStorageService.instance.resolvePath(localRel);
+    if (full == null) return;
+    final ext = full.toLowerCase();
+    if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png')) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          child: InteractiveViewer(
+            child: Image.file(File(full), fit: BoxFit.contain),
+          ),
         ),
-      ),
-    );
+      );
+      return;
+    }
+
+    await OpenFilex.open(full);
   }
 
   Future<void> _downloadExpenseDoc({
     required String expenseId,
     String? fileIdFromDb,
   }) async {
-    final token = await _getDriveToken();
-    if (token == null) return;
-
-    var fileId = (fileIdFromDb ?? '').trim();
-    if (fileId.isEmpty) {
-      final info = await DriveSyncService().getExpenseDocByName(accessToken: token, expenseId: expenseId);
-      fileId = (info?['id'] ?? '').trim();
-    }
-
-    if (fileId.isEmpty) {
+    final localRel = await _ensureExpenseDocLocal(expenseId: expenseId, fileIdFromDb: fileIdFromDb);
+    if (localRel == null || localRel.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Chưa có chứng từ để tải')),
@@ -189,27 +223,17 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       return;
     }
 
-    final bytes = await DriveSyncService().downloadFile(accessToken: token, fileId: fileId);
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$expenseId.jpg');
-    await file.writeAsBytes(bytes, flush: true);
-    await Share.shareXFiles([XFile(file.path)], text: 'Chứng từ chi phí: $expenseId');
+    final full = await DocumentStorageService.instance.resolvePath(localRel);
+    if (full == null) return;
+    await Share.shareXFiles([XFile(full)], text: 'Chứng từ chi phí: $expenseId');
   }
 
   Future<void> _deleteExpenseDoc({
     required String expenseId,
     String? fileIdFromDb,
   }) async {
-    final token = await _getDriveToken();
-    if (token == null) return;
-
-    var fileId = (fileIdFromDb ?? '').trim();
-    if (fileId.isEmpty) {
-      final info = await DriveSyncService().getExpenseDocByName(accessToken: token, expenseId: expenseId);
-      fileId = (info?['id'] ?? '').trim();
-    }
-
-    if (fileId.isEmpty) {
+    final existing = (fileIdFromDb ?? '').trim();
+    if (existing.isEmpty) {
       await DatabaseService.instance.clearExpenseDoc(expenseId: expenseId);
       if (!mounted) return;
       setState(() {});
@@ -219,7 +243,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       return;
     }
 
-    await DriveSyncService().deleteFile(accessToken: token, fileId: fileId);
+    if (_looksLikeLocalDocPath(existing)) {
+      await DocumentStorageService.instance.delete(existing);
+    }
     await DatabaseService.instance.clearExpenseDoc(expenseId: expenseId);
     if (!mounted) return;
     setState(() {});

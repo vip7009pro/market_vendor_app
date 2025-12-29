@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 
+import '../models/product.dart';
 import '../providers/product_provider.dart';
 import '../services/database_service.dart';
 import '../utils/file_helper.dart';
@@ -116,6 +117,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
     final existing = existingMap[productId] ?? 0;
 
     final ctrl = TextEditingController(text: _fmtQty(existing));
+    final currentCtrl = TextEditingController(text: _fmtQty(currentStock));
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -128,6 +130,17 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(productName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: currentCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                  decoration: InputDecoration(
+                    labelText: 'Tồn hiện tại',
+                    suffixText: unit,
+                    isDense: true,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: ctrl,
@@ -148,7 +161,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                       icon: const Icon(Icons.auto_fix_high),
                       label: const Text('Lấy tồn hiện tại'),
                       onPressed: () {
-                        ctrl.text = _fmtQty(currentStock);
+                        ctrl.text = currentCtrl.text;
                         FocusScope.of(context).unfocus();
                       },
                     ),
@@ -194,7 +207,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                           end: end,
                         );
 
-                        final opening = currentStock + exportQty - importQty;
+                        final current = (NumberInputFormatter.tryParse(currentCtrl.text) ?? 0).toDouble();
+                        final opening = current + exportQty - importQty;
                         ctrl.text = _fmtQty(opening);
                         FocusScope.of(context).unfocus();
                       },
@@ -203,7 +217,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Tồn hiện tại: ${_fmtQty(currentStock)} $unit',
+                  'Tồn hiện tại: ${currentCtrl.text} $unit',
                   style: const TextStyle(color: Colors.black54),
                 ),
               ],
@@ -219,11 +233,34 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
     if (ok != true) return;
 
     final v = (NumberInputFormatter.tryParse(ctrl.text) ?? 0).toDouble();
+    final newCurrent = (NumberInputFormatter.tryParse(currentCtrl.text) ?? 0).toDouble();
+
     await DatabaseService.instance.upsertOpeningStocksForMonth(
       year: monthYear.year,
       month: monthYear.month,
       openingByProductId: {productId: v},
     );
+
+    if (mounted) {
+      final provider = context.read<ProductProvider>();
+      final idx = provider.products.indexWhere((p) => p.id == productId);
+      if (idx != -1) {
+        final old = provider.products[idx];
+        await provider.update(
+          Product(
+            id: old.id,
+            name: old.name,
+            price: old.price,
+            costPrice: old.costPrice,
+            currentStock: newCurrent,
+            unit: old.unit,
+            barcode: old.barcode,
+            isActive: old.isActive,
+            imagePath: old.imagePath,
+          ),
+        );
+      }
+    }
     if (!mounted) return;
     _refreshRowsPreserveScroll();
     messenger.showSnackBar(const SnackBar(content: Text('Đã cập nhật tồn đầu kỳ')));

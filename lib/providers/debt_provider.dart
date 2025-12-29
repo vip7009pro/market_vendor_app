@@ -106,9 +106,14 @@ class DebtProvider with ChangeNotifier {
   }
 
   // Record a partial payment for a debt, reduce remaining amount, settle if zero
-  Future<void> addPayment({required Debt debt, required double amount, String? note}) async {
+  Future<void> addPayment({required Debt debt, required double amount, String? note, String? paymentType}) async {
     if (amount <= 0) return;
-    await DatabaseService.instance.insertDebtPayment(debtId: debt.id, amount: amount, note: note);
+    await DatabaseService.instance.insertDebtPayment(
+      debtId: debt.id,
+      amount: amount,
+      note: note,
+      paymentType: paymentType,
+    );
     debt.amount = (debt.amount - amount).clamp(0, double.infinity);
     if (debt.amount == 0) {
       debt.settled = true;
@@ -151,16 +156,33 @@ class DebtProvider with ChangeNotifier {
     }
   }
 
-  Future<void> deleteDebt(String debtId) async {
+  Future<bool> deleteDebt(String debtId) async {
     // Cache for undo
     final idx = _debts.indexWhere((d) => d.id == debtId);
     if (idx != -1) {
       _lastDeletedDebt = _debts[idx];
       _lastDeletedDebtPayments = await DatabaseService.instance.getDebtPayments(debtId);
+
+      final srcType = (_lastDeletedDebt?.sourceType ?? '').trim();
+      final srcId = (_lastDeletedDebt?.sourceId ?? '').trim();
+      if (srcType == 'sale' && srcId.isNotEmpty) {
+        final saleTotals = await DatabaseService.instance.getSaleTotals(srcId);
+        if (saleTotals != null) {
+          final total = saleTotals['total'] ?? 0.0;
+          final paidAmount = saleTotals['paidAmount'] ?? 0.0;
+          final remain = (total - paidAmount).clamp(0.0, double.infinity).toDouble();
+          if (remain > 0) {
+            return false;
+          }
+        }
+      }
+
       await DatabaseService.instance.deleteDebt(debtId);
       _debts.removeAt(idx);
       notifyListeners();
     }
+
+    return true;
   }
 
   Future<bool> undoLastPaymentDeletion() async {
