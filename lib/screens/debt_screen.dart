@@ -22,6 +22,8 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
   bool _showOnlyUnpaid = true;
   _DebtLinkFilter _linkFilter = _DebtLinkFilter.all;
 
+  bool _isTableView = false;
+
   @override
   void initState() {
     super.initState();
@@ -83,6 +85,11 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
       appBar: AppBar(
         title: const Text('Ghi nợ'),
         actions: [
+          IconButton(
+            tooltip: _isTableView ? 'Hiển thị dạng thẻ' : 'Hiển thị dạng bảng',
+            icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_chart_outlined),
+            onPressed: () => setState(() => _isTableView = !_isTableView),
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Thêm công nợ',
@@ -196,8 +203,8 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
             child: TabBarView(
               controller: _tabController,
               children: [
-                DebtList(debts: othersOwe, color: Colors.red),
-                DebtList(debts: iOwe, color: Colors.amber),
+                DebtList(debts: othersOwe, color: Colors.red, isTableView: _isTableView),
+                DebtList(debts: iOwe, color: Colors.amber, isTableView: _isTableView),
               ],
             ),
           ),
@@ -463,7 +470,8 @@ Future<void> _showPaymentHistory(BuildContext context, Debt d, NumberFormat curr
 class DebtList extends StatelessWidget {
   final List<Debt> debts;
   final Color color;
-  const DebtList({required this.debts, required this.color});
+  final bool isTableView;
+  const DebtList({required this.debts, required this.color, required this.isTableView});
 
   Widget _buildAssignmentChip(Debt d) {
     final isAssigned = (d.sourceId ?? '').trim().isNotEmpty;
@@ -667,6 +675,44 @@ class DebtList extends StatelessWidget {
     if (debts.isEmpty) {
       return const Center(child: Text('Chưa có dữ liệu'));
     }
+
+    if (isTableView) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Ngày')),
+              DataColumn(label: Text('Người')),
+              DataColumn(label: Text('Còn nợ')),
+              DataColumn(label: Text('Loại')),
+              DataColumn(label: Text('Gán')),
+            ],
+            rows: debts.map((d) {
+              final st = (d.sourceType ?? '').trim();
+              final sid = (d.sourceId ?? '').trim();
+              final assigned = sid.isNotEmpty;
+              final kind = st == 'sale' ? 'Bán hàng' : (st == 'purchase' ? 'Nhập hàng' : (st.isEmpty ? 'Nợ ngoài' : st));
+              return DataRow(
+                cells: [
+                  DataCell(Text(DateFormat('dd/MM/yyyy').format(d.createdAt))),
+                  DataCell(Text(d.partyName)),
+                  DataCell(Text(currency.format(d.amount))),
+                  DataCell(Text(kind)),
+                  DataCell(Text(assigned ? 'Có' : 'Không')),
+                ],
+                onSelectChanged: (_) async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => DebtDetailScreen(debt: d)),
+                  );
+                },
+              );
+            }).toList(),
+          ),
+        ),
+      );
+    }
+
     return ListView.separated(
       itemCount: debts.length,
       separatorBuilder: (_, __) => const Divider(height: 1),

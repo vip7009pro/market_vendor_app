@@ -302,6 +302,14 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
     final discount = _discountValue();
     final paid = _paidValue();
 
+    final total = (_subtotal() - discount).clamp(0.0, double.infinity).toDouble();
+    if (paid > total) {
+      final formatted = NumberFormat.decimalPattern('en_US').format(total.truncate());
+      _paidCtrl.text = formatted;
+      _paidCtrl.selection = TextSelection.collapsed(offset: _paidCtrl.text.length);
+      throw Exception('Khách trả không được lớn hơn tổng tiền');
+    }
+
     final oldSale = widget.sale;
     final newSale = Sale(
       id: oldSale.id,
