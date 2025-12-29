@@ -468,7 +468,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, i) {
                       final s = rows[i];
-                      final customer = s.customerName?.trim().isEmpty == false ? s.customerName!.trim() : 'Khách lẻ';
+                      final customerName = (s.customerName ?? '').trim();
+                      final customer = customerName.isEmpty ? 'Khách lẻ' : customerName;
                       final items = s.items
                           .map((item) =>
                               '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}')
@@ -788,9 +789,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 1),
                     itemBuilder: (context, i) {
                       final s = finalList[i];
-                      final customer = s.customerName?.trim().isNotEmpty == false
-                          ? 'Khách lẻ'
-                          : s.customerName!.trim();
+                      final customerName = (s.customerName ?? '').trim();
+                      final customer = customerName.isEmpty ? 'Khách lẻ' : customerName;
                       return Card(
                         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                         elevation: 1,

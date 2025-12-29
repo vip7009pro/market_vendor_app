@@ -39,6 +39,8 @@ class _PaymentKpi extends StatelessWidget {
   final String title;
   final double totalRevenue;
   final _PayStats stats;
+  final double businessCost;
+  final double profit;
   final NumberFormat currency;
   final Color color;
 
@@ -46,6 +48,8 @@ class _PaymentKpi extends StatelessWidget {
     required this.title,
     required this.totalRevenue,
     required this.stats,
+    required this.businessCost,
+    required this.profit,
     required this.currency,
     required this.color,
   });
@@ -60,7 +64,7 @@ class _PaymentKpi extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.black.withAlpha(8)),
-        color: color.withOpacity(0.06),
+        color: color.withAlpha(15),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -111,9 +115,86 @@ class _PaymentKpi extends StatelessWidget {
               Text(currency.format(stats.outstandingDebt), style: valueStyle?.copyWith(color: Colors.redAccent)),
             ],
           ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(child: Text('Chi phí', style: labelStyle)),
+              Text(currency.format(businessCost), style: valueStyle),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(child: Text('Lợi nhuận', style: labelStyle)),
+              Text(
+                currency.format(profit),
+                style: valueStyle?.copyWith(color: profit >= 0 ? Colors.green : Colors.redAccent),
+              ),
+            ],
+          ),
         ],
       ),
     );
+  }
+}
+
+class _PaymentMetricTile extends StatelessWidget {
+  final IconData icon;
+  final double value;
+  final NumberFormat currency;
+  final List<Color> gradientColors;
+  final String? tooltip;
+
+  const _PaymentMetricTile({
+    required this.icon,
+    required this.value,
+    required this.currency,
+    required this.gradientColors,
+    this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final child = Container(
+      width: 110,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: gradientColors,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(20),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 22, color: Colors.white),
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              currency.format(value),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (tooltip == null || tooltip!.trim().isEmpty) return child;
+    return Tooltip(message: tooltip!, child: child);
   }
 }
 
@@ -125,10 +206,13 @@ class ReportScreen extends StatefulWidget {
 
 class _ReportScreenState extends State<ReportScreen> {
 
-  DateTimeRange _dateRange = DateTimeRange(
-    start: DateTime.now().subtract(const Duration(days: 6)),
-    end: DateTime.now(),
-  );
+  DateTimeRange _dateRange = (() {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: DateTime(now.year, now.month, 1),
+      end: now,
+    );
+  })();
 
   final PageController _chartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _chartPageIndex = ValueNotifier<int>(0);
@@ -723,15 +807,15 @@ class _ReportScreenState extends State<ReportScreen> {
 
       final saleRowsInRange = await db.query(
         'sales',
-        columns: ['id', 'createdAt', 'paidAmount', 'paymentType'],
+        columns: ['id', 'paidAmount', 'paymentType'],
         where: 'createdAt >= ? AND createdAt <= ?',
         whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
       );
       final saleIdsInRange = <String>[];
       for (final r in saleRowsInRange) {
         final sid = (r['id']?.toString() ?? '').trim();
-        if (sid.isEmpty) continue;
-        saleIdsInRange.add(sid);
+        if (sid.isNotEmpty) saleIdsInRange.add(sid);
+
         final paid = (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
         paymentPaidSheet.appendRow([
           _cv(sid),
@@ -752,8 +836,7 @@ class _ReportScreenState extends State<ReportScreen> {
         final debtIds = <String>[];
         for (final d in debtsForSales) {
           final did = (d['id']?.toString() ?? '').trim();
-          if (did.isEmpty) continue;
-          debtIds.add(did);
+          if (did.isNotEmpty) debtIds.add(did);
           final sid = (d['sourceId']?.toString() ?? '').trim();
           final remain = (d['amount'] as num?)?.toDouble() ?? 0.0;
           if (remain > 0) {
@@ -1008,7 +1091,7 @@ class _ReportScreenState extends State<ReportScreen> {
     final placeholders = List.filled(saleIds.length, '?').join(',');
     final debtsForSales = await db.query(
       'debts',
-      columns: ['id', 'amount'],
+      columns: ['id', 'amount', 'sourceId'],
       where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
       whereArgs: saleIds,
     );
@@ -1235,6 +1318,96 @@ class _ReportScreenState extends State<ReportScreen> {
                       ],
                     ),
                     const SizedBox(height: 10),
+                    FutureBuilder<_PayStats>(
+                      future: _loadPayStats(start: start, end: end),
+                      builder: (context, snap) {
+                        if (snap.connectionState != ConnectionState.done) {
+                          return const SizedBox(
+                            height: 190,
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+
+                        final pay = snap.data ?? const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
+                        final total = pay.cashRevenue + pay.bankRevenue + pay.outstandingDebt;
+                        final profitColor = periodProfit >= 0 ? Colors.green : Colors.redAccent;
+
+                        final tiles = <Widget>[
+                          _PaymentMetricTile(
+                            icon: Icons.payments_outlined,
+                            value: total,
+                            currency: currency,
+                            tooltip: 'Tổng doanh thu (theo khoảng ngày)',
+                            gradientColors: const [Color(0xFF3B82F6), Color(0xFF6366F1)],
+                          ),
+                          _PaymentMetricTile(
+                            icon: Icons.money_outlined,
+                            value: pay.cashRevenue,
+                            currency: currency,
+                            tooltip: 'Tiền mặt (theo khoảng ngày)',
+                            gradientColors: const [Color(0xFF10B981), Color(0xFF22C55E)],
+                          ),
+                          _PaymentMetricTile(
+                            icon: Icons.account_balance_outlined,
+                            value: pay.bankRevenue,
+                            currency: currency,
+                            tooltip: 'Chuyển khoản (theo khoảng ngày)',
+                            gradientColors: const [Color(0xFF06B6D4), Color(0xFF3B82F6)],
+                          ),
+                          _PaymentMetricTile(
+                            icon: Icons.request_quote_outlined,
+                            value: pay.outstandingDebt,
+                            currency: currency,
+                            tooltip: 'Nợ chưa trả (theo khoảng ngày)',
+                            gradientColors: const [Color(0xFFEF4444), Color(0xFFF97316)],
+                          ),
+                          _PaymentMetricTile(
+                            icon: Icons.price_change_outlined,
+                            value: periodCost,
+                            currency: currency,
+                            tooltip: 'Chi phí / vốn (theo khoảng ngày)',
+                            gradientColors: const [Color(0xFFF59E0B), Color(0xFFF97316)],
+                          ),
+                          _PaymentMetricTile(
+                            icon: periodProfit >= 0 ? Icons.trending_up_outlined : Icons.trending_down_outlined,
+                            value: periodProfit,
+                            currency: currency,
+                            tooltip: 'Lợi nhuận (theo khoảng ngày)',
+                            gradientColors: [profitColor, profitColor.withAlpha(191)],
+                          ),
+                        ];
+
+                        return LayoutBuilder(
+                          builder: (context, constraints) {
+                            final gap = constraints.maxWidth < 420 ? 8.0 : 10.0;
+                            return Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(child: Center(child: tiles[0])),
+                                    SizedBox(width: gap),
+                                    Expanded(child: Center(child: tiles[1])),
+                                    SizedBox(width: gap),
+                                    Expanded(child: Center(child: tiles[2])),
+                                  ],
+                                ),
+                                SizedBox(height: gap),
+                                Row(
+                                  children: [
+                                    Expanded(child: Center(child: tiles[3])),
+                                    SizedBox(width: gap),
+                                    Expanded(child: Center(child: tiles[4])),
+                                    SizedBox(width: gap),
+                                    Expanded(child: Center(child: tiles[5])),
+                                  ],
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     FutureBuilder<List<_PayStats>>(
                       future: Future.wait([
                         _loadPayStats(start: startOfDay, end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999)),
@@ -1285,6 +1458,8 @@ class _ReportScreenState extends State<ReportScreen> {
                               title: 'Hôm nay',
                               stats: fixedToday,
                               totalRevenue: fixedToday.cashRevenue + fixedToday.bankRevenue + fixedToday.outstandingDebt,
+                              businessCost: todayCost,
+                              profit: todayProfit,
                               currency: currency,
                               color: Colors.blue,
                             );
@@ -1292,6 +1467,8 @@ class _ReportScreenState extends State<ReportScreen> {
                               title: 'Tuần này',
                               stats: fixedWeek,
                               totalRevenue: fixedWeek.cashRevenue + fixedWeek.bankRevenue + fixedWeek.outstandingDebt,
+                              businessCost: weekCost,
+                              profit: weekProfit,
                               currency: currency,
                               color: Colors.green,
                             );
@@ -1299,6 +1476,8 @@ class _ReportScreenState extends State<ReportScreen> {
                               title: 'Tháng này',
                               stats: fixedMonth,
                               totalRevenue: fixedMonth.cashRevenue + fixedMonth.bankRevenue + fixedMonth.outstandingDebt,
+                              businessCost: monthCost,
+                              profit: monthProfit,
                               currency: currency,
                               color: Colors.purple,
                             );
@@ -1306,6 +1485,8 @@ class _ReportScreenState extends State<ReportScreen> {
                               title: 'Năm nay',
                               stats: fixedYear,
                               totalRevenue: fixedYear.cashRevenue + fixedYear.bankRevenue + fixedYear.outstandingDebt,
+                              businessCost: yearCost,
+                              profit: yearProfit,
                               currency: currency,
                               color: Colors.orange,
                             );
@@ -1344,79 +1525,6 @@ class _ReportScreenState extends State<ReportScreen> {
                               ],
                             );
                           },
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isNarrow = constraints.maxWidth < 720;
-
-                        final kpiToday = _TripleKpi(
-                          title: 'Hôm nay',
-                          revenue: todaySales,
-                          cost: todayCost,
-                          profit: todayProfit,
-                          currency: currency,
-                          color: Colors.blue,
-                        );
-                        final kpiWeek = _TripleKpi(
-                          title: 'Tuần này',
-                          revenue: weekSales,
-                          cost: weekCost,
-                          profit: weekProfit,
-                          currency: currency,
-                          color: Colors.green,
-                        );
-                        final kpiMonth = _TripleKpi(
-                          title: 'Tháng này',
-                          revenue: monthSales,
-                          cost: monthCost,
-                          profit: monthProfit,
-                          currency: currency,
-                          color: Colors.purple,
-                        );
-                        final kpiYear = _TripleKpi(
-                          title: 'Năm nay',
-                          revenue: yearSales,
-                          cost: yearCost,
-                          profit: yearProfit,
-                          currency: currency,
-                          color: Colors.orange,
-                        );
-
-                        if (!isNarrow) {
-                          return Row(
-                            children: [
-                              Expanded(child: kpiToday),
-                              const SizedBox(width: 6),
-                              Expanded(child: kpiWeek),
-                              const SizedBox(width: 6),
-                              Expanded(child: kpiMonth),
-                              const SizedBox(width: 6),
-                              Expanded(child: kpiYear),
-                            ],
-                          );
-                        }
-
-                        return Column(
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(child: kpiToday),
-                                const SizedBox(width: 6),
-                                Expanded(child: kpiWeek),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Expanded(child: kpiMonth),
-                                const SizedBox(width: 6),
-                                Expanded(child: kpiYear),
-                              ],
-                            ),
-                          ],
                         );
                       },
                     ),
@@ -1756,92 +1864,105 @@ class _ReportScreenState extends State<ReportScreen> {
           children: [
             Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 260,
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  minY: _getMinY(points),
-                  maxY: _getMaxY(points),
-                  barTouchData: BarTouchData(
-                    touchTooltipData: BarTouchTooltipData(
-                      getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                        final point = points[groupIndex];
-                        final tooltipText = '${point.x}\n\nLN ròng: ${currency.format(point.profit)}';
-                        return BarTooltipItem(
-                          tooltipText,
-                          const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        );
-                      },
-                      tooltipMargin: 8,
-                      tooltipRoundedRadius: 8,
-                      tooltipPadding: const EdgeInsets.all(8),
-                      getTooltipColor: (_) => Colors.black87,
-                    ),
-                  ),
-                  gridData: const FlGridData(show: true, drawVerticalLine: false),
-                  borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, meta) {
-                          final i = value.toInt();
-                          if (i < 0 || i >= points.length) return const SizedBox.shrink();
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              points[i].x,
-                              style: const TextStyle(fontSize: 10),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final minWidth = points.length * 52.0;
+                  final chartWidth = minWidth < constraints.maxWidth ? constraints.maxWidth : minWidth;
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: chartWidth,
+                      height: constraints.maxHeight,
+                      child: BarChart(
+                        BarChartData(
+                          alignment: BarChartAlignment.start,
+                          groupsSpace: 14,
+                          minY: _getMinY(points),
+                          maxY: _getMaxY(points),
+                          barTouchData: BarTouchData(
+                            touchTooltipData: BarTouchTooltipData(
+                              getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                final point = points[groupIndex];
+                                final tooltipText = '${point.x}\n\nLN ròng: ${currency.format(point.profit)}';
+                                return BarTooltipItem(
+                                  tooltipText,
+                                  const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                );
+                              },
+                              tooltipMargin: 8,
+                              tooltipRoundedRadius: 8,
+                              tooltipPadding: const EdgeInsets.all(8),
+                              getTooltipColor: (_) => Colors.black87,
                             ),
-                          );
-                        },
-                        reservedSize: 42,
-                      ),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 50,
-                        getTitlesWidget: (value, meta) {
-                          String txt;
-                          final abs = value.abs();
-                          if (abs >= 1000000) {
-                            txt = '${(value / 1000000).toStringAsFixed(1)}M';
-                          } else if (abs >= 1000) {
-                            txt = '${(value / 1000).toStringAsFixed(0)}k';
-                          } else {
-                            txt = value.toInt().toString();
-                          }
-                          return Text(txt, style: const TextStyle(fontSize: 10));
-                        },
-                      ),
-                    ),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  ),
-                  barGroups: [
-                    for (var i = 0; i < points.length; i++)
-                      BarChartGroupData(
-                        x: i,
-                        barRods: [
-                          BarChartRodData(
-                            toY: points[i].profit,
-                            color: (points[i].profit >= 0 ? Colors.teal : Colors.red).withOpacity(0.75),
-                            width: 12,
-                            borderRadius: BorderRadius.circular(2),
                           ),
-                        ],
+                          gridData: const FlGridData(show: true, drawVerticalLine: false),
+                          borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
+                          titlesData: FlTitlesData(
+                            show: true,
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                getTitlesWidget: (value, meta) {
+                                  final i = value.toInt();
+                                  if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      points[i].x,
+                                      style: const TextStyle(fontSize: 10),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                },
+                                reservedSize: 38,
+                              ),
+                            ),
+                            leftTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 44,
+                                getTitlesWidget: (value, meta) {
+                                  String txt;
+                                  final abs = value.abs();
+                                  if (abs >= 1000000) {
+                                    txt = '${(value / 1000000).toStringAsFixed(1)}M';
+                                  } else if (abs >= 1000) {
+                                    txt = '${(value / 1000).toStringAsFixed(0)}k';
+                                  } else {
+                                    txt = value.toInt().toString();
+                                  }
+                                  return Text(txt, style: const TextStyle(fontSize: 10));
+                                },
+                              ),
+                            ),
+                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          ),
+                          barGroups: [
+                            for (var i = 0; i < points.length; i++)
+                              BarChartGroupData(
+                                x: i,
+                                barRods: [
+                                  BarChartRodData(
+                                    toY: points[i].profit,
+                                    color: (points[i].profit >= 0 ? Colors.teal : Colors.red).withAlpha(191),
+                                    width: 12,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
                       ),
-                  ],
-                ),
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -1871,108 +1992,122 @@ class _ReportScreenState extends State<ReportScreen> {
             const SizedBox(height: 12),
             SizedBox(
               height: 280,
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  minY: _getMinY(points),
-                  maxY: _getMaxY(points),
-                  barTouchData: BarTouchData(
-                    touchTooltipData: BarTouchTooltipData(
-                      getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                        final point = points[groupIndex];
-                        final tooltipText = '${point.x}\n\n'
-                            'Doanh thu: ${currency.format(point.y)}\n'
-                            'Chi phí: ${currency.format(point.cost)}\n'
-                            'Lợi nhuận: ${currency.format(point.profit)}';
-                        return BarTooltipItem(
-                          tooltipText,
-                          const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        );
-                      },
-                      tooltipMargin: 8,
-                      tooltipRoundedRadius: 8,
-                      tooltipPadding: const EdgeInsets.all(8),
-                      getTooltipColor: (_) => Colors.black87,
-                    ),
-                  ),
-                  gridData: const FlGridData(show: true, drawVerticalLine: false),
-                  borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, meta) {
-                          final i = value.toInt();
-                          if (i < 0 || i >= points.length) return const SizedBox.shrink();
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              points[i].x,
-                              style: const TextStyle(fontSize: 10),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final minWidth = points.length * 64.0;
+                  final chartWidth = minWidth < constraints.maxWidth ? constraints.maxWidth : minWidth;
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: chartWidth,
+                      child: BarChart(
+                        BarChartData(
+                          alignment: BarChartAlignment.start,
+                          groupsSpace: 18,
+                          minY: _getMinY(points),
+                          maxY: _getMaxY(points),
+                          barTouchData: BarTouchData(
+                            touchTooltipData: BarTouchTooltipData(
+                              getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                final point = points[groupIndex];
+                                final tooltipText = '${point.x}\n\n'
+                                    'Doanh thu: ${currency.format(point.y)}\n'
+                                    'Chi phí: ${currency.format(point.cost)}\n'
+                                    'Lợi nhuận: ${currency.format(point.profit)}';
+                                return BarTooltipItem(
+                                  tooltipText,
+                                  const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                );
+                              },
+                              tooltipMargin: 8,
+                              tooltipRoundedRadius: 8,
+                              tooltipPadding: const EdgeInsets.all(8),
+                              getTooltipColor: (_) => Colors.black87,
                             ),
-                          );
-                        },
-                        reservedSize: 42,
+                          ),
+                          gridData: const FlGridData(show: true, drawVerticalLine: false),
+                          borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
+                          titlesData: FlTitlesData(
+                            show: true,
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                getTitlesWidget: (value, meta) {
+                                  final i = value.toInt();
+                                  if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      points[i].x,
+                                      style: const TextStyle(fontSize: 10),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                },
+                                reservedSize: 42,
+                              ),
+                            ),
+                            leftTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 50,
+                                getTitlesWidget: (value, meta) {
+                                  String txt;
+                                  if (value >= 1000000) {
+                                    txt = '${(value / 1000000).toStringAsFixed(1)}M';
+                                  } else if (value >= 1000) {
+                                    txt = '${(value / 1000).toStringAsFixed(0)}k';
+                                  } else {
+                                    txt = value.toInt().toString();
+                                  }
+                                  return Text(txt, style: const TextStyle(fontSize: 10));
+                                },
+                              ),
+                            ),
+                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          ),
+                          barGroups: [
+                            for (var i = 0; i < points.length; i++)
+                              BarChartGroupData(
+                                x: i,
+                                barsSpace: 2,
+                                barRods: [
+                                  // Revenue bar
+                                  BarChartRodData(
+                                    toY: points[i].y,
+                                    color: Colors.blue.withAlpha(179),
+                                    width: 10,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                  // Cost bar (stacked)
+                                  BarChartRodData(
+                                    fromY: 0,
+                                    toY: points[i].cost,
+                                    color: Colors.red.withAlpha(179),
+                                    width: 10,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                  // Profit bar
+                                  BarChartRodData(
+                                    toY: points[i].profit,
+                                    color: Colors.green.withAlpha(179),
+                                    width: 10,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 50,
-                        getTitlesWidget: (value, meta) {
-                          String txt;
-                          if (value >= 1000000) {
-                            txt = '${(value / 1000000).toStringAsFixed(1)}M';
-                          } else if (value >= 1000) {
-                            txt = '${(value / 1000).toStringAsFixed(0)}k';
-                          } else {
-                            txt = value.toInt().toString();
-                          }
-                          return Text(txt, style: const TextStyle(fontSize: 10));
-                        },
-                      ),
-                    ),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  ),
-                  barGroups: [
-                    for (var i = 0; i < points.length; i++)
-                      BarChartGroupData(
-                        x: i,
-                        barRods: [
-                          // Revenue bar
-                          BarChartRodData(
-                            toY: points[i].y,
-                            color: Colors.blue.withOpacity(0.7),
-                            width: 10,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                          // Cost bar (stacked)
-                          BarChartRodData(
-                            fromY: 0,
-                            toY: points[i].cost,
-                            color: Colors.red.withOpacity(0.7),
-                            width: 10,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                          // Profit bar
-                          BarChartRodData(
-                            toY: points[i].profit,
-                            color: Colors.green.withOpacity(0.7),
-                            width: 10,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
           ],
@@ -2152,9 +2287,9 @@ class _InventoryMetric extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withAlpha(20),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(color: color.withAlpha(64)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2192,9 +2327,10 @@ class _SingleKpi extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withAlpha(20),
+
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(color: color.withAlpha(64)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2223,105 +2359,6 @@ class _SingleKpi extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _TripleKpi extends StatelessWidget {
-  final String title;
-  final double revenue;
-  final double cost;
-  final double profit;
-  final NumberFormat currency;
-  final Color color;
-
-  const _TripleKpi({
-    required this.title,
-    required this.revenue,
-    required this.cost,
-    required this.profit,
-    required this.currency,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final profitColor = profit >= 0 ? Colors.green : Colors.red;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.22)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 6),
-          _TripleKpiRow(label: 'DT', value: revenue, currency: currency, valueColor: Colors.blue),
-          const SizedBox(height: 2),
-          _TripleKpiRow(label: 'Vốn', value: cost, currency: currency, valueColor: Colors.orange),
-          const SizedBox(height: 2),
-          _TripleKpiRow(label: 'LN', value: profit, currency: currency, valueColor: profitColor),
-        ],
-      ),
-    );
-  }
-}
-
-class _TripleKpiRow extends StatelessWidget {
-  final String label;
-  final double value;
-  final NumberFormat currency;
-  final Color valueColor;
-
-  const _TripleKpiRow({
-    required this.label,
-    required this.value,
-    required this.currency,
-    required this.valueColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 30,
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                currency.format(value),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: valueColor,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

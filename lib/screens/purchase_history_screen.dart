@@ -58,6 +58,28 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     return result;
   }
 
+  Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
+    return Container(
+      alignment: align == TextAlign.right
+          ? Alignment.centerRight
+          : align == TextAlign.center
+              ? Alignment.center
+              : Alignment.centerLeft,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _tableCell(Widget child, {double? width, Alignment alignment = Alignment.centerLeft}) {
+    return Container(
+      alignment: alignment,
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      child: child,
+    );
+  }
+
   Widget _buildTable({
     required List<Map<String, dynamic>> rows,
     required NumberFormat currency,
@@ -67,56 +89,165 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
       return const Center(child: Text('Chưa có dữ liệu'));
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SingleChildScrollView(
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text('Ngày')),
-            DataColumn(label: Text('Sản phẩm')),
-            DataColumn(label: Text('SL')),
-            DataColumn(label: Text('Giá nhập')),
-            DataColumn(label: Text('Thành tiền')),
-            DataColumn(label: Text('Còn nợ')),
-            DataColumn(label: Text('NCC')),
-            DataColumn(label: Text('Ghi chú')),
-          ],
-          rows: rows.map((r) {
-            final createdAt = DateTime.tryParse(r['createdAt'] as String? ?? '') ?? DateTime.now();
-            final name = (r['productName'] as String?) ?? '';
-            final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
-            final unitCost = (r['unitCost'] as num?)?.toDouble() ?? 0;
-            final totalCost = (r['totalCost'] as num?)?.toDouble() ?? (qty * unitCost);
-            final paidAmount = (r['paidAmount'] as num?)?.toDouble() ?? 0;
-            final remainDebt = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
-            final note = (r['note'] as String?)?.trim();
-            final supplierName = (r['supplierName'] as String?)?.trim();
+    const wDate = 150.0;
+    const wProduct = 280.0;
+    const wQty = 80.0;
+    const wUnitCost = 120.0;
+    const wTotalCost = 130.0;
+    const wPaid = 120.0;
+    const wRemain = 120.0;
+    const wSupplier = 200.0;
+    const wNote = 260.0;
+    const wDoc = 90.0;
+    const wActions = 120.0;
+    const tableWidth = wDate + wProduct + wQty + wUnitCost + wTotalCost + wPaid + wRemain + wSupplier + wNote + wDoc + wActions;
 
-            return DataRow(
-              cells: [
-                DataCell(Text(fmtDate.format(createdAt))),
-                DataCell(Text(name)),
-                DataCell(Text(qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2))),
-                DataCell(Text(currency.format(unitCost))),
-                DataCell(Text(currency.format(totalCost))),
-                DataCell(Text(currency.format(remainDebt))),
-                DataCell(Text(supplierName ?? '')),
-                DataCell(
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 280),
-                    child: Text(note ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: tableWidth,
+            height: constraints.maxHeight,
+            child: Column(
+              children: [
+                Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 1,
+                  child: Row(
+                    children: [
+                      _tableHeaderCell('Ngày', width: wDate),
+                      _tableHeaderCell('Sản phẩm', width: wProduct),
+                      _tableHeaderCell('SL', width: wQty, align: TextAlign.right),
+                      _tableHeaderCell('Giá nhập', width: wUnitCost, align: TextAlign.right),
+                      _tableHeaderCell('Thành tiền', width: wTotalCost, align: TextAlign.right),
+                      _tableHeaderCell('Đã trả', width: wPaid, align: TextAlign.right),
+                      _tableHeaderCell('Còn nợ', width: wRemain, align: TextAlign.right),
+                      _tableHeaderCell('NCC', width: wSupplier),
+                      _tableHeaderCell('Ghi chú', width: wNote),
+                      _tableHeaderCell('Chứng từ', width: wDoc, align: TextAlign.center),
+                      _tableHeaderCell('Thao tác', width: wActions, align: TextAlign.center),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final r = rows[i];
+                      final createdAt = DateTime.tryParse(r['createdAt'] as String? ?? '') ?? DateTime.now();
+                      final name = (r['productName'] as String?) ?? '';
+                      final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
+                      final unitCost = (r['unitCost'] as num?)?.toDouble() ?? 0;
+                      final totalCost = (r['totalCost'] as num?)?.toDouble() ?? (qty * unitCost);
+                      final paidAmount = (r['paidAmount'] as num?)?.toDouble() ?? 0;
+                      final remainDebt = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
+                      final note = (r['note'] as String?)?.trim();
+                      final supplierName = (r['supplierName'] as String?)?.trim();
+                      final docUploaded = (r['purchaseDocUploaded'] as int?) == 1;
+                      final purchaseId = (r['id'] as String?) ?? '';
+                      final docUploading = purchaseId.isNotEmpty && _docUploading.contains(purchaseId);
+
+                      return InkWell(
+                        onTap: () async {
+                          await _editPurchaseDialog(r);
+                          if (!mounted) return;
+                          setState(() {});
+                        },
+                        child: Row(
+                          children: [
+                            _tableCell(Text(fmtDate.format(createdAt)), width: wDate),
+                            _tableCell(
+                              Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wProduct,
+                            ),
+                            _tableCell(
+                              Text(qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)),
+                              width: wQty,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(currency.format(unitCost)),
+                              width: wUnitCost,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(currency.format(totalCost)),
+                              width: wTotalCost,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(currency.format(paidAmount)),
+                              width: wPaid,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(currency.format(remainDebt)),
+                              width: wRemain,
+                              alignment: Alignment.centerRight,
+                            ),
+                            _tableCell(
+                              Text(supplierName ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wSupplier,
+                            ),
+                            _tableCell(
+                              Text(note ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wNote,
+                            ),
+                            _tableCell(
+                              docUploading
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : IconButton(
+                                      tooltip: 'Chứng từ',
+                                      onPressed: () => _showDocActions(row: r),
+                                      icon: Icon(
+                                        docUploaded ? Icons.verified_outlined : Icons.description_outlined,
+                                        color: docUploaded ? Colors.green : null,
+                                      ),
+                                    ),
+                              width: wDoc,
+                              alignment: Alignment.center,
+                            ),
+                            _tableCell(
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Sửa',
+                                    icon: const Icon(Icons.edit_outlined, size: 18),
+                                    onPressed: () async {
+                                      await _editPurchaseDialog(r);
+                                      if (!mounted) return;
+                                      setState(() {});
+                                    },
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Xóa',
+                                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                                    onPressed: () async {
+                                      await _deletePurchase(r);
+                                      if (!mounted) return;
+                                      setState(() {});
+                                    },
+                                  ),
+                                ],
+                              ),
+                              width: wActions,
+                              alignment: Alignment.center,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
-              onSelectChanged: (_) async {
-                await _editPurchaseDialog(r);
-                if (!mounted) return;
-                setState(() {});
-              },
-            );
-          }).toList(),
-        ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1358,6 +1489,12 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       icon: const Icon(Icons.add),
                       label: const Text('Nhập hàng'),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: _isTableView ? 'Hiển thị dạng thẻ' : 'Hiển thị dạng bảng',
+                    icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_chart_outlined),
+                    onPressed: () => setState(() => _isTableView = !_isTableView),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
