@@ -5,7 +5,6 @@ import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:convert';
-
 import '../models/debt.dart';
 import '../providers/sale_provider.dart';
 import '../providers/debt_provider.dart';
@@ -19,7 +18,6 @@ class _Point {
   final double y;
   final double cost;
   final double profit;
-
   _Point(this.x, this.y, {required this.cost, required this.profit});
 }
 
@@ -27,7 +25,6 @@ class _PayStats {
   final double cashRevenue;
   final double bankRevenue;
   final double outstandingDebt;
-
   const _PayStats({
     required this.cashRevenue,
     required this.bankRevenue,
@@ -43,7 +40,6 @@ class _PaymentKpi extends StatelessWidget {
   final double profit;
   final NumberFormat currency;
   final Color color;
-
   const _PaymentKpi({
     required this.title,
     required this.totalRevenue,
@@ -53,12 +49,10 @@ class _PaymentKpi extends StatelessWidget {
     required this.currency,
     required this.color,
   });
-
   @override
   Widget build(BuildContext context) {
     final labelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54);
     final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800);
-
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -139,20 +133,20 @@ class _PaymentKpi extends StatelessWidget {
 }
 
 class _PaymentMetricTile extends StatelessWidget {
+  final String title;
   final IconData icon;
   final double value;
   final NumberFormat currency;
   final List<Color> gradientColors;
   final String? tooltip;
-
   const _PaymentMetricTile({
+    required this.title,
     required this.icon,
     required this.value,
     required this.currency,
     required this.gradientColors,
     this.tooltip,
   });
-
   @override
   Widget build(BuildContext context) {
     final child = Container(
@@ -176,7 +170,24 @@ class _PaymentMetricTile extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 22, color: Colors.white),
+          Row(
+            children: [
+              Icon(icon, size: 20, color: Colors.white),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -192,12 +203,71 @@ class _PaymentMetricTile extends StatelessWidget {
         ],
       ),
     );
-
     if (tooltip == null || tooltip!.trim().isEmpty) return child;
     return Tooltip(message: tooltip!, child: child);
   }
 }
 
+class _AutoScrollToEnd extends StatefulWidget {
+  final String signature;
+  final Widget Function(ScrollController controller) builder;
+  const _AutoScrollToEnd({
+    required this.signature,
+    required this.builder,
+  });
+  @override
+  State<_AutoScrollToEnd> createState() => _AutoScrollToEndState();
+}
+
+class _AutoScrollToEndState extends State<_AutoScrollToEnd> {
+  final ScrollController _controller = ScrollController();
+  bool _hasScrolled = false;
+
+  @override
+  void didUpdateWidget(covariant _AutoScrollToEnd oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.signature != oldWidget.signature) {
+      _hasScrolled = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scrollToEndProperly() {
+    if (_hasScrolled || !_controller.hasClients) return;
+
+    final double maxExtent = _controller.position.maxScrollExtent;
+    if (maxExtent <= 0) {
+      _hasScrolled = true;
+      return;
+    }
+
+    // Nhảy đúng tới cuối, cột cuối sát mép phải
+    _controller.animateTo(
+      maxExtent,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+
+    _hasScrolled = true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_hasScrolled) {
+          _scrollToEndProperly();
+        }
+      });
+    });
+    return widget.builder(_controller);
+  }
+}
 class ReportScreen extends StatefulWidget {
   const ReportScreen({super.key});
   @override
@@ -205,7 +275,6 @@ class ReportScreen extends StatefulWidget {
 }
 
 class _ReportScreenState extends State<ReportScreen> {
-
   DateTimeRange _dateRange = (() {
     final now = DateTime.now();
     return DateTimeRange(
@@ -213,10 +282,8 @@ class _ReportScreenState extends State<ReportScreen> {
       end: now,
     );
   })();
-
   final PageController _chartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _chartPageIndex = ValueNotifier<int>(0);
-
   final PageController _netChartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _netChartPageIndex = ValueNotifier<int>(0);
 
@@ -250,14 +317,11 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
         ),
       );
-
       final monthYear = DateTime(_dateRange.start.year, _dateRange.start.month);
       final monthStart = DateTime(monthYear.year, monthYear.month, 1);
       final monthEnd = DateTime(monthYear.year, monthYear.month + 1, 0, 23, 59, 59, 999);
-
       final db = DatabaseService.instance.db;
       final customers = await DatabaseService.instance.getCustomersForSync();
-
       final productsRows = await db.query(
         'products',
         where: 'isActive = 1',
@@ -266,22 +330,17 @@ class _ReportScreenState extends State<ReportScreen> {
       final productsById = <String, Map<String, dynamic>>{
         for (final p in productsRows) (p['id'] as String): p,
       };
-
       final debts = await DatabaseService.instance.getDebtsForSync();
       final debtPayments = await DatabaseService.instance.getDebtPaymentsForSync(range: _dateRange);
-
       final purchases = await db.query(
         'purchase_history',
         orderBy: 'createdAt DESC',
       );
-
       final rangeStart = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
       final rangeEnd = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
-
       final purchasesInRange = await DatabaseService.instance.getPurchaseHistory(
         range: DateTimeRange(start: rangeStart, end: rangeEnd),
       );
-
       final saleItemsInRange = await db.rawQuery(
         '''
         SELECT
@@ -303,7 +362,6 @@ class _ReportScreenState extends State<ReportScreen> {
         ''',
         [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
       );
-
       final saleSubtotalRowsInRange = await db.rawQuery(
         '''
         SELECT
@@ -322,20 +380,17 @@ class _ReportScreenState extends State<ReportScreen> {
         if (sid.isEmpty) continue;
         saleSubtotalById[sid] = (r['subtotal'] as num?)?.toDouble() ?? 0.0;
       }
-
       final expenses = await db.query(
         'expenses',
         where: 'occurredAt >= ? AND occurredAt <= ?',
         whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
         orderBy: 'occurredAt DESC',
       );
-
       final sales = await DatabaseService.instance.getSalesForSync();
       final saleItems = await db.query('sale_items');
       final saleById = <String, Map<String, dynamic>>{
         for (final s in sales) (s['id'] as String): s,
       };
-
       final openingRows = await db.query(
         'product_opening_stocks',
         where: 'year = ? AND month = ?',
@@ -345,10 +400,8 @@ class _ReportScreenState extends State<ReportScreen> {
         for (final r in openingRows)
           (r['productId'] as String): (r['openingStock'] as num?)?.toDouble() ?? 0,
       };
-
       final importQtyByProductId = <String, double>{};
       final exportQtyByProductId = <String, double>{};
-
       for (final pr in purchases) {
         final createdAt = DateTime.tryParse(pr['createdAt'] as String? ?? '');
         if (createdAt == null) continue;
@@ -357,7 +410,6 @@ class _ReportScreenState extends State<ReportScreen> {
         final qty = (pr['quantity'] as num?)?.toDouble() ?? 0;
         importQtyByProductId[pid] = (importQtyByProductId[pid] ?? 0) + qty;
       }
-
       for (final it in saleItems) {
         final saleId = it['saleId'] as String?;
         if (saleId == null) continue;
@@ -371,10 +423,8 @@ class _ReportScreenState extends State<ReportScreen> {
         final qty = (it['quantity'] as num?)?.toDouble() ?? 0;
         exportQtyByProductId[pid] = (exportQtyByProductId[pid] ?? 0) + qty;
       }
-
       final excel = ex.Excel.createExcel();
       excel.delete('Sheet1');
-
       final customersSheet = excel['list khách hàng'];
       customersSheet.appendRow([
         _cv('id'),
@@ -398,7 +448,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(c['isSynced']),
         ]);
       }
-
       final productsSheet = excel['list sản phẩm'];
       productsSheet.appendRow([
         _cv('id'),
@@ -428,7 +477,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(p['isSynced']),
         ]);
       }
-
       final debtsSheet = excel['list công nợ'];
       debtsSheet.appendRow([
         _cv('id'),
@@ -460,7 +508,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(d['sourceId']),
         ]);
       }
-
       final debtPaymentsSheet = excel['lịch sử trả nợ'];
       debtPaymentsSheet.appendRow([
         _cv('paymentId'),
@@ -488,7 +535,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(p['isSynced']),
         ]);
       }
-
       final expensesSheet = excel['list chi phí'];
       expensesSheet.appendRow([
         _cv('id'),
@@ -514,7 +560,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(e['updatedAt']),
         ]);
       }
-
       final purchaseHistorySheet = excel['lịch sử nhập kho'];
       purchaseHistorySheet.appendRow([
         _cv('id'),
@@ -546,7 +591,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(ph['note']),
         ]);
       }
-
       final exportHistorySheet = excel['lịch sử xuất kho'];
       exportHistorySheet.appendRow([
         _cv('saleId'),
@@ -619,7 +663,6 @@ class _ReportScreenState extends State<ReportScreen> {
           ]);
         }
       }
-
       final purchaseSheet = excel['list nhập hàng'];
       purchaseSheet.appendRow([
         _cv('id'),
@@ -653,7 +696,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(ph['updatedAt']),
         ]);
       }
-
       final saleSheet = excel['list xuất hàng'];
       saleSheet.appendRow([
         _cv('saleId'),
@@ -706,7 +748,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(lineCostTotalSnap),
         ]);
       }
-
       final listOrdersSheet = excel['list đơn hàng'];
       listOrdersSheet.appendRow([
         _cv('saleId'),
@@ -720,18 +761,15 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('saleNote'),
         _cv('saleTotal'),
       ]);
-
       for (final s in sales) {
         final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
         if (createdAt == null) continue;
         if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
-
         final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
         final saleId = (s['id']?.toString() ?? '').trim();
         if (saleId.isEmpty) continue;
         final subtotal = saleSubtotalById[saleId] ?? 0.0;
         final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
-
         listOrdersSheet.appendRow([
           _cv(saleId),
           _cv(s['createdAt']),
@@ -745,7 +783,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(total),
         ]);
       }
-
       final tripleBackdataSheet = excel['backdata_triple_kpi'];
       tripleBackdataSheet.appendRow([
         _cv('saleId'),
@@ -779,7 +816,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(s['totalCost']),
         ]);
       }
-
       final paymentPaidSheet = excel['backdata_payment_paid_amount'];
       paymentPaidSheet.appendRow([
         _cv('saleId'),
@@ -787,7 +823,6 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('paidAmount'),
         _cv('paymentType'),
       ]);
-
       final paymentDebtPaidSheet = excel['backdata_payment_debt_paid'];
       paymentDebtPaidSheet.appendRow([
         _cv('saleId'),
@@ -797,14 +832,12 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('paidUnset'),
         _cv('paidTotal'),
       ]);
-
       final paymentOutstandingSheet = excel['backdata_payment_outstanding_sale_debt'];
       paymentOutstandingSheet.appendRow([
         _cv('saleId'),
         _cv('debtId'),
         _cv('remain'),
       ]);
-
       final saleRowsInRange = await db.query(
         'sales',
         columns: ['id', 'paidAmount', 'paymentType'],
@@ -815,7 +848,6 @@ class _ReportScreenState extends State<ReportScreen> {
       for (final r in saleRowsInRange) {
         final sid = (r['id']?.toString() ?? '').trim();
         if (sid.isNotEmpty) saleIdsInRange.add(sid);
-
         final paid = (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
         paymentPaidSheet.appendRow([
           _cv(sid),
@@ -824,7 +856,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(r['paymentType']),
         ]);
       }
-
       if (saleIdsInRange.isNotEmpty) {
         final placeholders = List.filled(saleIdsInRange.length, '?').join(',');
         final debtsForSales = await db.query(
@@ -833,21 +864,13 @@ class _ReportScreenState extends State<ReportScreen> {
           where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
           whereArgs: saleIdsInRange,
         );
+        double outstanding = 0;
         final debtIds = <String>[];
         for (final d in debtsForSales) {
           final did = (d['id']?.toString() ?? '').trim();
           if (did.isNotEmpty) debtIds.add(did);
-          final sid = (d['sourceId']?.toString() ?? '').trim();
-          final remain = (d['amount'] as num?)?.toDouble() ?? 0.0;
-          if (remain > 0) {
-            paymentOutstandingSheet.appendRow([
-              _cv(sid),
-              _cv(did),
-              _cv(remain),
-            ]);
-          }
+          outstanding += (d['amount'] as num?)?.toDouble() ?? 0.0;
         }
-
         if (debtIds.isNotEmpty) {
           final dph = List.filled(debtIds.length, '?').join(',');
           final payAgg = await db.rawQuery(
@@ -885,7 +908,6 @@ class _ReportScreenState extends State<ReportScreen> {
           }
         }
       }
-
       final openingSheet = excel['list tồn đầu kỳ'];
       openingSheet.appendRow([
         _cv('year'),
@@ -909,7 +931,6 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(r['updatedAt']),
         ]);
       }
-
       final endingSheet = excel['list tồn cuối kỳ'];
       endingSheet.appendRow([
         _cv('year'),
@@ -926,7 +947,6 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('price'),
         _cv('endingAmountSell'),
       ]);
-
       final productIds = <String>{
         ...productsById.keys,
         ...openingByProductId.keys,
@@ -938,7 +958,6 @@ class _ReportScreenState extends State<ReportScreen> {
         final bn = (productsById[b]?['name'] as String?) ?? '';
         return an.compareTo(bn);
       });
-
       for (final pid in productIds) {
         final prod = productsById[pid];
         final opening = openingByProductId[pid] ?? 0;
@@ -963,23 +982,19 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(endingQty * price),
         ]);
       }
-
       final bytes = excel.encode();
       if (bytes == null) {
         throw Exception('Không thể tạo file Excel');
       }
-
       final ts = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       final fileName = 'bao_cao_tong_hop_$ts.xlsx';
       final filePath = await FileHelper.saveBytesToDownloads(
         bytes: bytes,
         fileName: fileName,
       );
-
       if (filePath == null) {
         throw Exception('Không thể lưu file vào Downloads');
       }
-
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pop();
         messenger.showSnackBar(
@@ -1056,38 +1071,30 @@ class _ReportScreenState extends State<ReportScreen> {
 
   Future<_PayStats> _loadPayStats({required DateTime start, required DateTime end}) async {
     final db = DatabaseService.instance.db;
-
     final saleRows = await db.query(
       'sales',
       columns: ['id', 'paidAmount', 'paymentType'],
       where: 'createdAt >= ? AND createdAt <= ?',
       whereArgs: [start.toIso8601String(), end.toIso8601String()],
     );
-
     double cash = 0;
     double bank = 0;
     final saleIds = <String>[];
-
     for (final r in saleRows) {
       final sid = (r['id']?.toString() ?? '').trim();
       if (sid.isNotEmpty) saleIds.add(sid);
-
       final paid = (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
       if (paid <= 0) continue;
-
       final t = (r['paymentType']?.toString() ?? '').trim().toLowerCase();
       if (t == 'cash') {
         cash += paid;
       } else {
-        // default: bank (including null/empty)
         bank += paid;
       }
     }
-
     if (saleIds.isEmpty) {
       return const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
     }
-
     final placeholders = List.filled(saleIds.length, '?').join(',');
     final debtsForSales = await db.query(
       'debts',
@@ -1095,7 +1102,6 @@ class _ReportScreenState extends State<ReportScreen> {
       where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
       whereArgs: saleIds,
     );
-
     double outstanding = 0;
     final debtIds = <String>[];
     for (final d in debtsForSales) {
@@ -1103,7 +1109,6 @@ class _ReportScreenState extends State<ReportScreen> {
       if (did.isNotEmpty) debtIds.add(did);
       outstanding += (d['amount'] as num?)?.toDouble() ?? 0.0;
     }
-
     if (debtIds.isNotEmpty) {
       final dph = List.filled(debtIds.length, '?').join(',');
       final payAgg = await db.rawQuery(
@@ -1115,7 +1120,6 @@ class _ReportScreenState extends State<ReportScreen> {
         ''',
         debtIds,
       );
-
       for (final r in payAgg) {
         final total = (r['total'] as num?)?.toDouble() ?? 0.0;
         if (total <= 0) continue;
@@ -1123,12 +1127,10 @@ class _ReportScreenState extends State<ReportScreen> {
         if (t == 'cash') {
           cash += total;
         } else {
-          // default: bank
           bank += total;
         }
       }
     }
-
     return _PayStats(cashRevenue: cash, bankRevenue: bank, outstandingDebt: outstanding);
   }
 
@@ -1146,7 +1148,6 @@ class _ReportScreenState extends State<ReportScreen> {
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
     final sales = context.watch<SaleProvider>().sales;
     final products = context.watch<ProductProvider>().products;
-
     final debtsProvider = context.watch<DebtProvider>();
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
@@ -1154,7 +1155,6 @@ class _ReportScreenState extends State<ReportScreen> {
     final startOfMonth = DateTime(now.year, now.month, 1);
     final startOfYear = DateTime(now.year, 1, 1);
 
-    // Filter sales by selected date range
     final filteredSales = sales.where((s) =>
         !s.createdAt.isBefore(DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day)) &&
         !s.createdAt.isAfter(DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59))
@@ -1165,8 +1165,8 @@ class _ReportScreenState extends State<ReportScreen> {
       (p, s) => p + s.items.fold<double>(0, (p2, it) => p2 + it.quantity),
     );
     final exportAmount = filteredSales.fold<double>(0, (p, s) => p + s.totalCost);
+    final exportAmountSell = filteredSales.fold<double>(0, (p, s) => p + s.total);
 
-    // Calculate metrics
     final todaySales = sales.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.total);
     final todayCost = sales.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.totalCost);
     final todayProfit = todaySales - todayCost;
@@ -1195,12 +1195,10 @@ class _ReportScreenState extends State<ReportScreen> {
 
     final start = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
     final end = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
-
     final periodRevenue = filteredSales.fold<double>(0, (p, s) => p + s.total);
     final periodCost = filteredSales.fold<double>(0, (p, s) => p + s.totalCost);
     final periodProfit = periodRevenue - periodCost;
 
-    // Prepare data for charts
     final daysInRange = _dateRange.duration.inDays + 1;
     final dailyData = List.generate(daysInRange, (i) {
       final date = _dateRange.start.add(Duration(days: i));
@@ -1209,11 +1207,9 @@ class _ReportScreenState extends State<ReportScreen> {
           s.createdAt.month == date.month &&
           s.createdAt.day == date.day
       ).toList();
-
       final revenue = daySales.fold(0.0, (p, s) => p + s.total);
       final cost = daySales.fold(0.0, (p, s) => p + s.totalCost);
       final profit = revenue - cost;
-
       return _Point(
         DateFormat('dd/MM').format(date),
         revenue,
@@ -1222,7 +1218,6 @@ class _ReportScreenState extends State<ReportScreen> {
       );
     });
 
-    // Prepare monthly data for current year
     final currentYear = now.year;
     final monthlyDataPoints = List.generate(12, (i) {
       final month = i + 1;
@@ -1230,11 +1225,9 @@ class _ReportScreenState extends State<ReportScreen> {
           s.createdAt.year == currentYear &&
           s.createdAt.month == month
       ).toList();
-
       final revenue = monthSales.fold(0.0, (p, s) => p + s.total);
       final cost = monthSales.fold(0.0, (p, s) => p + s.totalCost);
       final profit = revenue - cost;
-
       return _Point(
         '$month',
         revenue,
@@ -1243,7 +1236,6 @@ class _ReportScreenState extends State<ReportScreen> {
       );
     });
 
-    // Prepare yearly data
     final years = <int>{};
     for (var s in filteredSales) {
       years.add(s.createdAt.year);
@@ -1254,7 +1246,6 @@ class _ReportScreenState extends State<ReportScreen> {
       final revenue = yearSales.fold(0.0, (p, s) => p + s.total);
       final cost = yearSales.fold(0.0, (p, s) => p + s.totalCost);
       final profit = revenue - cost;
-
       return _Point(
         year.toString(),
         revenue,
@@ -1290,7 +1281,7 @@ class _ReportScreenState extends State<ReportScreen> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(1),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1327,13 +1318,12 @@ class _ReportScreenState extends State<ReportScreen> {
                             child: Center(child: CircularProgressIndicator()),
                           );
                         }
-
                         final pay = snap.data ?? const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
                         final total = pay.cashRevenue + pay.bankRevenue + pay.outstandingDebt;
                         final profitColor = periodProfit >= 0 ? Colors.green : Colors.redAccent;
-
                         final tiles = <Widget>[
                           _PaymentMetricTile(
+                            title: 'Tổng',
                             icon: Icons.payments_outlined,
                             value: total,
                             currency: currency,
@@ -1341,27 +1331,7 @@ class _ReportScreenState extends State<ReportScreen> {
                             gradientColors: const [Color(0xFF3B82F6), Color(0xFF6366F1)],
                           ),
                           _PaymentMetricTile(
-                            icon: Icons.money_outlined,
-                            value: pay.cashRevenue,
-                            currency: currency,
-                            tooltip: 'Tiền mặt (theo khoảng ngày)',
-                            gradientColors: const [Color(0xFF10B981), Color(0xFF22C55E)],
-                          ),
-                          _PaymentMetricTile(
-                            icon: Icons.account_balance_outlined,
-                            value: pay.bankRevenue,
-                            currency: currency,
-                            tooltip: 'Chuyển khoản (theo khoảng ngày)',
-                            gradientColors: const [Color(0xFF06B6D4), Color(0xFF3B82F6)],
-                          ),
-                          _PaymentMetricTile(
-                            icon: Icons.request_quote_outlined,
-                            value: pay.outstandingDebt,
-                            currency: currency,
-                            tooltip: 'Nợ chưa trả (theo khoảng ngày)',
-                            gradientColors: const [Color(0xFFEF4444), Color(0xFFF97316)],
-                          ),
-                          _PaymentMetricTile(
+                            title: 'Vốn',
                             icon: Icons.price_change_outlined,
                             value: periodCost,
                             currency: currency,
@@ -1369,14 +1339,39 @@ class _ReportScreenState extends State<ReportScreen> {
                             gradientColors: const [Color(0xFFF59E0B), Color(0xFFF97316)],
                           ),
                           _PaymentMetricTile(
+                            title: 'LN',
                             icon: periodProfit >= 0 ? Icons.trending_up_outlined : Icons.trending_down_outlined,
                             value: periodProfit,
                             currency: currency,
                             tooltip: 'Lợi nhuận (theo khoảng ngày)',
                             gradientColors: [profitColor, profitColor.withAlpha(191)],
                           ),
+                          _PaymentMetricTile(
+                            title: 'Tiền',
+                            icon: Icons.money_outlined,
+                            value: pay.cashRevenue,
+                            currency: currency,
+                            tooltip: 'Tiền mặt (theo khoảng ngày)',
+                            gradientColors: const [Color(0xFF10B981), Color(0xFF22C55E)],
+                          ),
+                          _PaymentMetricTile(
+                            title: 'CK',
+                            icon: Icons.account_balance_outlined,
+                            value: pay.bankRevenue,
+                            currency: currency,
+                            tooltip: 'Chuyển khoản (theo khoảng ngày)',
+                            gradientColors: const [Color(0xFF06B6D4), Color(0xFF3B82F6)],
+                          ),
+                          _PaymentMetricTile(
+                            title: 'Nợ',
+                            icon: Icons.request_quote_outlined,
+                            value: pay.outstandingDebt,
+                            currency: currency,
+                            tooltip: 'Nợ chưa trả (theo khoảng ngày)',
+                            gradientColors: const [Color(0xFFEF4444), Color(0xFFF97316)],
+                          ),
+                         
                         ];
-
                         return LayoutBuilder(
                           builder: (context, constraints) {
                             final gap = constraints.maxWidth < 420 ? 8.0 : 10.0;
@@ -1422,7 +1417,6 @@ class _ReportScreenState extends State<ReportScreen> {
                             child: Center(child: CircularProgressIndicator()),
                           );
                         }
-
                         final stats = snap.data ?? const <_PayStats>[];
                         final todayPay = stats.isNotEmpty ? stats[0] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
                         final weekPay = stats.length > 1 ? stats[1] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
@@ -1453,7 +1447,6 @@ class _ReportScreenState extends State<ReportScreen> {
                         return LayoutBuilder(
                           builder: (context, constraints) {
                             final isNarrow = constraints.maxWidth < 720;
-
                             final wToday = _PaymentKpi(
                               title: 'Hôm nay',
                               stats: fixedToday,
@@ -1490,7 +1483,6 @@ class _ReportScreenState extends State<ReportScreen> {
                               currency: currency,
                               color: Colors.orange,
                             );
-
                             if (!isNarrow) {
                               return Row(
                                 children: [
@@ -1504,7 +1496,6 @@ class _ReportScreenState extends State<ReportScreen> {
                                 ],
                               );
                             }
-
                             return Column(
                               children: [
                                 Row(
@@ -1543,7 +1534,6 @@ class _ReportScreenState extends State<ReportScreen> {
                             child: Center(child: CircularProgressIndicator()),
                           );
                         }
-
                         final rows = snap.data ?? const <Map<String, dynamic>>[];
                         double totalAll = 0;
                         double totalNonBiz = 0;
@@ -1557,7 +1547,6 @@ class _ReportScreenState extends State<ReportScreen> {
                         }
                         final totalBusiness = totalAll - totalNonBiz;
                         final netProfit = periodProfit - totalBusiness;
-
                         return Column(
                           children: [
                             Row(
@@ -1672,7 +1661,7 @@ class _ReportScreenState extends State<ReportScreen> {
               products: products,
               exportQty: exportQty,
               exportAmount: exportAmount,
-              exportAmountSell: filteredSales.fold<double>(0, (p, s) => p + s.total),
+              exportAmountSell: exportAmountSell,
             ),
             const SizedBox(height: 16),
             const Text(
@@ -1739,47 +1728,37 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
               builder: (context, snap) {
                 final rows = snap.data ?? const <Map<String, dynamic>>[];
-
                 final expenseByDay = <String, double>{};
                 final expenseByMonth = <int, double>{};
                 final expenseByYear = <int, double>{};
-
                 for (final e in rows) {
                   final occurredAt = DateTime.tryParse(e['occurredAt']?.toString() ?? '');
                   if (occurredAt == null) continue;
                   final amount = (e['amount'] as num?)?.toDouble() ?? 0.0;
                   final cat = (e['category']?.toString() ?? '').trim();
-                  if (cat == 'Chi tiêu ngoài kinh doanh') {
-                    continue;
-                  }
-
+                  if (cat == 'Chi tiêu ngoài kinh doanh') continue;
                   final dayKey = DateFormat('dd/MM').format(occurredAt);
                   expenseByDay[dayKey] = (expenseByDay[dayKey] ?? 0) + amount;
-
                   expenseByMonth[occurredAt.month] = (expenseByMonth[occurredAt.month] ?? 0) + amount;
                   expenseByYear[occurredAt.year] = (expenseByYear[occurredAt.year] ?? 0) + amount;
                 }
-
                 final netDailyPoints = dailyData.map((p) {
                   final exp = expenseByDay[p.x] ?? 0.0;
                   final net = p.profit - exp;
                   return _Point(p.x, 0, cost: 0, profit: net);
                 }).toList();
-
                 final netMonthlyPoints = monthlyDataPoints.map((p) {
                   final m = int.tryParse(p.x) ?? 0;
                   final exp = expenseByMonth[m] ?? 0.0;
                   final net = p.profit - exp;
                   return _Point(p.x, 0, cost: 0, profit: net);
                 }).toList();
-
                 final netYearlyPoints = yearlyDataPoints.map((p) {
                   final y = int.tryParse(p.x) ?? 0;
                   final exp = expenseByYear[y] ?? 0.0;
                   final net = p.profit - exp;
                   return _Point(p.x, 0, cost: 0, profit: net);
                 }).toList();
-
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1867,100 +1846,114 @@ class _ReportScreenState extends State<ReportScreen> {
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final minWidth = points.length * 52.0;
-                  final chartWidth = minWidth < constraints.maxWidth ? constraints.maxWidth : minWidth;
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: chartWidth,
-                      height: constraints.maxHeight,
-                      child: BarChart(
-                        BarChartData(
-                          alignment: BarChartAlignment.start,
-                          groupsSpace: 14,
-                          minY: _getMinY(points),
-                          maxY: _getMaxY(points),
-                          barTouchData: BarTouchData(
-                            touchTooltipData: BarTouchTooltipData(
-                              getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                                final point = points[groupIndex];
-                                final tooltipText = '${point.x}\n\nLN ròng: ${currency.format(point.profit)}';
-                                return BarTooltipItem(
-                                  tooltipText,
-                                  const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
+                  // Tính minWidth chính xác để tránh trắng thừa
+                  const double barWidth = 16.0;
+                  const double groupsSpace = 32.0;
+                  const double margin = 40.0; // hai bên
+                  final double calculatedWidth = (points.length * barWidth) +
+                      ((points.length > 0 ? points.length - 1 : 0) * groupsSpace) +
+                      margin;
+                  final double chartWidth = calculatedWidth < constraints.maxWidth
+                      ? constraints.maxWidth
+                      : calculatedWidth;
+                  return _AutoScrollToEnd(
+                    signature: '$title-${points.length}-${points.isNotEmpty ? points.last.x : ''}',
+                    builder: (controller) {
+                      return SingleChildScrollView(
+                        controller: controller,
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: chartWidth,
+                          height: constraints.maxHeight,
+                          child: BarChart(
+                            BarChartData(
+                              alignment: BarChartAlignment.start,
+                              groupsSpace: groupsSpace,
+                              minY: _getMinY(points),
+                              maxY: _getMaxY(points),
+                              barTouchData: BarTouchData(
+                                touchTooltipData: BarTouchTooltipData(
+                                  getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                    final point = points[groupIndex];
+                                    final tooltipText = '${point.x}\n\nLN ròng: ${currency.format(point.profit)}';
+                                    return BarTooltipItem(
+                                      tooltipText,
+                                      const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    );
+                                  },
+                                  tooltipMargin: 8,
+                                  tooltipRoundedRadius: 8,
+                                  tooltipPadding: const EdgeInsets.all(8),
+                                  getTooltipColor: (_) => Colors.black87,
+                                ),
+                              ),
+                              gridData: const FlGridData(show: true, drawVerticalLine: false),
+                              borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
+                              titlesData: FlTitlesData(
+                                show: true,
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (value, meta) {
+                                      final i = value.toInt();
+                                      if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          points[i].x,
+                                          style: const TextStyle(fontSize: 10),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      );
+                                    },
+                                    reservedSize: 38,
                                   ),
-                                );
-                              },
-                              tooltipMargin: 8,
-                              tooltipRoundedRadius: 8,
-                              tooltipPadding: const EdgeInsets.all(8),
-                              getTooltipColor: (_) => Colors.black87,
+                                ),
+                                leftTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    reservedSize: 44,
+                                    getTitlesWidget: (value, meta) {
+                                      String txt;
+                                      final abs = value.abs();
+                                      if (abs >= 1000000) {
+                                        txt = '${(value / 1000000).toStringAsFixed(1)}M';
+                                      } else if (abs >= 1000) {
+                                        txt = '${(value / 1000).toStringAsFixed(0)}k';
+                                      } else {
+                                        txt = value.toInt().toString();
+                                      }
+                                      return Text(txt, style: const TextStyle(fontSize: 10));
+                                    },
+                                  ),
+                                ),
+                                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                              ),
+                              barGroups: [
+                                for (var i = 0; i < points.length; i++)
+                                  BarChartGroupData(
+                                    x: i,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY: points[i].profit,
+                                        color: (points[i].profit >= 0 ? Colors.teal : Colors.red).withAlpha(191),
+                                        width: barWidth,
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ],
+                                  ),
+                              ],
                             ),
                           ),
-                          gridData: const FlGridData(show: true, drawVerticalLine: false),
-                          borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
-                          titlesData: FlTitlesData(
-                            show: true,
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                getTitlesWidget: (value, meta) {
-                                  final i = value.toInt();
-                                  if (i < 0 || i >= points.length) return const SizedBox.shrink();
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      points[i].x,
-                                      style: const TextStyle(fontSize: 10),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  );
-                                },
-                                reservedSize: 38,
-                              ),
-                            ),
-                            leftTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 44,
-                                getTitlesWidget: (value, meta) {
-                                  String txt;
-                                  final abs = value.abs();
-                                  if (abs >= 1000000) {
-                                    txt = '${(value / 1000000).toStringAsFixed(1)}M';
-                                  } else if (abs >= 1000) {
-                                    txt = '${(value / 1000).toStringAsFixed(0)}k';
-                                  } else {
-                                    txt = value.toInt().toString();
-                                  }
-                                  return Text(txt, style: const TextStyle(fontSize: 10));
-                                },
-                              ),
-                            ),
-                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          ),
-                          barGroups: [
-                            for (var i = 0; i < points.length; i++)
-                              BarChartGroupData(
-                                x: i,
-                                barRods: [
-                                  BarChartRodData(
-                                    toY: points[i].profit,
-                                    color: (points[i].profit >= 0 ? Colors.teal : Colors.red).withAlpha(191),
-                                    width: 12,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ],
-                              ),
-                          ],
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   );
                 },
               ),
@@ -1970,7 +1963,6 @@ class _ReportScreenState extends State<ReportScreen> {
       ),
     );
   }
-
   Widget _buildChartCard({
     required String title,
     required List<_Point> points,
@@ -1996,116 +1988,118 @@ class _ReportScreenState extends State<ReportScreen> {
                 builder: (context, constraints) {
                   final minWidth = points.length * 64.0;
                   final chartWidth = minWidth < constraints.maxWidth ? constraints.maxWidth : minWidth;
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: chartWidth,
-                      child: BarChart(
-                        BarChartData(
-                          alignment: BarChartAlignment.start,
-                          groupsSpace: 18,
-                          minY: _getMinY(points),
-                          maxY: _getMaxY(points),
-                          barTouchData: BarTouchData(
-                            touchTooltipData: BarTouchTooltipData(
-                              getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                                final point = points[groupIndex];
-                                final tooltipText = '${point.x}\n\n'
-                                    'Doanh thu: ${currency.format(point.y)}\n'
-                                    'Chi phí: ${currency.format(point.cost)}\n'
-                                    'Lợi nhuận: ${currency.format(point.profit)}';
-                                return BarTooltipItem(
-                                  tooltipText,
-                                  const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
+                  return _AutoScrollToEnd(
+                    signature: '$title-${points.length}-${points.isNotEmpty ? points.last.x : ''}',
+                    builder: (controller) {
+                      return SingleChildScrollView(
+                        controller: controller,
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: chartWidth,
+                          child: BarChart(
+                            BarChartData(
+                              alignment: BarChartAlignment.start,
+                              groupsSpace: 18,
+                              minY: _getMinY(points),
+                              maxY: _getMaxY(points),
+                              barTouchData: BarTouchData(
+                                touchTooltipData: BarTouchTooltipData(
+                                  getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                    final point = points[groupIndex];
+                                    final tooltipText = '${point.x}\n\n'
+                                        'Doanh thu: ${currency.format(point.y)}\n'
+                                        'Chi phí: ${currency.format(point.cost)}\n'
+                                        'Lợi nhuận: ${currency.format(point.profit)}';
+                                    return BarTooltipItem(
+                                      tooltipText,
+                                      const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    );
+                                  },
+                                  tooltipMargin: 8,
+                                  tooltipRoundedRadius: 8,
+                                  tooltipPadding: const EdgeInsets.all(8),
+                                  getTooltipColor: (_) => Colors.black87,
+                                ),
+                              ),
+                              gridData: const FlGridData(show: true, drawVerticalLine: false),
+                              borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
+                              titlesData: FlTitlesData(
+                                show: true,
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (value, meta) {
+                                      final i = value.toInt();
+                                      if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          points[i].x,
+                                          style: const TextStyle(fontSize: 10),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      );
+                                    },
+                                    reservedSize: 42,
                                   ),
-                                );
-                              },
-                              tooltipMargin: 8,
-                              tooltipRoundedRadius: 8,
-                              tooltipPadding: const EdgeInsets.all(8),
-                              getTooltipColor: (_) => Colors.black87,
+                                ),
+                                leftTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    reservedSize: 50,
+                                    getTitlesWidget: (value, meta) {
+                                      String txt;
+                                      if (value >= 1000000) {
+                                        txt = '${(value / 1000000).toStringAsFixed(1)}M';
+                                      } else if (value >= 1000) {
+                                        txt = '${(value / 1000).toStringAsFixed(0)}k';
+                                      } else {
+                                        txt = value.toInt().toString();
+                                      }
+                                      return Text(txt, style: const TextStyle(fontSize: 10));
+                                    },
+                                  ),
+                                ),
+                                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                              ),
+                              barGroups: [
+                                for (var i = 0; i < points.length; i++)
+                                  BarChartGroupData(
+                                    x: i,
+                                    barsSpace: 2,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY: points[i].y,
+                                        color: Colors.blue.withAlpha(191),
+                                        width: isYearly ? 16 : 12,
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                      BarChartRodData(
+                                        toY: points[i].cost,
+                                        color: Colors.orange.withAlpha(191),
+                                        width: isYearly ? 16 : 12,
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                      BarChartRodData(
+                                        toY: points[i].profit,
+                                        color: (points[i].profit >= 0 ? Colors.green : Colors.red).withAlpha(191),
+                                        width: isYearly ? 16 : 12,
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ],
+                                  ),
+                              ],
                             ),
                           ),
-                          gridData: const FlGridData(show: true, drawVerticalLine: false),
-                          borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withAlpha(51))),
-                          titlesData: FlTitlesData(
-                            show: true,
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                getTitlesWidget: (value, meta) {
-                                  final i = value.toInt();
-                                  if (i < 0 || i >= points.length) return const SizedBox.shrink();
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      points[i].x,
-                                      style: const TextStyle(fontSize: 10),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  );
-                                },
-                                reservedSize: 42,
-                              ),
-                            ),
-                            leftTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 50,
-                                getTitlesWidget: (value, meta) {
-                                  String txt;
-                                  if (value >= 1000000) {
-                                    txt = '${(value / 1000000).toStringAsFixed(1)}M';
-                                  } else if (value >= 1000) {
-                                    txt = '${(value / 1000).toStringAsFixed(0)}k';
-                                  } else {
-                                    txt = value.toInt().toString();
-                                  }
-                                  return Text(txt, style: const TextStyle(fontSize: 10));
-                                },
-                              ),
-                            ),
-                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          ),
-                          barGroups: [
-                            for (var i = 0; i < points.length; i++)
-                              BarChartGroupData(
-                                x: i,
-                                barsSpace: 2,
-                                barRods: [
-                                  // Revenue bar
-                                  BarChartRodData(
-                                    toY: points[i].y,
-                                    color: Colors.blue.withAlpha(179),
-                                    width: 10,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                  // Cost bar (stacked)
-                                  BarChartRodData(
-                                    fromY: 0,
-                                    toY: points[i].cost,
-                                    color: Colors.red.withAlpha(179),
-                                    width: 10,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                  // Profit bar
-                                  BarChartRodData(
-                                    toY: points[i].profit,
-                                    color: Colors.green.withAlpha(179),
-                                    width: 10,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ],
-                              ),
-                          ],
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   );
                 },
               ),
@@ -2126,7 +2120,6 @@ class _ReportScreenState extends State<ReportScreen> {
   }) {
     final openingYear = dateRange.start.year;
     final openingMonth = dateRange.start.month;
-
     return FutureBuilder<List<Object>>(
       future: Future.wait([
         DatabaseService.instance.getOpeningStocksForMonth(openingYear, openingMonth),
@@ -2139,7 +2132,6 @@ class _ReportScreenState extends State<ReportScreen> {
             child: Center(child: CircularProgressIndicator()),
           );
         }
-
         final data = snap.data;
         final openingMap = (data != null && data.isNotEmpty)
             ? (data[0] as Map<String, double>)
@@ -2147,11 +2139,9 @@ class _ReportScreenState extends State<ReportScreen> {
         final purchases = (data != null && data.length > 1)
             ? (data[1] as List<Map<String, dynamic>>)
             : <Map<String, dynamic>>[];
-
         double openingQty = 0;
         double openingAmount = 0;
         double openingAmountSell = 0;
-
         for (final p in products) {
           final pid = (p.id as String);
           final qty = openingMap[pid] ?? 0;
@@ -2161,13 +2151,11 @@ class _ReportScreenState extends State<ReportScreen> {
           final price = (p.price as double);
           openingAmountSell += qty * price;
         }
-
         final importQty = purchases.fold<double>(0, (p, r) => p + ((r['quantity'] as num?)?.toDouble() ?? 0));
         final importAmount = purchases.fold<double>(
           0,
           (p, r) => p + ((r['totalCost'] as num?)?.toDouble() ?? 0),
         );
-
         final productsById = <String, dynamic>{
           for (final p in products) (p.id as String): p,
         };
@@ -2183,11 +2171,9 @@ class _ReportScreenState extends State<ReportScreen> {
             return p + (qty * price);
           },
         );
-
         final endingQty = openingQty + importQty - exportQty;
         final endingAmount = openingAmount + importAmount - exportAmount;
         final endingAmountSell = openingAmountSell + importAmountSell - exportAmountSell;
-
         return Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
@@ -2271,7 +2257,6 @@ class _InventoryMetric extends StatelessWidget {
   final double? amountSell;
   final NumberFormat currency;
   final Color color;
-
   const _InventoryMetric({
     required this.title,
     required this.qty,
@@ -2280,7 +2265,6 @@ class _InventoryMetric extends StatelessWidget {
     required this.currency,
     required this.color,
   });
-
   @override
   Widget build(BuildContext context) {
     final qtyText = qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2);
@@ -2314,21 +2298,18 @@ class _SingleKpi extends StatelessWidget {
   final double value;
   final NumberFormat currency;
   final Color color;
-
   const _SingleKpi({
     required this.title,
     required this.value,
     required this.currency,
     required this.color,
   });
-
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: color.withAlpha(20),
-
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withAlpha(64)),
       ),
