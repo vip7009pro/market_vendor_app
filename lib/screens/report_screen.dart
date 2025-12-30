@@ -21,6 +21,21 @@ class _Point {
   _Point(this.x, this.y, {required this.cost, required this.profit});
 }
 
+class _TopProductRow {
+  final String key;
+  final String name;
+  final String unit;
+  final double qty;
+  final double amount;
+  const _TopProductRow({
+    required this.key,
+    required this.name,
+    required this.unit,
+    required this.qty,
+    required this.amount,
+  });
+}
+
 class _PayStats {
   final double cashRevenue;
   final double bankRevenue;
@@ -268,6 +283,7 @@ class _AutoScrollToEndState extends State<_AutoScrollToEnd> {
     return widget.builder(_controller);
   }
 }
+
 class ReportScreen extends StatefulWidget {
   const ReportScreen({super.key});
   @override
@@ -1254,6 +1270,34 @@ class _ReportScreenState extends State<ReportScreen> {
       );
     }).toList();
 
+    final topAgg = <String, _TopProductRow>{};
+    for (final s in filteredSales) {
+      for (final it in s.items) {
+        final itemType = (it.itemType ?? '').toUpperCase().trim();
+        final displayName = (itemType == 'MIX' && (it.displayName?.trim().isNotEmpty == true))
+            ? it.displayName!.trim()
+            : it.name;
+        final key = it.productId.trim().isNotEmpty ? it.productId.trim() : displayName;
+        final prev = topAgg[key];
+        final nextQty = (prev?.qty ?? 0) + it.quantity;
+        final nextAmount = (prev?.amount ?? 0) + (it.unitPrice * it.quantity);
+        topAgg[key] = _TopProductRow(
+          key: key,
+          name: prev?.name ?? displayName,
+          unit: prev?.unit ?? it.unit,
+          qty: nextQty,
+          amount: nextAmount,
+        );
+      }
+    }
+    final topProducts = topAgg.values.toList()
+      ..sort((a, b) {
+        final c = b.qty.compareTo(a.qty);
+        if (c != 0) return c;
+        return b.amount.compareTo(a.amount);
+      });
+    final topProductsLimited = topProducts.take(10).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Báo cáo'),
@@ -1370,7 +1414,6 @@ class _ReportScreenState extends State<ReportScreen> {
                             tooltip: 'Nợ chưa trả (theo khoảng ngày)',
                             gradientColors: const [Color(0xFFEF4444), Color(0xFFF97316)],
                           ),
-                         
                         ];
                         return LayoutBuilder(
                           builder: (context, constraints) {
@@ -1665,6 +1708,17 @@ class _ReportScreenState extends State<ReportScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
+              'Top sản phẩm bán chạy',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            _buildTopProductsCard(
+              currency: currency,
+              dateRange: _dateRange,
+              rows: topProductsLimited,
+            ),
+            const SizedBox(height: 16),
+            const Text(
               'Biểu đồ doanh thu / vốn / lợi nhuận',
               style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
             ),
@@ -1825,6 +1879,54 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
+  Widget _buildTopProductsCard({
+    required NumberFormat currency,
+    required DateTimeRange dateRange,
+    required List<_TopProductRow> rows,
+  }) {
+    final maxQty = rows.isEmpty ? 0.0 : rows.map((e) => e.qty).reduce((a, b) => a > b ? a : b);
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.black.withAlpha(8)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '(${DateFormat('dd/MM/yyyy').format(dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(dateRange.end)})',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            if (rows.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(child: Text('Chưa có dữ liệu')),
+              )
+            else
+              Column(
+                children: [
+                  for (var i = 0; i < rows.length; i++)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: i == rows.length - 1 ? 0 : 10),
+                      child: _TopProductBarRow(
+                        index: i + 1,
+                        row: rows[i],
+                        maxQty: maxQty,
+                        currency: currency,
+                      ),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildNetProfitChartCard({
     required String title,
     required List<_Point> points,
@@ -1963,6 +2065,7 @@ class _ReportScreenState extends State<ReportScreen> {
       ),
     );
   }
+
   Widget _buildChartCard({
     required String title,
     required List<_Point> points,
@@ -2265,6 +2368,7 @@ class _InventoryMetric extends StatelessWidget {
     required this.currency,
     required this.color,
   });
+
   @override
   Widget build(BuildContext context) {
     final qtyText = qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2);
@@ -2293,6 +2397,72 @@ class _InventoryMetric extends StatelessWidget {
   }
 }
 
+class _TopProductBarRow extends StatelessWidget {
+  final int index;
+  final _TopProductRow row;
+  final double maxQty;
+  final NumberFormat currency;
+  const _TopProductBarRow({
+    required this.index,
+    required this.row,
+    required this.maxQty,
+    required this.currency,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final qtyText = row.qty.toStringAsFixed(row.qty % 1 == 0 ? 0 : 2);
+    final factor = (maxQty <= 0) ? 0.0 : (row.qty / maxQty).clamp(0.0, 1.0).toDouble();
+    final labelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54);
+    final valueStyle = Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            SizedBox(width: 26, child: Text('$index.', style: labelStyle)),
+            Expanded(
+              child: Text(
+                row.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text('$qtyText ${row.unit}', style: valueStyle),
+            const SizedBox(width: 10),
+            Text(currency.format(row.amount), style: valueStyle),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: Container(
+            height: 10,
+            color: Colors.black.withAlpha(10),
+            alignment: Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: factor,
+              child: Container(
+                height: 10,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.blue.withAlpha(220),
+                      Colors.indigo.withAlpha(220),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SingleKpi extends StatelessWidget {
   final String title;
   final double value;
@@ -2304,6 +2474,7 @@ class _SingleKpi extends StatelessWidget {
     required this.currency,
     required this.color,
   });
+
   @override
   Widget build(BuildContext context) {
     return Container(
