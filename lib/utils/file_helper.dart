@@ -63,6 +63,7 @@ class FileHelper {
   static Future<String?> saveBytesToDownloads({
     required List<int> bytes,
     required String fileName,
+    String? mimeType,
   }) async {
     try {
       if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
@@ -85,7 +86,7 @@ class FileHelper {
             final result = await platform.invokeMethod('saveBytes', {
               'bytes': Uint8List.fromList(bytes),
               'fileName': fileName,
-              'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              'mimeType': mimeType ?? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             });
             return result as String?;
           } catch (e) {

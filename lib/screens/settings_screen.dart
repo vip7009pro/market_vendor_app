@@ -13,6 +13,7 @@ import '../services/drive_sync_service.dart';
 import 'drive_backup_manager_screen.dart';
 import 'sheets_sync_screen.dart';
 import 'theme_selection_screen.dart';
+import 'tax_declaration_form_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -402,6 +403,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const ThemeSelectionScreen()),
+                ),
+              ),
+              _buildMenuButton(
+                context,
+                icon: Icons.description_outlined,
+                label: 'Khai thuế',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const TaxDeclarationFormScreen()),
                 ),
               ),
             ],
