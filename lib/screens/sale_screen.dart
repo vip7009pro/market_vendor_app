@@ -43,12 +43,15 @@ class _SaleScreenState extends State<SaleScreen> {
   String? _customerId;
   String? _customerName;
   bool _paidEdited = false;
+  bool _showVietQrAfterSave = true;
   List<String> _recentUnits = ['cái', 'kg', 'g', 'hộp'];
   double _qtyStep = 1;
   VoidCallback? _clearProductField;
   VoidCallback? _unfocusProductField;
   List<Customer> _recentCustomers = [];
   List<Product> _recentProducts = [];
+
+  static const String _prefShowVietQrAfterSave = 'sale_show_vietqr_after_save';
 
   Future<String?> _pickPaymentTypeForPaidAmount() async {
     final picked = await showModalBottomSheet<String>(
@@ -319,6 +322,170 @@ class _SaleScreenState extends State<SaleScreen> {
     _loadQtyStep();
     _loadRecentCustomers();
     _loadRecentProducts();
+    _loadShowVietQrAfterSave();
+  }
+
+  Future<void> _loadShowVietQrAfterSave() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getBool(_prefShowVietQrAfterSave);
+    if (!mounted) return;
+    setState(() {
+      _showVietQrAfterSave = v ?? true;
+    });
+  }
+
+  Future<void> _setShowVietQrAfterSave(bool v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefShowVietQrAfterSave, v);
+    if (!mounted) return;
+    setState(() {
+      _showVietQrAfterSave = v;
+    });
+  }
+
+  String _vietQrUrl({
+    required String bankId,
+    required String accountNo,
+    required String accountName,
+    required int amount,
+    required String description,
+    String template = 'compact2',
+  }) {
+    final addInfo = Uri.encodeComponent(description);
+    final accName = Uri.encodeComponent(accountName);
+    return 'https://img.vietqr.io/image/$bankId-$accountNo-$template.png?amount=$amount&addInfo=$addInfo&accountName=$accName';
+  }
+
+  String _sanitizeVietQrAddInfo(String s) {
+    var out = removeDiacritics(s);
+    out = out.replaceAll(RegExp(r'[^a-zA-Z0-9\s=xX\-]'), ' ');
+    out = out.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return out;
+  }
+
+  String _last5DigitsOfId(String id) {
+    final digits = id.replaceAll(RegExp(r'\D'), '');
+    if (digits.length >= 5) return digits.substring(digits.length - 5);
+    final raw = id.trim();
+    if (raw.length >= 5) return raw.substring(raw.length - 5);
+    return raw;
+  }
+
+  String _buildVietQrAddInfoFromItems({required String saleId, required List<SaleItem> items}) {
+    final parts = <String>[];
+    for (final it in items) {
+      final name = it.name.trim();
+      if (name.isEmpty) continue;
+      final qty = it.quantity;
+      final total = it.total;
+      parts.add('${name} x${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}=${total.toInt()}');
+    }
+    final tail = _last5DigitsOfId(saleId);
+    final raw = '${tail.isEmpty ? '' : '$tail '}Noi dung: ${parts.join('; ')}';
+    final safe = _sanitizeVietQrAddInfo(raw);
+    if (safe.length <= 50) return safe;
+    return '${safe.substring(0, 47)}...';
+  }
+
+  Future<void> _showVietQrDialog({
+    required int amount,
+    required String description,
+  }) async {
+    final bank = await DatabaseService.instance.getDefaultVietQrBankAccount();
+    if (!mounted) return;
+
+    if (bank == null) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Chưa cấu hình ngân hàng'),
+          content: const Text(
+            'Bạn chưa cấu hình ngân hàng VietQR mặc định.\n\nVào Cài đặt > Ngân hàng VietQR để thêm và chọn mặc định.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final bin = (bank['bin']?.toString() ?? '').trim();
+    final code = (bank['code']?.toString() ?? '').trim();
+    final bankId = bin.isNotEmpty ? bin : code;
+    final accountNo = (bank['accountNo']?.toString() ?? '').trim();
+    final accountName = (bank['accountName']?.toString() ?? '').trim();
+    final logo = (bank['logo']?.toString() ?? '').trim();
+
+    if (bankId.isEmpty || accountNo.isEmpty || accountName.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Thiếu thông tin ngân hàng'),
+          content: const Text('Thông tin ngân hàng VietQR mặc định chưa đầy đủ. Vui lòng kiểm tra lại.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final url = _vietQrUrl(
+      bankId: bankId,
+      accountNo: accountNo,
+      accountName: accountName,
+      amount: amount,
+      description: description,
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              if (logo.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.network(
+                    logo,
+                    width: 28,
+                    height: 28,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const SizedBox(width: 28, height: 28),
+                  ),
+                ),
+              if (logo.isNotEmpty) const SizedBox(width: 8),
+              const Expanded(child: Text('Quét QR để chuyển khoản')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.network(
+                url,
+                width: 320,
+                height: 380,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text('Không tải được ảnh QR. Vui lòng thử lại.'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'STK: $accountNo\nTên: $accountName',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -2418,6 +2585,14 @@ class _SaleScreenState extends State<SaleScreen> {
                   child: const Text('Khách nợ tất'),
                 ),
               ),
+              const SizedBox(height: 4),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _showVietQrAfterSave,
+                onChanged: (v) => _setShowVietQrAfterSave(v),
+                title: const Text('Hiển thị VietQR khi lưu (CK)'),
+                subtitle: const Text('Mặc định bật. Nếu khách nợ tất thì không hiển thị.'),
+              ),
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
@@ -2511,6 +2686,19 @@ class _SaleScreenState extends State<SaleScreen> {
                                   sourceType: 'sale',
                                   sourceId: sale.id,
                                 ),
+                              );
+                            }
+
+                            // Show VietQR only when:
+                            // - user enabled toggle
+                            // - paid amount > 0 and chosen paymentType = bank
+                            // - no remaining debt (customer did not choose 'nợ tất')
+                            // NOTE: if debtValue > 0, do not show QR.
+                            if (_showVietQrAfterSave && paymentType == 'bank' && _paid > 0 && debtValue <= 0) {
+                              final desc = _buildVietQrAddInfoFromItems(saleId: sale.id, items: _items);
+                              await _showVietQrDialog(
+                                amount: _paid.toInt(),
+                                description: desc,
                               );
                             }
                             setState(() {

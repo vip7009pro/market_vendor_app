@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:ui' as ui;
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:http/http.dart' as http;
 import '../models/debt.dart';
 import '../providers/debt_provider.dart';
 import '../services/database_service.dart';
@@ -29,6 +31,55 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
   bool _loadingSource = true;
   bool _loading = true;
   final GlobalKey _captureKey = GlobalKey();
+
+  String _last5DigitsOfId(String id) {
+    final digits = id.replaceAll(RegExp(r'\D'), '');
+    if (digits.length >= 5) return digits.substring(digits.length - 5);
+    final raw = id.trim();
+    if (raw.length >= 5) return raw.substring(raw.length - 5);
+    return raw;
+  }
+
+  String _vietQrUrl({
+    required String bankId,
+    required String accountNo,
+    required String accountName,
+    required int amount,
+    required String description,
+    String template = 'compact2',
+  }) {
+    final addInfo = Uri.encodeComponent(description);
+    final accName = Uri.encodeComponent(accountName);
+    return 'https://img.vietqr.io/image/$bankId-$accountNo-$template.png?amount=$amount&addInfo=$addInfo&accountName=$accName';
+  }
+
+  Future<ui.Image> _decodePngToImage(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    return frame.image;
+  }
+
+  Future<Uint8List> _composeVerticalPng(ui.Image top, ui.Image bottom) async {
+    final width = top.width > bottom.width ? top.width : bottom.width;
+    final height = top.height + bottom.height;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      Paint()..color = const Color(0xFFFFFFFF),
+    );
+
+    final dxTop = ((width - top.width) / 2).toDouble();
+    final dxBottom = ((width - bottom.width) / 2).toDouble();
+    canvas.drawImage(top, Offset(dxTop, 0), Paint());
+    canvas.drawImage(bottom, Offset(dxBottom, top.height.toDouble()), Paint());
+
+    final picture = recorder.endRecording();
+    final out = await picture.toImage(width, height);
+    final bd = await out.toByteData(format: ui.ImageByteFormat.png);
+    return bd!.buffer.asUint8List();
+  }
 
   IconData _paymentTypeIcon(String? t) {
     final v = (t ?? '').trim().toLowerCase();
@@ -904,7 +955,37 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) return;
-      final bytes = byteData.buffer.asUint8List();
+
+      Uint8List bytes = byteData.buffer.asUint8List();
+
+      final remain = _debt.amount.clamp(0, double.infinity).toDouble();
+      if (remain > 0) {
+        final bank = await DatabaseService.instance.getDefaultVietQrBankAccount();
+        if (bank != null) {
+          final bin = (bank['bin']?.toString() ?? '').trim();
+          final code = (bank['code']?.toString() ?? '').trim();
+          final bankId = bin.isNotEmpty ? bin : code;
+          final accountNo = (bank['accountNo']?.toString() ?? '').trim();
+          final accountName = (bank['accountName']?.toString() ?? '').trim();
+          if (bankId.isNotEmpty && accountNo.isNotEmpty && accountName.isNotEmpty) {
+            final tail = _last5DigitsOfId(_debt.id);
+            final desc = '${tail.isEmpty ? '' : '$tail '}Noi dung: Tra no';
+            final url = _vietQrUrl(
+              bankId: bankId,
+              accountNo: accountNo,
+              accountName: accountName,
+              amount: remain.toInt(),
+              description: desc,
+            );
+            final res = await http.get(Uri.parse(url));
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              final topImg = await _decodePngToImage(bytes);
+              final qrImg = await _decodePngToImage(res.bodyBytes);
+              bytes = await _composeVerticalPng(topImg, qrImg);
+            }
+          }
+        }
+      }
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/debt_${_debt.id}.png');
       await file.writeAsBytes(bytes);

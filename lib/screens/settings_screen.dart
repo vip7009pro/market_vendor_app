@@ -14,6 +14,7 @@ import 'drive_backup_manager_screen.dart';
 import 'sheets_sync_screen.dart';
 import 'theme_selection_screen.dart';
 import 'tax_declaration_form_screen.dart';
+import 'vietqr_bank_accounts_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -412,6 +413,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const TaxDeclarationFormScreen()),
+                ),
+              ),
+              _buildMenuButton(
+                context,
+                icon: Icons.qr_code_2_outlined,
+                label: 'Ngân hàng VietQR',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const VietQrBankAccountsScreen()),
                 ),
               ),
             ],

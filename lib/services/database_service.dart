@@ -1499,6 +1499,34 @@ class DatabaseService {
         print('Lỗi khi migrate công nợ nhập hàng sang purchase_orders: $e');
       }
     }
+
+    if (oldVersion < 24) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS vietqr_bank_accounts(
+            id TEXT PRIMARY KEY,
+            bankApiId INTEGER,
+            name TEXT,
+            code TEXT,
+            bin TEXT,
+            shortName TEXT,
+            short_name TEXT,
+            logo TEXT,
+            transferSupported INTEGER,
+            lookupSupported INTEGER,
+            support INTEGER,
+            isTransfer INTEGER,
+            swift_code TEXT,
+            accountNo TEXT NOT NULL,
+            accountName TEXT NOT NULL,
+            isDefault INTEGER NOT NULL DEFAULT 0,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        print('Lỗi khi tạo bảng vietqr_bank_accounts: $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -1507,7 +1535,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 23, // Tăng version để áp dụng migration
+      version: 24, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -1727,6 +1755,28 @@ class DatabaseService {
             lastNotifiedAt TEXT
           )
         ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS vietqr_bank_accounts(
+            id TEXT PRIMARY KEY,
+            bankApiId INTEGER,
+            name TEXT,
+            code TEXT,
+            bin TEXT,
+            shortName TEXT,
+            short_name TEXT,
+            logo TEXT,
+            transferSupported INTEGER,
+            lookupSupported INTEGER,
+            support INTEGER,
+            isTransfer INTEGER,
+            swift_code TEXT,
+            accountNo TEXT NOT NULL,
+            accountName TEXT NOT NULL,
+            isDefault INTEGER NOT NULL DEFAULT 0,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
       },
       onUpgrade: _migrateDatabase,
       onDowngrade: (db, oldVersion, newVersion) async {
@@ -1737,6 +1787,84 @@ class DatabaseService {
     );
     
     print('Đã khởi tạo database thành công');
+  }
+
+  Future<List<Map<String, dynamic>>> getVietQrBankAccounts() async {
+    return db.query(
+      'vietqr_bank_accounts',
+      orderBy: 'isDefault DESC, updatedAt DESC',
+    );
+  }
+
+  Future<Map<String, dynamic>?> getDefaultVietQrBankAccount() async {
+    final rows = await db.query(
+      'vietqr_bank_accounts',
+      where: 'isDefault = 1',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first;
+  }
+
+  Future<void> upsertVietQrBankAccount(Map<String, dynamic> data) async {
+    final id = (data['id']?.toString() ?? '').trim();
+    if (id.isEmpty) {
+      throw Exception('Missing id');
+    }
+    final now = DateTime.now().toIso8601String();
+
+    final row = <String, Object?>{
+      'id': id,
+      'bankApiId': data['bankApiId'],
+      'name': data['name'],
+      'code': data['code'],
+      'bin': data['bin'],
+      'shortName': data['shortName'],
+      'short_name': data['short_name'],
+      'logo': data['logo'],
+      'transferSupported': data['transferSupported'],
+      'lookupSupported': data['lookupSupported'],
+      'support': data['support'],
+      'isTransfer': data['isTransfer'],
+      'swift_code': data['swift_code'],
+      'accountNo': data['accountNo'],
+      'accountName': data['accountName'],
+      'isDefault': data['isDefault'] ?? 0,
+      'updatedAt': now,
+    };
+
+    await db.transaction((txn) async {
+      final isDefault = (row['isDefault'] as int?) ?? 0;
+      if (isDefault == 1) {
+        await txn.update('vietqr_bank_accounts', {'isDefault': 0, 'updatedAt': now});
+      }
+      await txn.insert(
+        'vietqr_bank_accounts',
+        row,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+  }
+
+  Future<void> deleteVietQrBankAccount(String id) async {
+    await db.delete(
+      'vietqr_bank_accounts',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> setDefaultVietQrBankAccount(String id) async {
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.update('vietqr_bank_accounts', {'isDefault': 0, 'updatedAt': now});
+      await txn.update(
+        'vietqr_bank_accounts',
+        {'isDefault': 1, 'updatedAt': now},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
   }
 
   // Products
