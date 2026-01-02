@@ -14,6 +14,7 @@ import '../utils/text_normalizer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'inventory_report_screen.dart';
 import 'purchase_history_screen.dart';
+import 'purchase_order_list_screen.dart';
 
 class ProductListScreen extends StatefulWidget {
   const ProductListScreen({super.key});
@@ -629,6 +630,17 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
               tooltip: _isTableViewProducts ? 'Xem dạng thẻ' : 'Xem dạng bảng',
               icon: Icon(_isTableViewProducts ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
               onPressed: () => setState(() => _isTableViewProducts = !_isTableViewProducts),
+            ),
+          ] else if (tabIndex == 1) ...[
+            IconButton(
+              tooltip: 'Đơn nhập',
+              icon: const Icon(Icons.receipt_long_outlined),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PurchaseOrderListScreen()),
+                );
+              },
             ),
             IconButton(
               icon: const Icon(Icons.table_chart_outlined),

@@ -24,6 +24,7 @@ import '../services/product_image_service.dart';
 import '../utils/contact_serializer.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
+import 'purchase_order_detail_screen.dart';
 
 class PurchaseHistoryScreen extends StatefulWidget {
   final bool embedded;
@@ -37,16 +38,78 @@ class PurchaseHistoryScreen extends StatefulWidget {
   State<PurchaseHistoryScreen> createState() => _PurchaseHistoryScreenState();
 }
 
+class _OrderDebtInfo {
+  final double paid;
+  final double remain;
+  final bool settled;
+
+  _OrderDebtInfo({
+    required this.paid,
+    required this.remain,
+    required this.settled,
+  });
+}
+
 class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   DateTimeRange? _range;
   String _query = '';
 
   bool _isTableView = false;
 
+  bool _autoCreatingOrders = false;
+  bool _autoCreatedOnce = false;
+
+  final Map<String, Future<_OrderDebtInfo>> _orderDebtInfoCache = {};
+
+  Future<_OrderDebtInfo> _loadOrderDebtInfo(String purchaseOrderId) async {
+    final totals = await DatabaseService.instance.getPurchaseOrderTotals(purchaseOrderId);
+    final total = totals?['total'] ?? 0.0;
+    final debt = await DatabaseService.instance.getDebtBySource(sourceType: 'purchase', sourceId: purchaseOrderId);
+    if (debt == null) {
+      return _OrderDebtInfo(paid: total, remain: 0.0, settled: true);
+    }
+    final remain = (debt.amount).clamp(0.0, double.infinity).toDouble();
+    final paid = (total - remain).clamp(0.0, double.infinity).toDouble();
+    final settled = debt.settled || remain <= 0;
+    return _OrderDebtInfo(paid: paid, remain: remain, settled: settled);
+  }
+
+  Future<_OrderDebtInfo> _orderDebtInfoFuture(String purchaseOrderId) {
+    return _orderDebtInfoCache.putIfAbsent(purchaseOrderId, () => _loadOrderDebtInfo(purchaseOrderId));
+  }
+
   final Set<String> _docUploading = <String>{};
 
   static const _prefLastSupplierName = 'purchase_last_supplier_name';
   static const _prefLastSupplierPhone = 'purchase_last_supplier_phone';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (_autoCreatedOnce || _autoCreatingOrders) return;
+      _autoCreatedOnce = true;
+      _autoCreatingOrders = true;
+      try {
+        final createdOrderIds = await DatabaseService.instance.autoCreateOrdersForUnassignedPurchaseHistory(
+          range: _range,
+        );
+
+        if (!mounted) return;
+        if (createdOrderIds.isNotEmpty) {
+          await context.read<ProductProvider>().load();
+          await context.read<DebtProvider>().load();
+          setState(() {
+            _orderDebtInfoCache.clear();
+          });
+        }
+      } finally {
+        _autoCreatingOrders = false;
+        if (mounted) setState(() {});
+      }
+    });
+  }
 
   String removeDiacritics(String str) {
     const withDiacritics = 'áàảãạăắằẳẵặâấầuẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵđ';
@@ -99,8 +162,10 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     const wSupplier = 200.0;
     const wNote = 260.0;
     const wDoc = 90.0;
+    const wOrder = 110.0;
     const wActions = 120.0;
-    const tableWidth = wDate + wProduct + wQty + wUnitCost + wTotalCost + wPaid + wRemain + wSupplier + wNote + wDoc + wActions;
+    const tableWidth =
+        wDate + wProduct + wQty + wUnitCost + wTotalCost + wPaid + wRemain + wSupplier + wNote + wDoc + wOrder + wActions;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -126,6 +191,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       _tableHeaderCell('NCC', width: wSupplier),
                       _tableHeaderCell('Ghi chú', width: wNote),
                       _tableHeaderCell('Chứng từ', width: wDoc, align: TextAlign.center),
+                      _tableHeaderCell('Đơn', width: wOrder, align: TextAlign.center),
                       _tableHeaderCell('Thao tác', width: wActions, align: TextAlign.center),
                     ],
                   ),
@@ -149,6 +215,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       final docUploaded = (r['purchaseDocUploaded'] as int?) == 1;
                       final purchaseId = (r['id'] as String?) ?? '';
                       final docUploading = purchaseId.isNotEmpty && _docUploading.contains(purchaseId);
+                      final purchaseOrderId = (r['purchaseOrderId'] as String?)?.trim();
+                      final assignedOrder = purchaseOrderId != null && purchaseOrderId.isNotEmpty;
 
                       return InkWell(
                         onTap: () async {
@@ -179,12 +247,33 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                               alignment: Alignment.centerRight,
                             ),
                             _tableCell(
-                              Text(currency.format(paidAmount)),
+                              assignedOrder
+                                  ? FutureBuilder<_OrderDebtInfo>(
+                                      future: _orderDebtInfoFuture(purchaseOrderId),
+                                      builder: (context, snap) {
+                                        final info = snap.data;
+                                        final val = info?.paid ?? 0.0;
+                                        return Text(currency.format(val));
+                                      },
+                                    )
+                                  : Text(currency.format(paidAmount)),
                               width: wPaid,
                               alignment: Alignment.centerRight,
                             ),
                             _tableCell(
-                              Text(currency.format(remainDebt)),
+                              assignedOrder
+                                  ? FutureBuilder<_OrderDebtInfo>(
+                                      future: _orderDebtInfoFuture(purchaseOrderId),
+                                      builder: (context, snap) {
+                                        final info = snap.data;
+                                        final remain = info?.remain ?? 0.0;
+                                        final settled = info?.settled ?? true;
+                                        final text = settled ? 'Đã TT' : currency.format(remain);
+                                        final color = settled ? Colors.green : Colors.redAccent;
+                                        return Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w700));
+                                      },
+                                    )
+                                  : Text(currency.format(remainDebt)),
                               width: wRemain,
                               alignment: Alignment.centerRight,
                             ),
@@ -208,6 +297,64 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                       ),
                                     ),
                               width: wDoc,
+                              alignment: Alignment.center,
+                            ),
+                            _tableCell(
+                              assignedOrder
+                                  ? IconButton(
+                                      tooltip: 'Mở đơn',
+                                      icon: const Icon(Icons.receipt_long),
+                                      onPressed: () async {
+                                        final changed = await Navigator.push<bool>(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => PurchaseOrderDetailScreen(
+                                              purchaseOrderId: purchaseOrderId,
+                                            ),
+                                          ),
+                                        );
+                                        if (!mounted) return;
+                                        if (changed == true) {
+                                          await context.read<ProductProvider>().load();
+                                          await context.read<DebtProvider>().load();
+                                        }
+                                        setState(() {
+                                          _orderDebtInfoCache.clear();
+                                        });
+                                      },
+                                    )
+                                  : IconButton(
+                                      tooltip: 'Tạo đơn nhanh',
+                                      icon: const Icon(Icons.receipt_long_outlined),
+                                      onPressed: purchaseId.isEmpty
+                                          ? null
+                                          : () async {
+                                              final orderId = await DatabaseService.instance
+                                                  .quickCreateOrderForPurchaseHistoryRow(purchaseHistoryId: purchaseId);
+                                              if (!mounted) return;
+                                              if (orderId == null || orderId.trim().isEmpty) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(content: Text('Không thể tạo đơn')),
+                                                );
+                                                return;
+                                              }
+                                              final changed = await Navigator.push<bool>(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) => PurchaseOrderDetailScreen(purchaseOrderId: orderId),
+                                                ),
+                                              );
+                                              if (!mounted) return;
+                                              if (changed == true) {
+                                                await context.read<ProductProvider>().load();
+                                                await context.read<DebtProvider>().load();
+                                              }
+                                              setState(() {
+                                                _orderDebtInfoCache.clear();
+                                              });
+                                            },
+                                    ),
+                              width: wOrder,
                               alignment: Alignment.center,
                             ),
                             _tableCell(
@@ -1570,6 +1717,9 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     final supplierName = (r['supplierName'] as String?)?.trim();
                     final docUploaded = (r['purchaseDocUploaded'] as int?) == 1;
                     final docUploading = _docUploading.contains(r['id'] as String);
+                    final purchaseId = (r['id'] as String?) ?? '';
+                    final purchaseOrderId = (r['purchaseOrderId'] as String?)?.trim();
+                    final assignedOrder = purchaseOrderId != null && purchaseOrderId.isNotEmpty;
 
                     return ListTile(
                       leading: CircleAvatar(
@@ -1606,45 +1756,65 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                         children: [
                           Text('SL: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}  |  Giá nhập: ${currency.format(unitCost)}'),
                           Text('Thành tiền: ${currency.format(totalCost)}'),
-                          Text('Thanh toán: ${currency.format(paidAmount)}'),
-                          if (remainDebt > 0)
-                            FutureBuilder(
-                              future: DatabaseService.instance.getDebtBySource(
-                                sourceType: 'purchase',
-                                sourceId: r['id'] as String,
-                              ),
+                          if (assignedOrder)
+                            FutureBuilder<_OrderDebtInfo>(
+                              future: _orderDebtInfoFuture(purchaseOrderId),
                               builder: (context, snap) {
-                                final d = snap.data;
-                                if (snap.connectionState != ConnectionState.done || d == null) {
-                                  return Text(
-                                    'Còn nợ: ${currency.format(remainDebt)}',
-                                    style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600),
-                                  );
-                                }
-
-                                return FutureBuilder<double>(
-                                  future: DatabaseService.instance.getTotalPaidForDebt(d.id),
-                                  builder: (context, paidSnap) {
-                                    final paid = paidSnap.data ?? 0;
-                                    final remain = d.amount;
-                                    final settled = d.settled || remain <= 0;
-                                    final text = settled
-                                        ? 'Đã tất toán'
-                                        : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
-                                    final color = settled ? Colors.green : Colors.redAccent;
-                                    return Text(
-                                      text,
-                                      style: TextStyle(color: color, fontWeight: FontWeight.w600),
-                                    );
-                                  },
+                                final info = snap.data;
+                                final settled = info?.settled ?? true;
+                                final paid = info?.paid ?? 0.0;
+                                final remain = info?.remain ?? 0.0;
+                                final text = settled
+                                    ? 'Đơn: Đã tất toán'
+                                    : 'Đơn: Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
+                                final color = settled ? Colors.green : Colors.redAccent;
+                                return Text(
+                                  text,
+                                  style: TextStyle(color: color, fontWeight: FontWeight.w600),
                                 );
                               },
                             ),
-                          if (remainDebt <= 0)
-                            const Text(
-                              'Đã tất toán',
-                              style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
-                            ),
+                          if (!assignedOrder) ...[
+                            Text('Thanh toán: ${currency.format(paidAmount)}'),
+                            if (remainDebt > 0)
+                              FutureBuilder(
+                                future: DatabaseService.instance.getDebtBySource(
+                                  sourceType: 'purchase',
+                                  sourceId: r['id'] as String,
+                                ),
+                                builder: (context, snap) {
+                                  final d = snap.data;
+                                  if (snap.connectionState != ConnectionState.done || d == null) {
+                                    return Text(
+                                      'Còn nợ: ${currency.format(remainDebt)}',
+                                      style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600),
+                                    );
+                                  }
+
+                                  return FutureBuilder<double>(
+                                    future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                                    builder: (context, paidSnap) {
+                                      final paid = paidSnap.data ?? 0;
+                                      final remain = d.amount;
+                                      final settled = d.settled || remain <= 0;
+                                      final text = settled
+                                          ? 'Đã tất toán'
+                                          : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
+                                      final color = settled ? Colors.green : Colors.redAccent;
+                                      return Text(
+                                        text,
+                                        style: TextStyle(color: color, fontWeight: FontWeight.w600),
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
+                            if (remainDebt <= 0)
+                              const Text(
+                                'Đã tất toán',
+                                style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+                              ),
+                          ],
                           if (supplierName != null && supplierName.isNotEmpty) Text('NCC: $supplierName'),
                           Row(
                             children: [
@@ -1662,6 +1832,18 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                               ],
                             ],
                           ),
+                          Row(
+                            children: [
+                              const Text('Đơn: '),
+                              Text(
+                                assignedOrder ? 'Đã gán' : 'Chưa gán',
+                                style: TextStyle(
+                                  color: assignedOrder ? Colors.green : Colors.black54,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
                           Text(fmtDate.format(createdAt), style: const TextStyle(color: Colors.black54)),
                           if (note != null && note.isNotEmpty) Text('Ghi chú: $note'),
                         ],
@@ -1669,6 +1851,55 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(
+                            tooltip: assignedOrder ? 'Mở đơn' : 'Tạo đơn nhanh',
+                            onPressed: purchaseId.isEmpty
+                                ? null
+                                : () async {
+                                    if (assignedOrder) {
+                                      final changed = await Navigator.push<bool>(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => PurchaseOrderDetailScreen(purchaseOrderId: purchaseOrderId),
+                                        ),
+                                      );
+                                      if (!mounted) return;
+                                      if (changed == true) {
+                                        await context.read<ProductProvider>().load();
+                                        await context.read<DebtProvider>().load();
+                                      }
+                                      setState(() {
+                                        _orderDebtInfoCache.clear();
+                                      });
+                                      return;
+                                    }
+
+                                    final orderId = await DatabaseService.instance
+                                        .quickCreateOrderForPurchaseHistoryRow(purchaseHistoryId: purchaseId);
+                                    if (!mounted) return;
+                                    if (orderId == null || orderId.trim().isEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Không thể tạo đơn')),
+                                      );
+                                      return;
+                                    }
+                                    final changed = await Navigator.push<bool>(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => PurchaseOrderDetailScreen(purchaseOrderId: orderId),
+                                      ),
+                                    );
+                                    if (!mounted) return;
+                                    if (changed == true) {
+                                      await context.read<ProductProvider>().load();
+                                      await context.read<DebtProvider>().load();
+                                    }
+                                    setState(() {
+                                      _orderDebtInfoCache.clear();
+                                    });
+                                  },
+                            icon: Icon(assignedOrder ? Icons.receipt_long : Icons.receipt_long_outlined),
+                          ),
                           IconButton(
                             tooltip: 'Chứng từ',
                             onPressed: () => _showDocActions(row: r),

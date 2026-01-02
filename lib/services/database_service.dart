@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:developer' as developer;
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -193,6 +194,7 @@ class DatabaseService {
     String? supplierPhone,
     String? note,
     DateTime? createdAt,
+    String? purchaseOrderId,
   }) async {
     final now = DateTime.now();
     final created = createdAt ?? now;
@@ -217,6 +219,7 @@ class DatabaseService {
           'purchaseDocUploaded': 0,
           'purchaseDocFileId': null,
           'purchaseDocUpdatedAt': null,
+          'purchaseOrderId': purchaseOrderId,
           'updatedAt': now.toIso8601String(),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
@@ -242,6 +245,7 @@ class DatabaseService {
     String? supplierPhone,
     String? note,
     DateTime? createdAt,
+    String? purchaseOrderId,
   }) async {
     final now = DateTime.now();
     final totalCost = quantity * unitCost;
@@ -287,6 +291,7 @@ class DatabaseService {
           'supplierName': supplierName,
           'supplierPhone': supplierPhone,
           'note': note,
+          'purchaseOrderId': purchaseOrderId,
           'updatedAt': now.toIso8601String(),
         },
         where: 'id = ?',
@@ -383,6 +388,493 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [purchaseId],
     );
+  }
+
+  Future<String> insertPurchaseOrder({
+    DateTime? createdAt,
+    String? supplierName,
+    String? supplierPhone,
+    required String discountType,
+    required double discountValue,
+    required double paidAmount,
+    String? note,
+    int purchaseDocUploaded = 0,
+    String? purchaseDocFileId,
+    String? purchaseDocUpdatedAt,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final id = _uuid.v4();
+    final dt = createdAt ?? DateTime.now();
+    final dtType = discountType.toUpperCase().trim() == 'PERCENT' ? 'PERCENT' : 'AMOUNT';
+
+    await db.insert(
+      'purchase_orders',
+      {
+        'id': id,
+        'createdAt': dt.toIso8601String(),
+        'supplierName': supplierName,
+        'supplierPhone': supplierPhone,
+        'discountType': dtType,
+        'discountValue': discountValue,
+        'paidAmount': paidAmount,
+        'note': note,
+        'purchaseDocUploaded': purchaseDocUploaded,
+        'purchaseDocFileId': purchaseDocFileId,
+        'purchaseDocUpdatedAt': purchaseDocUpdatedAt,
+        'updatedAt': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return id;
+  }
+
+  Future<void> updatePurchaseOrder({
+    required String id,
+    DateTime? createdAt,
+    String? supplierName,
+    String? supplierPhone,
+    required String discountType,
+    required double discountValue,
+    required double paidAmount,
+    String? note,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final dtType = discountType.toUpperCase().trim() == 'PERCENT' ? 'PERCENT' : 'AMOUNT';
+    await db.update(
+      'purchase_orders',
+      {
+        if (createdAt != null) 'createdAt': createdAt.toIso8601String(),
+        'supplierName': supplierName,
+        'supplierPhone': supplierPhone,
+        'discountType': dtType,
+        'discountValue': discountValue,
+        'paidAmount': paidAmount,
+        'note': note,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> markPurchaseOrderDocUploaded({
+    required String purchaseOrderId,
+    required String fileId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'purchase_orders',
+      {
+        'purchaseDocUploaded': 1,
+        'purchaseDocFileId': fileId,
+        'purchaseDocUpdatedAt': now,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [purchaseOrderId],
+    );
+  }
+
+  Future<void> clearPurchaseOrderDoc({required String purchaseOrderId}) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'purchase_orders',
+      {
+        'purchaseDocUploaded': 0,
+        'purchaseDocFileId': null,
+        'purchaseDocUpdatedAt': now,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [purchaseOrderId],
+    );
+  }
+
+  Future<Map<String, dynamic>?> getPurchaseOrderById(String purchaseOrderId) async {
+    final rows = await db.query(
+      'purchase_orders',
+      where: 'id = ?',
+      whereArgs: [purchaseOrderId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first;
+  }
+
+  Future<List<Map<String, dynamic>>> getPurchaseOrders({
+    DateTimeRange? range,
+    String? query,
+  }) async {
+    String? where;
+    final whereArgs = <Object?>[];
+
+    if (range != null) {
+      final start = DateTime(range.start.year, range.start.month, range.start.day);
+      final end = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
+      where = 'createdAt >= ? AND createdAt <= ?';
+      whereArgs.addAll([start.toIso8601String(), end.toIso8601String()]);
+    }
+
+    if (query != null && query.trim().isNotEmpty) {
+      final q = '%${query.trim()}%';
+      if (where == null) {
+        where = '(note LIKE ? OR supplierName LIKE ? OR supplierPhone LIKE ?)';
+      } else {
+        where = '$where AND (note LIKE ? OR supplierName LIKE ? OR supplierPhone LIKE ?)';
+      }
+      whereArgs.addAll([q, q, q]);
+    }
+
+    return db.query(
+      'purchase_orders',
+      where: where,
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
+      orderBy: 'createdAt DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getPurchaseHistoryByOrderId(String purchaseOrderId) async {
+    return db.query(
+      'purchase_history',
+      where: 'purchaseOrderId = ?',
+      whereArgs: [purchaseOrderId],
+      orderBy: 'createdAt DESC',
+    );
+  }
+
+  Future<Map<String, double>?> getPurchaseOrderTotals(String purchaseOrderId) async {
+    final order = await getPurchaseOrderById(purchaseOrderId);
+    if (order == null) return null;
+
+    final rows = await db.rawQuery(
+      'SELECT SUM(totalCost) as subtotal FROM purchase_history WHERE purchaseOrderId = ?',
+      [purchaseOrderId],
+    );
+    final subtotal = (rows.isNotEmpty ? rows.first['subtotal'] as num? : null)?.toDouble() ?? 0.0;
+
+    final dtType = (order['discountType'] as String?)?.toUpperCase().trim() ?? 'AMOUNT';
+    final dv = (order['discountValue'] as num?)?.toDouble() ?? 0.0;
+
+    final discountAmount = (dtType == 'PERCENT')
+        ? (subtotal * (dv / 100.0)).clamp(0.0, double.infinity).toDouble()
+        : dv.clamp(0.0, double.infinity).toDouble();
+    final total = (subtotal - discountAmount).clamp(0.0, double.infinity).toDouble();
+    final paid = (order['paidAmount'] as num?)?.toDouble() ?? 0.0;
+    final remainDebt = (total - paid).clamp(0.0, double.infinity).toDouble();
+
+    return {
+      'subtotal': subtotal,
+      'discountAmount': discountAmount,
+      'total': total,
+      'paidAmount': paid,
+      'remainDebt': remainDebt,
+    };
+  }
+
+  Future<void> syncPurchaseOrderDebt({required String purchaseOrderId}) async {
+    final order = await getPurchaseOrderById(purchaseOrderId);
+    if (order == null) return;
+
+    final totals = await getPurchaseOrderTotals(purchaseOrderId);
+    final subtotal = totals?['subtotal'] ?? 0.0;
+    final discountAmount = totals?['discountAmount'] ?? 0.0;
+    final total = totals?['total'] ?? 0.0;
+    final paidAmount = totals?['paidAmount'] ?? 0.0;
+    final debtInitialAmount = totals?['remainDebt'] ?? 0.0;
+
+    final supplierName = (order['supplierName'] as String?)?.trim();
+    final note = (order['note'] as String?)?.trim();
+    final createdAt = DateTime.tryParse(order['createdAt'] as String? ?? '') ?? DateTime.now();
+
+    final lines = await getPurchaseHistoryByOrderId(purchaseOrderId);
+    final fmtMoney = NumberFormat.decimalPattern('en_US');
+    final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
+
+    final buf = StringBuffer();
+    buf.write('Đơn nhập hàng');
+    if (supplierName != null && supplierName.isNotEmpty) buf.write(' | NCC: $supplierName');
+    buf.write('\nNgày: ${fmtDate.format(createdAt)}');
+    if (note != null && note.isNotEmpty) buf.write('\nGhi chú: $note');
+    buf.write('\n');
+
+    for (final r in lines) {
+      final name = (r['productName'] as String?)?.trim() ?? '';
+      final qty = (r['quantity'] as num?)?.toDouble() ?? 0.0;
+      final unitCost = (r['unitCost'] as num?)?.toDouble() ?? 0.0;
+      final totalCost = (r['totalCost'] as num?)?.toDouble() ?? (qty * unitCost);
+      buf.write(
+        '\n- $name: SL ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}, Giá ${fmtMoney.format(unitCost.round())}, Tiền ${fmtMoney.format(totalCost.round())}',
+      );
+    }
+
+    buf.write('\n');
+    buf.write('\nTạm tính: ${fmtMoney.format(subtotal.round())}');
+    buf.write('\nChiết khấu: ${fmtMoney.format(discountAmount.round())}');
+    buf.write('\nTổng đơn: ${fmtMoney.format(total.round())}');
+    buf.write('\nĐã thanh toán (đơn): ${fmtMoney.format(paidAmount.round())}');
+    buf.write('\nCòn nợ (theo đơn): ${fmtMoney.format(debtInitialAmount.round())}');
+    final description = buf.toString().trim();
+
+    final existing = await getDebtBySource(sourceType: 'purchase', sourceId: purchaseOrderId);
+    if (existing == null) {
+      if (debtInitialAmount <= 0) return;
+      final d = Debt(
+        type: DebtType.oweOthers,
+        partyId: 'supplier_unknown',
+        partyName: (supplierName == null || supplierName.isEmpty) ? 'Nhà cung cấp' : supplierName,
+        amount: debtInitialAmount,
+        description: description,
+        sourceType: 'purchase',
+        sourceId: purchaseOrderId,
+      );
+      await insertDebt(d);
+      return;
+    }
+
+    final alreadyPaidForDebt = await getTotalPaidForDebt(existing.id);
+    final newRemain = (debtInitialAmount - alreadyPaidForDebt).clamp(0.0, double.infinity).toDouble();
+    final updated = Debt(
+      id: existing.id,
+      createdAt: existing.createdAt,
+      type: DebtType.oweOthers,
+      partyId: existing.partyId,
+      partyName: (supplierName == null || supplierName.isEmpty) ? existing.partyName : supplierName,
+      amount: newRemain,
+      description: description,
+      settled: newRemain <= 0,
+      sourceType: 'purchase',
+      sourceId: purchaseOrderId,
+    );
+    await updateDebt(updated);
+  }
+
+  Future<void> assignPurchaseHistoryToOrder({
+    required String purchaseHistoryId,
+    required String purchaseOrderId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'purchase_history',
+      {'purchaseOrderId': purchaseOrderId, 'updatedAt': now},
+      where: 'id = ?',
+      whereArgs: [purchaseHistoryId],
+    );
+  }
+
+  Future<void> unassignPurchaseHistoryFromOrder({
+    required String purchaseHistoryId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'purchase_history',
+      {'purchaseOrderId': null, 'updatedAt': now},
+      where: 'id = ?',
+      whereArgs: [purchaseHistoryId],
+    );
+  }
+
+  Future<String?> quickCreateOrderForPurchaseHistoryRow({
+    required String purchaseHistoryId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    return db.transaction((txn) async {
+      final phRows = await txn.query(
+        'purchase_history',
+        where: 'id = ?',
+        whereArgs: [purchaseHistoryId],
+        limit: 1,
+      );
+      if (phRows.isEmpty) return null;
+
+      final ph = phRows.first;
+      final existing = (ph['purchaseOrderId'] as String?)?.trim();
+      if (existing != null && existing.isNotEmpty) return existing;
+
+      final orderId = _uuid.v4();
+      final createdAt = (ph['createdAt'] as String?)?.trim();
+
+      await txn.insert(
+        'purchase_orders',
+        {
+          'id': orderId,
+          'createdAt': (createdAt == null || createdAt.isEmpty) ? now : createdAt,
+          'supplierName': ph['supplierName'],
+          'supplierPhone': ph['supplierPhone'],
+          'discountType': 'AMOUNT',
+          'discountValue': 0,
+          'paidAmount': (ph['paidAmount'] as num?)?.toDouble() ?? 0.0,
+          'note': ph['note'],
+          // Legacy: copy row-level doc to order for quick-create flow
+          'purchaseDocUploaded': (ph['purchaseDocUploaded'] as int?) ?? 0,
+          'purchaseDocFileId': ph['purchaseDocFileId'],
+          'purchaseDocUpdatedAt': ph['purchaseDocUpdatedAt'],
+          'updatedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      await txn.update(
+        'purchase_history',
+        {'purchaseOrderId': orderId, 'updatedAt': now},
+        where: 'id = ?',
+        whereArgs: [purchaseHistoryId],
+      );
+
+      await txn.update(
+        'debts',
+        {'sourceId': orderId, 'updatedAt': now},
+        where: 'sourceType = ? AND sourceId = ?',
+        whereArgs: ['purchase', purchaseHistoryId],
+      );
+
+      return orderId;
+    });
+  }
+
+  Future<List<String>> autoCreateOrdersForUnassignedPurchaseHistory({
+    DateTimeRange? range,
+    int limit = 500,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+
+    String? where;
+    final whereArgs = <Object?>[];
+    if (range != null) {
+      final start = DateTime(range.start.year, range.start.month, range.start.day);
+      final end = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
+      where = 'purchaseOrderId IS NULL AND createdAt >= ? AND createdAt <= ?';
+      whereArgs.addAll([start.toIso8601String(), end.toIso8601String()]);
+    } else {
+      where = 'purchaseOrderId IS NULL';
+    }
+
+    final rows = await db.query(
+      'purchase_history',
+      where: where,
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
+      orderBy: 'createdAt ASC',
+      limit: limit,
+    );
+    if (rows.isEmpty) return const [];
+
+    final fmtDay = DateFormat('yyyy-MM-dd');
+    final groups = <String, List<Map<String, dynamic>>>{};
+    for (final r in rows) {
+      final createdAt = DateTime.tryParse(r['createdAt'] as String? ?? '') ?? DateTime.now();
+      final dayKey = fmtDay.format(createdAt);
+      final supplierName = (r['supplierName'] as String?)?.trim() ?? '';
+      final supplierPhone = (r['supplierPhone'] as String?)?.trim() ?? '';
+      final key = '${supplierName.toLowerCase()}|${supplierPhone.toLowerCase()}|$dayKey';
+      (groups[key] ??= <Map<String, dynamic>>[]).add(r);
+    }
+
+    final createdOrderIds = <String>[];
+    for (final g in groups.values) {
+      if (g.isEmpty) continue;
+
+      final first = g.first;
+      final orderId = _uuid.v4();
+
+      final createdAtStr = (first['createdAt'] as String?)?.trim();
+      final supplierName = (first['supplierName'] as String?)?.trim();
+      final supplierPhone = (first['supplierPhone'] as String?)?.trim();
+      final note = (first['note'] as String?)?.trim();
+
+      double paidSum = 0.0;
+      for (final r in g) {
+        paidSum += (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
+      }
+
+      await db.transaction((txn) async {
+        await txn.insert(
+          'purchase_orders',
+          {
+            'id': orderId,
+            'createdAt': (createdAtStr == null || createdAtStr.isEmpty) ? now : createdAtStr,
+            'supplierName': supplierName,
+            'supplierPhone': supplierPhone,
+            'discountType': 'AMOUNT',
+            'discountValue': 0,
+            'paidAmount': paidSum,
+            'note': note,
+            'purchaseDocUploaded': (first['purchaseDocUploaded'] as int?) ?? 0,
+            'purchaseDocFileId': first['purchaseDocFileId'],
+            'purchaseDocUpdatedAt': first['purchaseDocUpdatedAt'],
+            'updatedAt': now,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+
+        for (final r in g) {
+          final id = (r['id'] as String?)?.trim();
+          if (id == null || id.isEmpty) continue;
+          await txn.update(
+            'purchase_history',
+            {'purchaseOrderId': orderId, 'updatedAt': now},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+
+          await txn.update(
+            'debts',
+            {'sourceId': orderId, 'updatedAt': now},
+            where: 'sourceType = ? AND sourceId = ?',
+            whereArgs: ['purchase', id],
+          );
+        }
+      });
+
+      await syncPurchaseOrderDebt(purchaseOrderId: orderId);
+      createdOrderIds.add(orderId);
+    }
+
+    return createdOrderIds;
+  }
+
+  Future<void> deletePurchaseOrder({
+    required String purchaseOrderId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      // Delete order-level debt + payments
+      final debtRows = await txn.query(
+        'debts',
+        columns: ['id'],
+        where: 'sourceType = ? AND sourceId = ?',
+        whereArgs: ['purchase', purchaseOrderId],
+      );
+      for (final d in debtRows) {
+        final debtId = d['id'] as String?;
+        if (debtId == null) continue;
+        await txn.delete('debt_payments', where: 'debtId = ?', whereArgs: [debtId]);
+        await txn.delete('debts', where: 'id = ?', whereArgs: [debtId]);
+      }
+
+      // Delete all purchase_history rows belonging to this order and revert stock
+      final lines = await txn.query(
+        'purchase_history',
+        columns: ['id', 'productId', 'quantity'],
+        where: 'purchaseOrderId = ?',
+        whereArgs: [purchaseOrderId],
+      );
+
+      for (final r in lines) {
+        final lineId = r['id'] as String?;
+        final productId = r['productId'] as String?;
+        final qty = (r['quantity'] as num?)?.toDouble() ?? 0.0;
+        if (productId != null && qty != 0) {
+          await txn.rawUpdate(
+            'UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ?',
+            [qty, now, productId],
+          );
+        }
+        if (lineId != null) {
+          await txn.delete('purchase_history', where: 'id = ?', whereArgs: [lineId]);
+        }
+      }
+
+      await txn.delete('purchase_orders', where: 'id = ?', whereArgs: [purchaseOrderId]);
+    });
   }
 
   Future<String> insertExpense({
@@ -796,6 +1288,7 @@ class DatabaseService {
             purchaseDocUploaded INTEGER NOT NULL DEFAULT 0,
             purchaseDocFileId TEXT,
             purchaseDocUpdatedAt TEXT,
+            purchaseOrderId TEXT,
             updatedAt TEXT NOT NULL
           )
         ''');
@@ -902,6 +1395,110 @@ class DatabaseService {
         await safeAddColumn(db, 'debt_payments', 'paymentType', 'TEXT');
       } catch (_) {}
     }
+
+    if (oldVersion < 23) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS purchase_orders(
+            id TEXT PRIMARY KEY,
+            createdAt TEXT NOT NULL,
+            supplierName TEXT,
+            supplierPhone TEXT,
+            discountType TEXT NOT NULL DEFAULT 'AMOUNT',
+            discountValue REAL NOT NULL DEFAULT 0,
+            paidAmount REAL NOT NULL DEFAULT 0,
+            note TEXT,
+            purchaseDocUploaded INTEGER NOT NULL DEFAULT 0,
+            purchaseDocFileId TEXT,
+            purchaseDocUpdatedAt TEXT,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        print('Lỗi khi tạo bảng purchase_orders: $e');
+      }
+
+      try {
+        await safeAddColumn(db, 'purchase_history', 'purchaseOrderId', 'TEXT');
+      } catch (_) {}
+
+      // Migrate existing purchase debts to reference purchase_orders instead of purchase_history
+      // Rule: for legacy data, each purchase_history row becomes its own purchase_order (only when it has a debt)
+      try {
+        final now = DateTime.now().toIso8601String();
+        final debts = await db.query(
+          'debts',
+          columns: ['id', 'sourceType', 'sourceId'],
+          where: 'sourceType = ? AND sourceId IS NOT NULL AND TRIM(sourceId) != ""',
+          whereArgs: ['purchase'],
+        );
+
+        for (final d in debts) {
+          final debtId = (d['id'] as String?)?.trim();
+          final legacyPurchaseId = (d['sourceId'] as String?)?.trim();
+          if (debtId == null || debtId.isEmpty) continue;
+          if (legacyPurchaseId == null || legacyPurchaseId.isEmpty) continue;
+
+          final ph = await db.query(
+            'purchase_history',
+            where: 'id = ?',
+            whereArgs: [legacyPurchaseId],
+            limit: 1,
+          );
+          if (ph.isEmpty) continue;
+
+          final row = ph.first;
+          final existingOrderId = (row['purchaseOrderId'] as String?)?.trim();
+          final orderId = (existingOrderId != null && existingOrderId.isNotEmpty) ? existingOrderId : _uuid.v4();
+
+          if (existingOrderId == null || existingOrderId.isEmpty) {
+            final createdAt = (row['createdAt'] as String?)?.trim();
+            final supplierName = row['supplierName'] as String?;
+            final supplierPhone = row['supplierPhone'] as String?;
+            final note = row['note'] as String?;
+            final paidAmount = (row['paidAmount'] as num?)?.toDouble() ?? 0.0;
+            final docUploaded = (row['purchaseDocUploaded'] as int?) ?? 0;
+            final docFileId = row['purchaseDocFileId'] as String?;
+            final docUpdatedAt = row['purchaseDocUpdatedAt'] as String?;
+
+            await db.insert(
+              'purchase_orders',
+              {
+                'id': orderId,
+                'createdAt': createdAt == null || createdAt.isEmpty ? now : createdAt,
+                'supplierName': supplierName,
+                'supplierPhone': supplierPhone,
+                'discountType': 'AMOUNT',
+                'discountValue': 0,
+                'paidAmount': paidAmount,
+                'note': note,
+                'purchaseDocUploaded': docUploaded,
+                'purchaseDocFileId': docFileId,
+                'purchaseDocUpdatedAt': docUpdatedAt,
+                'updatedAt': now,
+              },
+              conflictAlgorithm: ConflictAlgorithm.ignore,
+            );
+
+            await db.update(
+              'purchase_history',
+              {'purchaseOrderId': orderId, 'updatedAt': now},
+              where: 'id = ?',
+              whereArgs: [legacyPurchaseId],
+            );
+          }
+
+          await db.update(
+            'debts',
+            {'sourceId': orderId, 'updatedAt': now},
+            where: 'id = ?',
+            whereArgs: [debtId],
+          );
+        }
+      } catch (e) {
+        print('Lỗi khi migrate công nợ nhập hàng sang purchase_orders: $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -910,7 +1507,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 22, // Tăng version để áp dụng migration
+      version: 23, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -1069,6 +1666,24 @@ class DatabaseService {
             paidAmount REAL NOT NULL DEFAULT 0,
             supplierName TEXT,
             supplierPhone TEXT,
+            note TEXT,
+            purchaseDocUploaded INTEGER NOT NULL DEFAULT 0,
+            purchaseDocFileId TEXT,
+            purchaseDocUpdatedAt TEXT,
+            purchaseOrderId TEXT,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS purchase_orders(
+            id TEXT PRIMARY KEY,
+            createdAt TEXT NOT NULL,
+            supplierName TEXT,
+            supplierPhone TEXT,
+            discountType TEXT NOT NULL DEFAULT 'AMOUNT',
+            discountValue REAL NOT NULL DEFAULT 0,
+            paidAmount REAL NOT NULL DEFAULT 0,
             note TEXT,
             purchaseDocUploaded INTEGER NOT NULL DEFAULT 0,
             purchaseDocFileId TEXT,

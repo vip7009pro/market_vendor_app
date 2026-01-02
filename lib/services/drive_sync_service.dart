@@ -19,6 +19,7 @@ class DriveSyncService {
   static const String _dbFileName = 'market_vendor.db';
   static const String _imagesDirName = 'product_images';
   static const String _purchaseDocsDirName = 'purchase_docs';
+  static const String _purchaseOrderDocsDirName = 'purchase_order_docs';
   static const String _expenseDocsDirName = 'expense_docs';
 
   bool _looksLikeZip(Uint8List bytes) {
@@ -58,6 +59,16 @@ class DriveSyncService {
       }
     }
 
+    final purchaseOrderDocsDir = Directory(p.join(docs.path, _purchaseOrderDocsDirName));
+    if (await purchaseOrderDocsDir.exists()) {
+      await for (final ent in purchaseOrderDocsDir.list(recursive: true, followLinks: false)) {
+        if (ent is! File) continue;
+        final rel = p.relative(ent.path, from: docs.path);
+        final b = await ent.readAsBytes();
+        archive.addFile(ArchiveFile(p.normalize(rel), b.length, b));
+      }
+    }
+
     final expenseDocsDir = Directory(p.join(docs.path, _expenseDocsDirName));
     if (await expenseDocsDir.exists()) {
       await for (final ent in expenseDocsDir.list(recursive: true, followLinks: false)) {
@@ -81,6 +92,7 @@ class DriveSyncService {
     Uint8List? dbBytes;
     final imagesToWrite = <String, Uint8List>{};
     final purchaseDocsToWrite = <String, Uint8List>{};
+    final purchaseOrderDocsToWrite = <String, Uint8List>{};
     final expenseDocsToWrite = <String, Uint8List>{};
 
     for (final f in decoded) {
@@ -103,6 +115,11 @@ class DriveSyncService {
 
       if (norm.startsWith('$_purchaseDocsDirName${p.separator}') || norm.startsWith('$_purchaseDocsDirName/')) {
         purchaseDocsToWrite[norm] = fileBytes;
+        continue;
+      }
+
+      if (norm.startsWith('$_purchaseOrderDocsDirName${p.separator}') || norm.startsWith('$_purchaseOrderDocsDirName/')) {
+        purchaseOrderDocsToWrite[norm] = fileBytes;
         continue;
       }
 
@@ -147,6 +164,17 @@ class DriveSyncService {
       await purchaseDocsDir.create(recursive: true);
     }
     for (final e in purchaseDocsToWrite.entries) {
+      final outPath = p.join(docs.path, e.key);
+      final outFile = File(outPath);
+      await outFile.parent.create(recursive: true);
+      await outFile.writeAsBytes(e.value, flush: true);
+    }
+
+    final purchaseOrderDocsDir = Directory(p.join(docs.path, _purchaseOrderDocsDirName));
+    if (!await purchaseOrderDocsDir.exists()) {
+      await purchaseOrderDocsDir.create(recursive: true);
+    }
+    for (final e in purchaseOrderDocsToWrite.entries) {
       final outPath = p.join(docs.path, e.key);
       final outFile = File(outPath);
       await outFile.parent.create(recursive: true);

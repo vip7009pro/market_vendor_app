@@ -8,6 +8,7 @@ class DocumentStorageService {
   DocumentStorageService._();
 
   static const String _purchaseDocsDir = 'purchase_docs';
+  static const String _purchaseOrderDocsDir = 'purchase_order_docs';
   static const String _expenseDocsDir = 'expense_docs';
 
   Future<String> savePurchaseDoc({
@@ -31,6 +32,19 @@ class DocumentStorageService {
     return _save(
       dirName: _expenseDocsDir,
       baseName: expenseId,
+      sourcePath: sourcePath,
+      extension: extension,
+    );
+  }
+
+  Future<String> savePurchaseOrderDoc({
+    required String purchaseOrderId,
+    required String sourcePath,
+    String? extension,
+  }) async {
+    return _save(
+      dirName: _purchaseOrderDocsDir,
+      baseName: purchaseOrderId,
       sourcePath: sourcePath,
       extension: extension,
     );

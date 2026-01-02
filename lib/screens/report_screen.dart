@@ -68,12 +68,20 @@ class _PaymentKpi extends StatelessWidget {
   Widget build(BuildContext context) {
     final labelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54);
     final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800);
+    final grad = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        color.withAlpha(40),
+        color.withAlpha(12),
+      ],
+    );
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.black.withAlpha(8)),
-        color: color.withAlpha(15),
+        gradient: grad,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -880,12 +888,10 @@ class _ReportScreenState extends State<ReportScreen> {
           where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
           whereArgs: saleIdsInRange,
         );
-        double outstanding = 0;
         final debtIds = <String>[];
         for (final d in debtsForSales) {
           final did = (d['id']?.toString() ?? '').trim();
           if (did.isNotEmpty) debtIds.add(did);
-          outstanding += (d['amount'] as num?)?.toDouble() ?? 0.0;
         }
         if (debtIds.isNotEmpty) {
           final dph = List.filled(debtIds.length, '?').join(',');
@@ -1096,6 +1102,7 @@ class _ReportScreenState extends State<ReportScreen> {
     double cash = 0;
     double bank = 0;
     final saleIds = <String>[];
+
     for (final r in saleRows) {
       final sid = (r['id']?.toString() ?? '').trim();
       if (sid.isNotEmpty) saleIds.add(sid);
@@ -1118,16 +1125,21 @@ class _ReportScreenState extends State<ReportScreen> {
       where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
       whereArgs: saleIds,
     );
-    double outstanding = 0;
     final debtIds = <String>[];
+    final debtAmountById = <String, double>{};
     for (final d in debtsForSales) {
       final did = (d['id']?.toString() ?? '').trim();
-      if (did.isNotEmpty) debtIds.add(did);
-      outstanding += (d['amount'] as num?)?.toDouble() ?? 0.0;
+      if (did.isEmpty) continue;
+      debtIds.add(did);
+      debtAmountById[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
     }
+
+    double outstanding = 0.0;
     if (debtIds.isNotEmpty) {
       final dph = List.filled(debtIds.length, '?').join(',');
-      final payAgg = await db.rawQuery(
+
+      // 1) Sum payments by paymentType to add into cash/bank revenue.
+      final payAggByType = await db.rawQuery(
         '''
         SELECT paymentType as paymentType, SUM(amount) as total
         FROM debt_payments
@@ -1136,7 +1148,7 @@ class _ReportScreenState extends State<ReportScreen> {
         ''',
         debtIds,
       );
-      for (final r in payAgg) {
+      for (final r in payAggByType) {
         final total = (r['total'] as num?)?.toDouble() ?? 0.0;
         if (total <= 0) continue;
         final t = (r['paymentType']?.toString() ?? '').trim().toLowerCase();
@@ -1146,7 +1158,32 @@ class _ReportScreenState extends State<ReportScreen> {
           bank += total;
         }
       }
+
+      // 2) Sum payments per debt to compute outstanding.
+      final payAggByDebt = await db.rawQuery(
+        '''
+        SELECT debtId as debtId, SUM(amount) as total
+        FROM debt_payments
+        WHERE debtId IN ($dph)
+        GROUP BY debtId
+        ''',
+        debtIds,
+      );
+      final paidByDebtId = <String, double>{};
+      for (final r in payAggByDebt) {
+        final did = (r['debtId']?.toString() ?? '').trim();
+        if (did.isEmpty) continue;
+        paidByDebtId[did] = (r['total'] as num?)?.toDouble() ?? 0.0;
+      }
+
+      for (final did in debtIds) {
+        final initial = debtAmountById[did] ?? 0.0;
+        final paid = paidByDebtId[did] ?? 0.0;
+        final remain = (initial - paid);
+        if (remain > 0) outstanding += remain;
+      }
     }
+
     return _PayStats(cashRevenue: cash, bankRevenue: bank, outstandingDebt: outstanding);
   }
 
@@ -1580,16 +1617,34 @@ class _ReportScreenState extends State<ReportScreen> {
                         final rows = snap.data ?? const <Map<String, dynamic>>[];
                         double totalAll = 0;
                         double totalNonBiz = 0;
+                        final byCategory = <String, double>{};
                         for (final r in rows) {
                           final amount = (r['amount'] as num?)?.toDouble() ?? 0.0;
                           totalAll += amount;
                           final cat = (r['category']?.toString() ?? '').trim();
+                          if (cat.isNotEmpty) {
+                            byCategory[cat] = (byCategory[cat] ?? 0) + amount;
+                          }
                           if (cat == 'Chi tiêu ngoài kinh doanh') {
                             totalNonBiz += amount;
                           }
                         }
                         final totalBusiness = totalAll - totalNonBiz;
                         final netProfit = periodProfit - totalBusiness;
+
+                        final pieTotal = byCategory.values.fold<double>(0.0, (p, e) => p + e);
+                        final pieCats = byCategory.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+                        final pieColors = <Color>[
+                          const Color(0xFF3B82F6),
+                          const Color(0xFF10B981),
+                          const Color(0xFFF59E0B),
+                          const Color(0xFFEF4444),
+                          const Color(0xFF8B5CF6),
+                          const Color(0xFF06B6D4),
+                          const Color(0xFF22C55E),
+                          const Color(0xFFF97316),
+                          const Color(0xFF64748B),
+                        ];
                         return Column(
                           children: [
                             Row(
@@ -1684,6 +1739,90 @@ class _ReportScreenState extends State<ReportScreen> {
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 12),
+
+                            if (pieTotal > 0)
+                              Card(
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(color: Colors.black.withAlpha(8)),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Tỉ trọng chi phí (theo nhóm)',
+                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      SizedBox(
+                                        height: 320,
+                                        child: PieChart(
+                                          PieChartData(
+                                            centerSpaceRadius: 0,
+                                            sectionsSpace: 2,
+                                            pieTouchData: PieTouchData(enabled: false),
+                                            sections: [
+                                              for (var i = 0; i < pieCats.length; i++)
+                                                () {
+                                                  final e = pieCats[i];
+                                                  final pct = pieTotal <= 0 ? 0.0 : (e.value / pieTotal);
+                                                  final title = '${e.key}\n${currency.format(e.value)}\n${(pct * 100).toStringAsFixed(1)}%';
+                                                  final c = pieColors[i % pieColors.length];
+                                                  return PieChartSectionData(
+                                                    color: c,
+                                                    value: e.value,
+                                                    radius: 140,
+                                                    title: title,
+                                                    titlePositionPercentageOffset: 0.62,
+                                                    titleStyle: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight: FontWeight.w800,
+                                                      fontSize: 10,
+                                                      height: 1.15,
+                                                    ),
+                                                  );
+                                                }(),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Wrap(
+                                        spacing: 10,
+                                        runSpacing: 6,
+                                        children: [
+                                          for (var i = 0; i < pieCats.length; i++)
+                                            () {
+                                              final e = pieCats[i];
+                                              final pct = pieTotal <= 0 ? 0.0 : (e.value / pieTotal);
+                                              final c = pieColors[i % pieColors.length];
+                                              return Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Container(
+                                                    width: 10,
+                                                    height: 10,
+                                                    decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    '${e.key}: ${currency.format(e.value)} (${(pct * 100).toStringAsFixed(1)}%)',
+                                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                                  ),
+                                                ],
+                                              );
+                                            }(),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 16),
                           ],
                         );
                       },
@@ -1953,7 +2092,7 @@ class _ReportScreenState extends State<ReportScreen> {
                   const double groupsSpace = 32.0;
                   const double margin = 40.0; // hai bên
                   final double calculatedWidth = (points.length * barWidth) +
-                      ((points.length > 0 ? points.length - 1 : 0) * groupsSpace) +
+                      ((points.isNotEmpty ? points.length - 1 : 0) * groupsSpace) +
                       margin;
                   final double chartWidth = calculatedWidth < constraints.maxWidth
                       ? constraints.maxWidth
@@ -1974,23 +2113,26 @@ class _ReportScreenState extends State<ReportScreen> {
                               minY: _getMinY(points),
                               maxY: _getMaxY(points),
                               barTouchData: BarTouchData(
+                                enabled: true,
+                                handleBuiltInTouches: false,
                                 touchTooltipData: BarTouchTooltipData(
                                   getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                     final point = points[groupIndex];
-                                    final tooltipText = '${point.x}\n\nLN ròng: ${currency.format(point.profit)}';
                                     return BarTooltipItem(
-                                      tooltipText,
+                                      currency.format(point.profit),
                                       const TextStyle(
                                         color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 11,
                                       ),
                                     );
                                   },
                                   tooltipMargin: 8,
                                   tooltipRoundedRadius: 8,
-                                  tooltipPadding: const EdgeInsets.all(8),
+                                  tooltipPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                                   getTooltipColor: (_) => Colors.black87,
+                                  fitInsideHorizontally: true,
+                                  fitInsideVertically: true,
                                 ),
                               ),
                               gridData: const FlGridData(show: true, drawVerticalLine: false),
@@ -2041,11 +2183,12 @@ class _ReportScreenState extends State<ReportScreen> {
                                 for (var i = 0; i < points.length; i++)
                                   BarChartGroupData(
                                     x: i,
+                                    showingTooltipIndicators: const [0],
                                     barRods: [
                                       BarChartRodData(
                                         toY: points[i].profit,
                                         color: (points[i].profit >= 0 ? Colors.teal : Colors.red).withAlpha(191),
-                                        width: barWidth,
+                                        width: 16,
                                         borderRadius: BorderRadius.circular(2),
                                       ),
                                     ],
@@ -2375,9 +2518,23 @@ class _InventoryMetric extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: color.withAlpha(20),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withAlpha(64)),
+        border: Border.all(color: color.withAlpha(40)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            color.withAlpha(34),
+            color.withAlpha(10),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(12),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2480,9 +2637,23 @@ class _SingleKpi extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withAlpha(20),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withAlpha(64)),
+        border: Border.all(color: color.withAlpha(40)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            color.withAlpha(36),
+            color.withAlpha(10),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(14),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

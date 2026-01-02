@@ -5,6 +5,7 @@ import '../models/sale.dart';
 import '../providers/debt_provider.dart';
 import 'debt_form_screen.dart';
 import 'debt_detail_screen.dart';
+import 'debt_party_summary_screen.dart';
 import 'package:intl/intl.dart';
 import '../services/database_service.dart';
 
@@ -473,6 +474,17 @@ class DebtList extends StatelessWidget {
   final bool isTableView;
   const DebtList({required this.debts, required this.color, required this.isTableView});
 
+  Future<void> _openPartySummary(BuildContext context, Debt d) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DebtPartySummaryScreen(
+          partyId: d.partyId,
+          partyName: d.partyName,
+        ),
+      ),
+    );
+  }
+
   Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
     return Container(
       alignment: align == TextAlign.right
@@ -933,14 +945,19 @@ class DebtList extends StatelessWidget {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     IconButton(
-                                      tooltip: 'Trả nợ',
-                                      icon: const Icon(Icons.payments_outlined, color: Colors.green),
-                                      onPressed: () => _showPayDialog(context, d, currency),
+                                      tooltip: 'Thanh toán',
+                                      icon: Icon(Icons.payment, color: d.amount <= 0 ? Colors.grey : Colors.green),
+                                      onPressed: d.amount <= 0 ? null : () => _showPayDialog(context, d, currency),
                                     ),
                                     IconButton(
                                       tooltip: 'Tất toán',
                                       icon: Icon(Icons.done_all, color: d.amount <= 0 ? Colors.grey : Colors.orange),
                                       onPressed: d.amount <= 0 ? null : () => _settleDebt(context, d, currency),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Tổng kết',
+                                      icon: const Icon(Icons.analytics_outlined, color: Colors.blueGrey),
+                                      onPressed: () => _openPartySummary(context, d),
                                     ),
                                     IconButton(
                                       tooltip: 'Lịch sử',
@@ -1253,6 +1270,21 @@ class DebtList extends StatelessWidget {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Icon(Icons.done_all, size: 18, color: d.amount <= 0 ? Colors.grey : Colors.orange),
+                          ),
+                        ),
+
+                        const SizedBox(width: 6),
+
+                        // Summary button
+                        GestureDetector(
+                          onTap: () => _openPartySummary(context, d),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Icon(Icons.analytics_outlined, size: 18, color: Colors.blueGrey),
                           ),
                         ),
                         
