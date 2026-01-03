@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:dropdown_search/dropdown_search.dart';
 
 import '../services/database_service.dart';
 
@@ -37,6 +36,102 @@ class _VietQrBankAccountFormScreenState extends State<VietQrBankAccountFormScree
     _isDefault = (init['isDefault'] as int?) == 1;
 
     _banksFuture = _loadBanks();
+  }
+
+  Future<void> _pickBankFromBottomSheet(List<Map<String, dynamic>> banks) async {
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        final searchCtrl = TextEditingController();
+        return StatefulBuilder(
+          builder: (ctx, setStateSheet) {
+            final q = searchCtrl.text.trim().toLowerCase();
+            final filtered = q.isEmpty
+                ? banks
+                : banks.where((b) {
+                    final name = (b['name']?.toString() ?? '').toLowerCase();
+                    final shortName = (b['shortName']?.toString() ?? b['short_name']?.toString() ?? '').toLowerCase();
+                    final code = (b['code']?.toString() ?? '').toLowerCase();
+                    final bin = (b['bin']?.toString() ?? '').toLowerCase();
+                    return name.contains(q) || shortName.contains(q) || code.contains(q) || bin.contains(q);
+                  }).toList();
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 12,
+                  right: 12,
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom + 12,
+                  top: 8,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: searchCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Tìm ngân hàng',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (_) => setStateSheet(() {}),
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, i) {
+                          final b = filtered[i];
+                          final logo = (b['logo']?.toString() ?? '').trim();
+                          final shortName = (b['shortName']?.toString() ?? b['short_name']?.toString() ?? '').trim();
+                          final name = (b['name']?.toString() ?? '').trim();
+                          final code = (b['code']?.toString() ?? '').trim();
+                          final bin = (b['bin']?.toString() ?? '').trim();
+                          final title = shortName.isNotEmpty ? shortName : name;
+
+                          return ListTile(
+                            leading: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                width: 46,
+                                height: 46,
+                                color: Colors.grey.withAlpha(18),
+                                alignment: Alignment.center,
+                                child: logo.isEmpty
+                                    ? const Icon(Icons.account_balance_outlined)
+                                    : Image.network(
+                                        logo,
+                                        width: 34,
+                                        height: 34,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (_, __, ___) => const Icon(Icons.account_balance_outlined),
+                                      ),
+                              ),
+                            ),
+                            title: Text(title.isEmpty ? 'Ngân hàng' : title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            subtitle: Text('$code - $bin', maxLines: 1, overflow: TextOverflow.ellipsis),
+                            onTap: () => Navigator.of(ctx).pop(b),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (picked == null) return;
+    setState(() {
+      _selectedBank = picked;
+    });
   }
 
   @override
@@ -181,42 +276,82 @@ class _VietQrBankAccountFormScreenState extends State<VietQrBankAccountFormScree
 
           final banks = snap.data ?? const <Map<String, dynamic>>[];
 
-          String displayBank(Map<String, dynamic> b) {
+          final selectedTitle = (() {
+            final b = _selectedBank;
+            if (b == null) return '';
             final shortName = (b['shortName']?.toString() ?? b['short_name']?.toString() ?? '').trim();
+            final name = (b['name']?.toString() ?? '').trim();
+            return (shortName.isNotEmpty ? shortName : name).trim();
+          })();
+          final selectedSub = (() {
+            final b = _selectedBank;
+            if (b == null) return '';
             final code = (b['code']?.toString() ?? '').trim();
             final bin = (b['bin']?.toString() ?? '').trim();
-            if (shortName.isNotEmpty) return '$shortName ($code - $bin)';
-            final name = (b['name']?.toString() ?? '').trim();
-            return '$name ($code - $bin)';
-          }
+            return '$code - $bin'.trim();
+          })();
+          final selectedLogo = (() {
+            final b = _selectedBank;
+            if (b == null) return '';
+            return (b['logo']?.toString() ?? '').trim();
+          })();
 
           return ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              DropdownSearch<Map<String, dynamic>>(
-                items: banks,
-                selectedItem: _selectedBank,
-                itemAsString: (b) => displayBank(b),
-                popupProps: const PopupProps.menu(
-                  showSearchBox: true,
-                  searchFieldProps: TextFieldProps(
-                    decoration: InputDecoration(
-                      labelText: 'Tìm ngân hàng',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                dropdownDecoratorProps: const DropDownDecoratorProps(
-                  dropdownSearchDecoration: InputDecoration(
+              InkWell(
+                onTap: () => _pickBankFromBottomSheet(banks),
+                borderRadius: BorderRadius.circular(12),
+                child: InputDecorator(
+                  decoration: const InputDecoration(
                     labelText: 'Ngân hàng',
                     border: OutlineInputBorder(),
                   ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          width: 46,
+                          height: 46,
+                          color: Colors.grey.withAlpha(18),
+                          alignment: Alignment.center,
+                          child: selectedLogo.isEmpty
+                              ? const Icon(Icons.account_balance_outlined)
+                              : Image.network(
+                                  selectedLogo,
+                                  width: 34,
+                                  height: 34,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => const Icon(Icons.account_balance_outlined),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              selectedTitle.isEmpty ? 'Chọn ngân hàng' : selectedTitle,
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (selectedSub.isNotEmpty)
+                              Text(
+                                selectedSub,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.keyboard_arrow_down),
+                    ],
+                  ),
                 ),
-                onChanged: (v) {
-                  setState(() {
-                    _selectedBank = v;
-                  });
-                },
               ),
               const SizedBox(height: 12),
               TextField(

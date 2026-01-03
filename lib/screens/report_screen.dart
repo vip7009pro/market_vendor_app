@@ -862,9 +862,15 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('debtId'),
         _cv('remain'),
       ]);
+      final paymentOutstandingSaSheet = excel['backdata_payment_outstanding_sa'];
+      paymentOutstandingSaSheet.appendRow([
+        _cv('saleId'),
+        _cv('debtId'),
+        _cv('remain'),
+      ]);
       final saleRowsInRange = await db.query(
         'sales',
-        columns: ['id', 'paidAmount', 'paymentType'],
+        columns: ['id', 'createdAt', 'paidAmount', 'paymentType'],
         where: 'createdAt >= ? AND createdAt <= ?',
         whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
       );
@@ -926,6 +932,53 @@ class _ReportScreenState extends State<ReportScreen> {
               _cv(paidBank),
               _cv(paidUnset),
               _cv(paidTotal),
+            ]);
+          }
+
+          // Outstanding (align with widget 'Nợ' formula in _loadPayStats):
+          // remain = debts.amount - SUM(debt_payments.amount) (no date filter)
+          final payAggByDebt = await db.rawQuery(
+            '''
+            SELECT debtId as debtId, SUM(amount) as total
+            FROM debt_payments
+            WHERE debtId IN ($dph)
+            GROUP BY debtId
+            ''',
+            debtIds,
+          );
+          final paidByDebtId = <String, double>{};
+          for (final r in payAggByDebt) {
+            final did = (r['debtId']?.toString() ?? '').trim();
+            if (did.isEmpty) continue;
+            paidByDebtId[did] = (r['total'] as num?)?.toDouble() ?? 0.0;
+          }
+
+          final saleIdByDebtId = <String, String>{};
+          final amountByDebtId = <String, double>{};
+          for (final d in debtsForSales) {
+            final did = (d['id']?.toString() ?? '').trim();
+            final sid = (d['sourceId']?.toString() ?? '').trim();
+            if (did.isEmpty || sid.isEmpty) continue;
+            saleIdByDebtId[did] = sid;
+            amountByDebtId[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
+          }
+
+          for (final did in debtIds) {
+            final sid = saleIdByDebtId[did];
+            if (sid == null || sid.isEmpty) continue;
+            final initial = amountByDebtId[did] ?? 0.0;
+            final paid = paidByDebtId[did] ?? 0.0;
+            final remain = (initial - paid);
+            if (remain <= 0) continue;
+            paymentOutstandingSheet.appendRow([
+              _cv(sid),
+              _cv(did),
+              _cv(remain),
+            ]);
+            paymentOutstandingSaSheet.appendRow([
+              _cv(sid),
+              _cv(did),
+              _cv(remain),
             ]);
           }
         }

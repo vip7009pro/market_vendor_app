@@ -418,7 +418,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildMenuButton(
                 context,
                 icon: Icons.qr_code_2_outlined,
-                label: 'Ngân hàng VietQR',
+                label: 'Ngân hàng',
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const VietQrBankAccountsScreen()),

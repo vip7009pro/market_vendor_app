@@ -122,26 +122,22 @@ class _VietQrBankAccountsScreenState extends State<VietQrBankAccountsScreen> {
 
               return ListTile(
                 leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: logo.isEmpty
-                      ? Container(
-                          width: 44,
-                          height: 44,
-                          color: Colors.grey.withAlpha(25),
-                          child: const Icon(Icons.account_balance_outlined),
-                        )
-                      : Image.network(
-                          logo,
-                          width: 44,
-                          height: 44,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => Container(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    color: Colors.grey.withAlpha(18),
+                    alignment: Alignment.center,
+                    child: logo.isEmpty
+                        ? const Icon(Icons.account_balance_outlined)
+                        : Image.network(
+                            logo,
                             width: 44,
                             height: 44,
-                            color: Colors.grey.withAlpha(25),
-                            child: const Icon(Icons.account_balance_outlined),
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const Icon(Icons.account_balance_outlined),
                           ),
-                        ),
+                  ),
                 ),
                 title: Text(
                   bankName.isEmpty ? 'Ngân hàng' : bankName,
