@@ -15,6 +15,7 @@ import 'sheets_sync_screen.dart';
 import 'theme_selection_screen.dart';
 import 'tax_declaration_form_screen.dart';
 import 'vietqr_bank_accounts_screen.dart';
+import 'employee_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -422,6 +423,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const VietQrBankAccountsScreen()),
+                ),
+              ),
+              _buildMenuButton(
+                context,
+                icon: Icons.badge_outlined,
+                label: 'Nhân viên',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()),
                 ),
               ),
             ],

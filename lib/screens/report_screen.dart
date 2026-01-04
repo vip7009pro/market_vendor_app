@@ -306,10 +306,79 @@ class _ReportScreenState extends State<ReportScreen> {
       end: now,
     );
   })();
+  String? _selectedEmployeeId;
+  List<Map<String, dynamic>> _employees = const [];
+
   final PageController _chartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _chartPageIndex = ValueNotifier<int>(0);
   final PageController _netChartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _netChartPageIndex = ValueNotifier<int>(0);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadEmployees();
+    });
+  }
+
+  Future<void> _loadEmployees() async {
+    try {
+      final rows = await DatabaseService.instance.getEmployees();
+      if (!mounted) return;
+      setState(() {
+        _employees = rows;
+      });
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  Future<void> _pickEmployeeFilter() async {
+    final rows = await DatabaseService.instance.getEmployees();
+    if (!mounted) return;
+
+    final picked = await showModalBottomSheet<String?>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: rows.length + 1,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (_, i) {
+              if (i == 0) {
+                final selected = _selectedEmployeeId == null;
+                return ListTile(
+                  leading: const Icon(Icons.people_outline),
+                  title: const Text('Tất cả nhân viên'),
+                  trailing: selected ? const Icon(Icons.check, color: Colors.green) : null,
+                  onTap: () => Navigator.pop(ctx, null),
+                );
+              }
+              final r = rows[i - 1];
+              final id = (r['id']?.toString() ?? '').trim();
+              final name = (r['name']?.toString() ?? '').trim();
+              final selected = id.isNotEmpty && id == (_selectedEmployeeId ?? '').trim();
+              return ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: Text(name.isEmpty ? id : name),
+                subtitle: Text(id),
+                trailing: selected ? const Icon(Icons.check, color: Colors.green) : null,
+                onTap: () => Navigator.pop(ctx, id),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _selectedEmployeeId = (picked ?? '').trim().isEmpty ? null : picked;
+    });
+  }
 
   ex.CellValue? _cv(Object? v) {
     if (v == null) return null;
@@ -371,6 +440,8 @@ class _ReportScreenState extends State<ReportScreen> {
           s.id as saleId,
           s.createdAt as saleCreatedAt,
           s.customerName as customerName,
+          s.employeeId as employeeId,
+          s.employeeName as employeeName,
           si.productId as productId,
           si.name as name,
           si.unit as unit,
@@ -620,6 +691,8 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('saleId'),
         _cv('saleCreatedAt'),
         _cv('customerName'),
+        _cv('employeeId'),
+        _cv('employeeName'),
         _cv('productId'),
         _cv('productName'),
         _cv('unit'),
@@ -648,6 +721,8 @@ class _ReportScreenState extends State<ReportScreen> {
                     _cv(r['saleId']),
                     _cv(r['saleCreatedAt']),
                     _cv(r['customerName']),
+                    _cv(r['employeeId']),
+                    _cv(r['employeeName']),
                     _cv(rid),
                     _cv(e['rawName']),
                     _cv(e['rawUnit']),
@@ -675,6 +750,8 @@ class _ReportScreenState extends State<ReportScreen> {
             _cv(r['saleId']),
             _cv(r['saleCreatedAt']),
             _cv(r['customerName']),
+            _cv(r['employeeId']),
+            _cv(r['employeeName']),
             _cv(pid),
             _cv(r['name']),
             _cv(r['unit']),
@@ -726,6 +803,8 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('saleCreatedAt'),
         _cv('customerId'),
         _cv('customerName'),
+        _cv('employeeId'),
+        _cv('employeeName'),
         _cv('saleDiscount'),
         _cv('salePaidAmount'),
         _cv('salePaymentType'),
@@ -757,6 +836,8 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(sale['createdAt']),
           _cv(sale['customerId']),
           _cv(sale['customerName']),
+          _cv(sale['employeeId']),
+          _cv(sale['employeeName']),
           _cv(sale['discount']),
           _cv(sale['paidAmount']),
           _cv(sale['paymentType']),
@@ -778,6 +859,8 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('saleCreatedAt'),
         _cv('customerId'),
         _cv('customerName'),
+        _cv('employeeId'),
+        _cv('employeeName'),
         _cv('saleDiscount'),
         _cv('salePaidAmount'),
         _cv('salePaymentType'),
@@ -799,6 +882,8 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(s['createdAt']),
           _cv(s['customerId']),
           _cv(s['customerName']),
+          _cv(s['employeeId']),
+          _cv(s['employeeName']),
           _cv(discount),
           _cv(s['paidAmount']),
           _cv(s['paymentType']),
@@ -810,7 +895,9 @@ class _ReportScreenState extends State<ReportScreen> {
       final tripleBackdataSheet = excel['backdata_triple_kpi'];
       tripleBackdataSheet.appendRow([
         _cv('saleId'),
-        _cv('createdAt'),
+        _cv('saleCreatedAt'),
+        _cv('employeeId'),
+        _cv('employeeName'),
         _cv('customerName'),
         _cv('subtotal'),
         _cv('discount'),
@@ -831,6 +918,8 @@ class _ReportScreenState extends State<ReportScreen> {
         tripleBackdataSheet.appendRow([
           _cv(saleId),
           _cv(s['createdAt']),
+          _cv(s['employeeId']),
+          _cv(s['employeeName']),
           _cv(s['customerName']),
           _cv(subtotal),
           _cv(discount),
@@ -843,13 +932,17 @@ class _ReportScreenState extends State<ReportScreen> {
       final paymentPaidSheet = excel['backdata_payment_paid_amount'];
       paymentPaidSheet.appendRow([
         _cv('saleId'),
-        _cv('createdAt'),
+        _cv('saleCreatedAt'),
+        _cv('employeeId'),
+        _cv('employeeName'),
         _cv('paidAmount'),
         _cv('paymentType'),
       ]);
       final paymentDebtPaidSheet = excel['backdata_payment_debt_paid'];
       paymentDebtPaidSheet.appendRow([
         _cv('saleId'),
+        _cv('employeeId'),
+        _cv('employeeName'),
         _cv('debtId'),
         _cv('paidCash'),
         _cv('paidBank'),
@@ -859,29 +952,40 @@ class _ReportScreenState extends State<ReportScreen> {
       final paymentOutstandingSheet = excel['backdata_payment_outstanding_sale_debt'];
       paymentOutstandingSheet.appendRow([
         _cv('saleId'),
+        _cv('employeeId'),
+        _cv('employeeName'),
         _cv('debtId'),
         _cv('remain'),
       ]);
       final paymentOutstandingSaSheet = excel['backdata_payment_outstanding_sa'];
       paymentOutstandingSaSheet.appendRow([
         _cv('saleId'),
+        _cv('employeeId'),
+        _cv('employeeName'),
         _cv('debtId'),
         _cv('remain'),
       ]);
       final saleRowsInRange = await db.query(
         'sales',
-        columns: ['id', 'createdAt', 'paidAmount', 'paymentType'],
+        columns: ['id', 'createdAt', 'paidAmount', 'paymentType', 'employeeId', 'employeeName'],
         where: 'createdAt >= ? AND createdAt <= ?',
         whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
       );
+      final empBySaleId = <String, Map<String, Object?>>{};
       final saleIdsInRange = <String>[];
       for (final r in saleRowsInRange) {
         final sid = (r['id']?.toString() ?? '').trim();
         if (sid.isNotEmpty) saleIdsInRange.add(sid);
+        empBySaleId[sid] = {
+          'employeeId': r['employeeId'],
+          'employeeName': r['employeeName'],
+        };
         final paid = (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
         paymentPaidSheet.appendRow([
           _cv(sid),
           _cv(r['createdAt']),
+          _cv(r['employeeId']),
+          _cv(r['employeeName']),
           _cv(paid),
           _cv(r['paymentType']),
         ]);
@@ -895,9 +999,12 @@ class _ReportScreenState extends State<ReportScreen> {
           whereArgs: saleIdsInRange,
         );
         final debtIds = <String>[];
+        final debtAmountById = <String, double>{};
         for (final d in debtsForSales) {
           final did = (d['id']?.toString() ?? '').trim();
-          if (did.isNotEmpty) debtIds.add(did);
+          if (did.isEmpty) continue;
+          debtIds.add(did);
+          debtAmountById[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
         }
         if (debtIds.isNotEmpty) {
           final dph = List.filled(debtIds.length, '?').join(',');
@@ -925,8 +1032,11 @@ class _ReportScreenState extends State<ReportScreen> {
             final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
             final paidUnset = (r['paidUnset'] as num?)?.toDouble() ?? 0.0;
             final paidTotal = (r['paidTotal'] as num?)?.toDouble() ?? 0.0;
+            final emp = empBySaleId[sid];
             paymentDebtPaidSheet.appendRow([
               _cv(sid),
+              _cv(emp?['employeeId']),
+              _cv(emp?['employeeName']),
               _cv(did),
               _cv(paidCash),
               _cv(paidBank),
@@ -934,7 +1044,6 @@ class _ReportScreenState extends State<ReportScreen> {
               _cv(paidTotal),
             ]);
           }
-
           // Outstanding (align with widget 'Nợ' formula in _loadPayStats):
           // remain = debts.amount - SUM(debt_payments.amount) (no date filter)
           final payAggByDebt = await db.rawQuery(
@@ -952,7 +1061,6 @@ class _ReportScreenState extends State<ReportScreen> {
             if (did.isEmpty) continue;
             paidByDebtId[did] = (r['total'] as num?)?.toDouble() ?? 0.0;
           }
-
           final saleIdByDebtId = <String, String>{};
           final amountByDebtId = <String, double>{};
           for (final d in debtsForSales) {
@@ -962,7 +1070,6 @@ class _ReportScreenState extends State<ReportScreen> {
             saleIdByDebtId[did] = sid;
             amountByDebtId[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
           }
-
           for (final did in debtIds) {
             final sid = saleIdByDebtId[did];
             if (sid == null || sid.isEmpty) continue;
@@ -970,13 +1077,18 @@ class _ReportScreenState extends State<ReportScreen> {
             final paid = paidByDebtId[did] ?? 0.0;
             final remain = (initial - paid);
             if (remain <= 0) continue;
+            final emp = empBySaleId[sid];
             paymentOutstandingSheet.appendRow([
               _cv(sid),
+              _cv(emp?['employeeId']),
+              _cv(emp?['employeeName']),
               _cv(did),
               _cv(remain),
             ]);
             paymentOutstandingSaSheet.appendRow([
               _cv(sid),
+              _cv(emp?['employeeId']),
+              _cv(emp?['employeeName']),
               _cv(did),
               _cv(remain),
             ]);
@@ -1144,13 +1256,22 @@ class _ReportScreenState extends State<ReportScreen> {
     return maxY * 1.1;
   }
 
-  Future<_PayStats> _loadPayStats({required DateTime start, required DateTime end}) async {
+  Future<_PayStats> _loadPayStats({required DateTime start, required DateTime end, String? employeeId}) async {
     final db = DatabaseService.instance.db;
+    String? where;
+    final whereArgs = <Object?>[];
+    where = 'createdAt >= ? AND createdAt <= ?';
+    whereArgs.addAll([start.toIso8601String(), end.toIso8601String()]);
+    final eid = (employeeId ?? '').trim();
+    if (eid.isNotEmpty) {
+      where = '$where AND employeeId = ?';
+      whereArgs.add(eid);
+    }
     final saleRows = await db.query(
       'sales',
       columns: ['id', 'paidAmount', 'paymentType'],
-      where: 'createdAt >= ? AND createdAt <= ?',
-      whereArgs: [start.toIso8601String(), end.toIso8601String()],
+      where: where,
+      whereArgs: whereArgs,
     );
     double cash = 0;
     double bank = 0;
@@ -1255,45 +1376,66 @@ class _ReportScreenState extends State<ReportScreen> {
     final sales = context.watch<SaleProvider>().sales;
     final products = context.watch<ProductProvider>().products;
     final debtsProvider = context.watch<DebtProvider>();
+
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
     final startOfWeek = startOfDay.subtract(Duration(days: startOfDay.weekday - 1));
     final startOfMonth = DateTime(now.year, now.month, 1);
     final startOfYear = DateTime(now.year, 1, 1);
 
-    final filteredSales = sales.where((s) =>
+    final inRangeSales = sales.where((s) =>
         !s.createdAt.isBefore(DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day)) &&
         !s.createdAt.isAfter(DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59))
     ).toList();
 
-    final exportQty = filteredSales.fold<double>(
+    final allSalesByEmployee = (_selectedEmployeeId == null)
+        ? sales
+        : sales.where((s) => (s.employeeId ?? '').trim() == (_selectedEmployeeId ?? '').trim()).toList();
+
+    final filteredSales = (_selectedEmployeeId == null)
+        ? inRangeSales
+        : inRangeSales.where((s) => (s.employeeId ?? '').trim() == (_selectedEmployeeId ?? '').trim()).toList();
+
+    // Inventory overview must NOT be filtered by employee.
+    final exportQty = inRangeSales.fold<double>(
       0,
       (p, s) => p + s.items.fold<double>(0, (p2, it) => p2 + it.quantity),
     );
-    final exportAmount = filteredSales.fold<double>(0, (p, s) => p + s.totalCost);
-    final exportAmountSell = filteredSales.fold<double>(0, (p, s) => p + s.total);
+    final exportAmount = inRangeSales.fold<double>(0, (p, s) => p + s.totalCost);
+    final exportAmountSell = inRangeSales.fold<double>(0, (p, s) => p + s.total);
 
-    final todaySales = sales.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.total);
-    final todayCost = sales.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.totalCost);
+    final todaySales = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.total);
+    final todayCost = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.totalCost);
     final todayProfit = todaySales - todayCost;
 
-    final weekSales = sales.where((s) => s.createdAt.isAfter(startOfWeek)).fold(0.0, (p, s) => p + s.total);
-    final weekCost = sales.where((s) => s.createdAt.isAfter(startOfWeek)).fold(0.0, (p, s) => p + s.totalCost);
+    final weekSales = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfWeek)).fold(0.0, (p, s) => p + s.total);
+    final weekCost = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfWeek)).fold(0.0, (p, s) => p + s.totalCost);
     final weekProfit = weekSales - weekCost;
 
-    final monthSales = sales.where((s) => s.createdAt.isAfter(startOfMonth)).fold(0.0, (p, s) => p + s.total);
-    final monthCost = sales.where((s) => s.createdAt.isAfter(startOfMonth)).fold(0.0, (p, s) => p + s.totalCost);
+    final monthSales = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfMonth)).fold(0.0, (p, s) => p + s.total);
+    final monthCost = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfMonth)).fold(0.0, (p, s) => p + s.totalCost);
     final monthProfit = monthSales - monthCost;
 
-    final yearSales = sales.where((s) => s.createdAt.isAfter(startOfYear)).fold(0.0, (p, s) => p + s.total);
-    final yearCost = sales.where((s) => s.createdAt.isAfter(startOfYear)).fold(0.0, (p, s) => p + s.totalCost);
+    final yearSales = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfYear)).fold(0.0, (p, s) => p + s.total);
+    final yearCost = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfYear)).fold(0.0, (p, s) => p + s.totalCost);
     final yearProfit = yearSales - yearCost;
 
     final totalOweOthers = debtsProvider.totalOweOthers;
     final openOthersOweMe = debtsProvider.debts.where((d) => d.type == DebtType.othersOweMe && !d.settled).toList();
+    final saleEmployeeBySaleId = <String, String>{
+      for (final s in sales) (s.id): (s.employeeId ?? '').trim(),
+    };
+    final selectedEid = (_selectedEmployeeId ?? '').trim();
     final totalOthersOweMeFromSales = openOthersOweMe
-        .where((d) => (d.sourceType ?? '').trim() == 'sale' && (d.sourceId ?? '').trim().isNotEmpty)
+        .where((d) {
+          final okSale = (d.sourceType ?? '').trim() == 'sale' && (d.sourceId ?? '').trim().isNotEmpty;
+          if (!okSale) return false;
+          if (selectedEid.isEmpty) return true;
+          final sid = (d.sourceId ?? '').trim();
+          return saleEmployeeBySaleId[sid] == selectedEid;
+        })
         .fold<double>(0.0, (p, d) => p + d.amount);
+
     final totalOthersOweMeOutside = openOthersOweMe
         .where((d) => (d.sourceType ?? '').trim() != 'sale' || (d.sourceId ?? '').trim().isEmpty)
         .fold<double>(0.0, (p, d) => p + d.amount);
@@ -1388,10 +1530,28 @@ class _ReportScreenState extends State<ReportScreen> {
       });
     final topProductsLimited = topProducts.take(10).toList();
 
+    final selectedEmployeeName = (_selectedEmployeeId == null)
+        ? 'Tất cả'
+        : (() {
+            for (final r in _employees) {
+              final id = (r['id']?.toString() ?? '').trim();
+              if (id == (_selectedEmployeeId ?? '').trim()) {
+                final name = (r['name']?.toString() ?? '').trim();
+                return name.isEmpty ? id : name;
+              }
+            }
+            return _selectedEmployeeId ?? '';
+          })();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Báo cáo'),
         actions: [
+          TextButton.icon(
+            onPressed: _pickEmployeeFilter,
+            icon: const Icon(Icons.badge_outlined),
+            label: Text(selectedEmployeeName, overflow: TextOverflow.ellipsis),
+          ),
           IconButton(
             tooltip: 'Xuất Excel',
             icon: const Icon(Icons.table_view_outlined),
@@ -1444,7 +1604,7 @@ class _ReportScreenState extends State<ReportScreen> {
                     ),
                     const SizedBox(height: 10),
                     FutureBuilder<_PayStats>(
-                      future: _loadPayStats(start: start, end: end),
+                      future: _loadPayStats(start: start, end: end, employeeId: _selectedEmployeeId),
                       builder: (context, snap) {
                         if (snap.connectionState != ConnectionState.done) {
                           return const SizedBox(
@@ -1538,10 +1698,10 @@ class _ReportScreenState extends State<ReportScreen> {
                     const SizedBox(height: 12),
                     FutureBuilder<List<_PayStats>>(
                       future: Future.wait([
-                        _loadPayStats(start: startOfDay, end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999)),
-                        _loadPayStats(start: startOfWeek, end: DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day, 23, 59, 59, 999).add(const Duration(days: 6))),
-                        _loadPayStats(start: startOfMonth, end: DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999)),
-                        _loadPayStats(start: startOfYear, end: DateTime(now.year, 12, 31, 23, 59, 59, 999)),
+                        _loadPayStats(start: startOfDay, end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999), employeeId: _selectedEmployeeId),
+                        _loadPayStats(start: startOfWeek, end: DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day, 23, 59, 59, 999).add(const Duration(days: 6)), employeeId: _selectedEmployeeId),
+                        _loadPayStats(start: startOfMonth, end: DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999), employeeId: _selectedEmployeeId),
+                        _loadPayStats(start: startOfYear, end: DateTime(now.year, 12, 31, 23, 59, 59, 999), employeeId: _selectedEmployeeId),
                       ]),
                       builder: (context, snap) {
                         if (snap.connectionState != ConnectionState.done) {

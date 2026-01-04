@@ -1527,6 +1527,31 @@ class DatabaseService {
         print('Lỗi khi tạo bảng vietqr_bank_accounts: $e');
       }
     }
+
+    // Migration lên version 25: Thêm bảng employees + thêm thông tin nhân viên vào sales
+    if (oldVersion < 25) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS employees(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        print('Lỗi khi tạo bảng employees: $e');
+      }
+      try {
+        await safeAddColumn(db, 'sales', 'employeeId', 'TEXT');
+      } catch (e) {
+        print('Lỗi khi thêm cột employeeId vào sales: $e');
+      }
+      try {
+        await safeAddColumn(db, 'sales', 'employeeName', 'TEXT');
+      } catch (e) {
+        print('Lỗi khi thêm cột employeeName vào sales: $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -1535,7 +1560,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 24, // Tăng version để áp dụng migration
+      version: 25, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -1576,6 +1601,8 @@ class DatabaseService {
             createdAt TEXT NOT NULL,
             customerId TEXT,
             customerName TEXT,
+            employeeId TEXT,
+            employeeName TEXT,
             discount REAL NOT NULL DEFAULT 0,
             paidAmount REAL NOT NULL DEFAULT 0,
             paymentType TEXT,
@@ -1777,6 +1804,14 @@ class DatabaseService {
             updatedAt TEXT NOT NULL
           )
         ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS employees(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
       },
       onUpgrade: _migrateDatabase,
       onDowngrade: (db, oldVersion, newVersion) async {
@@ -1865,6 +1900,64 @@ class DatabaseService {
         whereArgs: [id],
       );
     });
+  }
+
+  // Employees
+  Future<List<Map<String, dynamic>>> getEmployees() async {
+    return db.query('employees', orderBy: 'id ASC');
+  }
+
+  Future<String> _nextEmployeeId() async {
+    final rows = await db.query('employees', columns: ['id']);
+    var maxNum = 0;
+    for (final r in rows) {
+      final id = (r['id']?.toString() ?? '').trim();
+      final digits = id.replaceAll(RegExp(r'\D'), '');
+      final n = int.tryParse(digits);
+      if (n != null && n > maxNum) maxNum = n;
+    }
+    final next = maxNum + 1;
+    return 'NV${next.toString().padLeft(4, '0')}';
+  }
+
+  Future<Map<String, dynamic>> createEmployee({required String name}) async {
+    final id = await _nextEmployeeId();
+    final now = DateTime.now().toIso8601String();
+    final row = <String, dynamic>{
+      'id': id,
+      'name': name,
+      'updatedAt': now,
+    };
+    await db.insert('employees', row, conflictAlgorithm: ConflictAlgorithm.abort);
+    return row;
+  }
+
+  Future<void> updateEmployee({required String id, required String name}) async {
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'employees',
+      {
+        'name': name,
+        'updatedAt': now,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<bool> isEmployeeUsed(String employeeId) async {
+    final rows = await db.query(
+      'sales',
+      columns: ['id'],
+      where: 'employeeId = ?',
+      whereArgs: [employeeId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  Future<void> deleteEmployee(String id) async {
+    await db.delete('employees', where: 'id = ?', whereArgs: [id]);
   }
 
   // Products
@@ -2009,14 +2102,18 @@ class DatabaseService {
     final end = (month == 12) ? DateTime(year + 1, 1, 1) : DateTime(year, month + 1, 1);
 
     final saleIds = await db.rawQuery(
-      'SELECT id FROM sales WHERE createdAt >= ? AND createdAt < ?',
+      '''
+        SELECT id FROM sales WHERE createdAt >= ? AND createdAt < ?
+      ''',
       [start.toIso8601String(), end.toIso8601String()],
     );
     if (saleIds.isEmpty) return 0.0;
     final ids = saleIds.map((e) => e['id'] as String).toList();
     final placeholders = List.filled(ids.length, '?').join(',');
     final items = await db.rawQuery(
-      'SELECT productId, quantity, itemType, mixItemsJson FROM sale_items WHERE saleId IN ($placeholders)',
+      '''
+        SELECT productId, quantity, itemType, mixItemsJson FROM sale_items WHERE saleId IN ($placeholders)
+      ''',
       ids,
     );
 
@@ -2024,10 +2121,10 @@ class DatabaseService {
     for (final m in items) {
       final itemType = (m['itemType']?.toString() ?? '').toUpperCase().trim();
       if (itemType == 'MIX') {
-        final rawJson = (m['mixItemsJson']?.toString() ?? '').trim();
-        if (rawJson.isEmpty) continue;
+        final raw = (m['mixItemsJson']?.toString() ?? '').trim();
+        if (raw.isEmpty) continue;
         try {
-          final decoded = jsonDecode(rawJson);
+          final decoded = jsonDecode(raw);
           if (decoded is List) {
             for (final e in decoded) {
               if (e is Map) {
@@ -2041,7 +2138,7 @@ class DatabaseService {
           continue;
         }
       } else {
-        final pid = (m['productId']?.toString() ?? '');
+        final pid = m['productId'];
         if (pid == productId) {
           sold += (m['quantity'] as num?)?.toDouble() ?? 0.0;
         }
@@ -2256,6 +2353,8 @@ class DatabaseService {
           'createdAt': s.createdAt.toIso8601String(),
           'customerId': s.customerId,
           'customerName': s.customerName,
+          'employeeId': s.employeeId,
+          'employeeName': s.employeeName,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
           'paymentType': s.paymentType,
@@ -2419,6 +2518,8 @@ class DatabaseService {
           'createdAt': newSale.createdAt.toIso8601String(),
           'customerId': newSale.customerId,
           'customerName': newSale.customerName,
+          'employeeId': newSale.employeeId,
+          'employeeName': newSale.employeeName,
           'discount': newSale.discount,
           'paidAmount': newSale.paidAmount,
           'paymentType': newSale.paymentType,
@@ -2498,6 +2599,8 @@ class DatabaseService {
           'createdAt': s.createdAt.toIso8601String(),
           'customerId': s.customerId,
           'customerName': s.customerName,
+          'employeeId': s.employeeId,
+          'employeeName': s.employeeName,
           'discount': s.discount,
           'paidAmount': s.paidAmount,
           'paymentType': s.paymentType,
@@ -2538,6 +2641,7 @@ class DatabaseService {
       await EncryptionService.instance.init();
       final salesRows = await db.query('sales', orderBy: 'createdAt DESC');
       final List<Sale> sales = [];
+      
       await Future.forEach(salesRows, (row) async {
         try {
           final items = await db.query(
@@ -2570,6 +2674,8 @@ class DatabaseService {
               createdAt: DateTime.parse(row['createdAt'] as String),
               customerId: row['customerId'] as String?,
               customerName: row['customerName'] as String?,
+              employeeId: row['employeeId'] as String?,
+              employeeName: row['employeeName'] as String?,
               items: saleItems,
               discount: (row['discount'] as num).toDouble(),
               paidAmount: (row['paidAmount'] as num).toDouble(),

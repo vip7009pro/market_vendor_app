@@ -56,6 +56,8 @@ class Sale {
   final DateTime createdAt;
   String? customerId;
   String? customerName;
+  String? employeeId;
+  String? employeeName;
   List<SaleItem> items;
   double discount; // absolute amount (VND)
   double paidAmount; // amount paid now
@@ -68,6 +70,8 @@ class Sale {
     DateTime? createdAt,
     this.customerId,
     this.customerName,
+    this.employeeId,
+    this.employeeName,
     required this.items,
     this.discount = 0,
     this.paidAmount = 0,
@@ -88,6 +92,8 @@ class Sale {
         'createdAt': createdAt.toIso8601String(),
         'customerId': customerId,
         'customerName': customerName,
+        'employeeId': employeeId,
+        'employeeName': employeeName,
         'items': items.map((e) => e.toMap()).toList(),
         'discount': discount,
         'paidAmount': paidAmount,
@@ -106,6 +112,8 @@ class Sale {
       createdAt: DateTime.parse(map['createdAt']),
       customerId: map['customerId'],
       customerName: map['customerName'],
+      employeeId: map['employeeId'],
+      employeeName: map['employeeName'],
       items: (map['items'] as List).map((e) => SaleItem.fromMap(e)).toList(),
       discount: (map['discount'] as num).toDouble(),
       paidAmount: (map['paidAmount'] as num).toDouble(),

@@ -42,6 +42,8 @@ class _SaleScreenState extends State<SaleScreen> {
   double _paid = 0;
   String? _customerId;
   String? _customerName;
+  String? _employeeId;
+  String? _employeeName;
   bool _paidEdited = false;
   bool _showVietQrAfterSave = true;
   List<String> _recentUnits = ['cái', 'kg', 'g', 'hộp'];
@@ -52,6 +54,94 @@ class _SaleScreenState extends State<SaleScreen> {
   List<Product> _recentProducts = [];
 
   static const String _prefShowVietQrAfterSave = 'sale_show_vietqr_after_save';
+  static const String _prefEmployeeId = 'sale_employee_id';
+  static const String _prefEmployeeName = 'sale_employee_name';
+
+  Future<List<Map<String, dynamic>>> _ensureEmployees() async {
+    var rows = await DatabaseService.instance.getEmployees();
+    if (rows.isNotEmpty) return rows;
+    await DatabaseService.instance.createEmployee(name: 'Mặc định');
+    rows = await DatabaseService.instance.getEmployees();
+    return rows;
+  }
+
+  Future<void> _loadSelectedEmployee() async {
+    final sp = await SharedPreferences.getInstance();
+    final savedId = (sp.getString(_prefEmployeeId) ?? '').trim();
+
+    final rows = await _ensureEmployees();
+    if (!mounted) return;
+    if (rows.isEmpty) return;
+
+    Map<String, dynamic>? selected;
+    if (savedId.isNotEmpty) {
+      for (final r in rows) {
+        final id = (r['id']?.toString() ?? '').trim();
+        if (id == savedId) {
+          selected = r;
+          break;
+        }
+      }
+    }
+    selected ??= rows.first;
+
+    setState(() {
+      _employeeId = (selected?['id']?.toString() ?? '').trim();
+      _employeeName = (selected?['name']?.toString() ?? '').trim();
+    });
+
+    final nextId = (_employeeId ?? '').trim();
+    final nextName = (_employeeName ?? '').trim();
+    if (nextId.isNotEmpty) await sp.setString(_prefEmployeeId, nextId);
+    if (nextName.isNotEmpty) await sp.setString(_prefEmployeeName, nextName);
+  }
+
+  Future<void> _pickEmployee() async {
+    final rows = await _ensureEmployees();
+    if (!mounted) return;
+    if (rows.isEmpty) return;
+
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: rows.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (_, i) {
+              final r = rows[i];
+              final id = (r['id']?.toString() ?? '').trim();
+              final name = (r['name']?.toString() ?? '').trim();
+              final selected = id.isNotEmpty && id == (_employeeId ?? '').trim();
+              return ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: Text(name.isEmpty ? id : name),
+                subtitle: Text(id),
+                trailing: selected ? const Icon(Icons.check, color: Colors.green) : null,
+                onTap: () => Navigator.pop(ctx, r),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    if (picked == null) return;
+    final id = (picked['id']?.toString() ?? '').trim();
+    final name = (picked['name']?.toString() ?? '').trim();
+    if (id.isEmpty) return;
+
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_prefEmployeeId, id);
+    await sp.setString(_prefEmployeeName, name);
+    if (!mounted) return;
+    setState(() {
+      _employeeId = id;
+      _employeeName = name;
+    });
+  }
 
   Future<String?> _pickPaymentTypeForPaidAmount() async {
     final picked = await showModalBottomSheet<String>(
@@ -323,6 +413,7 @@ class _SaleScreenState extends State<SaleScreen> {
     _loadRecentCustomers();
     _loadRecentProducts();
     _loadShowVietQrAfterSave();
+    _loadSelectedEmployee();
   }
 
   Future<void> _loadShowVietQrAfterSave() async {
@@ -1415,6 +1506,11 @@ class _SaleScreenState extends State<SaleScreen> {
       appBar: AppBar(
         title: const Text('Bán hàng'),
         actions: [
+          TextButton.icon(
+            onPressed: _pickEmployee,
+            icon: const Icon(Icons.badge_outlined),
+            label: Text((_employeeName ?? '').trim().isEmpty ? 'Nhân viên' : (_employeeName ?? '').trim()),
+          ),
           // Nút đặt hàng bằng giọng nói
           Builder(
             builder:
@@ -2634,6 +2730,8 @@ class _SaleScreenState extends State<SaleScreen> {
                               paymentType: paymentType,
                               customerId: _customerId,
                               customerName: _customerName,
+                              employeeId: _employeeId,
+                              employeeName: _employeeName,
                               totalCost:
                                   calculatedTotalCost, // Thêm totalCost vào Sale
                             );

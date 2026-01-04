@@ -102,6 +102,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   String _query = '';
   bool _onlyDebtIssues = false;
   bool _isTableView = false;
+
   bool _didBackfillUnitCost = false;
   final Map<String, _DebtIssueInfo> _debtIssueBySaleId = {};
   String _lastIssueKey = '';
@@ -469,6 +470,111 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (!mounted) return;
     setState(() {});
   }
+  Future<Map<String, String>?> _pickEmployee({bool allowClear = false}) async {
+    final rows = await DatabaseService.instance.getEmployees();
+    if (!mounted) return null;
+    if (rows.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chưa có nhân viên nào')),
+      );
+      return null;
+    }
+
+    final picked = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (allowClear)
+                ListTile(
+                  leading: const Icon(Icons.clear),
+                  title: const Text('Bỏ gán nhân viên'),
+                  onTap: () => Navigator.pop(ctx, <String, String>{}),
+                ),
+              ...rows.map((r) {
+                final id = (r['id']?.toString() ?? '').trim();
+                final name = (r['name']?.toString() ?? '').trim();
+                final label = name.isNotEmpty ? name : id;
+                return ListTile(
+                  leading: const Icon(Icons.badge_outlined),
+                  title: Text(label),
+                  subtitle: Text(id),
+                  onTap: () => Navigator.pop(ctx, <String, String>{'id': id, 'name': name}),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked == null) return null;
+    return picked;
+  }
+
+  Future<void> _assignEmployeeForSale(Sale s) async {
+    final picked = await _pickEmployee(allowClear: true);
+    if (picked == null) return;
+
+    final employeeId = (picked['id'] ?? '').trim();
+    final employeeName = (picked['name'] ?? '').trim();
+
+    final db = DatabaseService.instance.db;
+    await db.rawUpdate(
+      'UPDATE sales SET employeeId = ?, employeeName = ? WHERE id = ?',
+      [employeeId.isEmpty ? null : employeeId, employeeName.isEmpty ? null : employeeName, s.id],
+    );
+    if (!mounted) return;
+    await context.read<SaleProvider>().load();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã cập nhật nhân viên cho hóa đơn')),
+    );
+  }
+
+  Future<void> _bulkAssignEmployeeForMissingSales() async {
+    final picked = await _pickEmployee(allowClear: false);
+    if (picked == null) return;
+    final employeeId = (picked['id'] ?? '').trim();
+    final employeeName = (picked['name'] ?? '').trim();
+    if (employeeId.isEmpty) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Gán nhân viên hàng loạt'),
+        content: const Text('Gán nhân viên cho các giao dịch chưa có nhân viên?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Gán'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final db = DatabaseService.instance.db;
+    await db.rawUpdate(
+      "UPDATE sales SET employeeId = ?, employeeName = ? WHERE employeeId IS NULL OR TRIM(employeeId) = ''",
+      [employeeId, employeeName.isEmpty ? null : employeeName],
+    );
+    if (!mounted) return;
+    await context.read<SaleProvider>().load();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã gán nhân viên cho các giao dịch chưa có nhân viên')),
+    );
+  }
+
   Future<void> _showSaleActionSheet(Sale s) async {
     final issue = _getIssue(s.id);
     await showModalBottomSheet<void>(
@@ -530,12 +636,26 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                       }
                     : null,
               ),
-            ], // <-- Đã thêm đóng ngoặc này
+              ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: const Text('Gán nhân viên'),
+                subtitle: Text(
+                  ((s.employeeName ?? '').trim().isNotEmpty || (s.employeeId ?? '').trim().isNotEmpty)
+                      ? 'Hiện tại: ${((s.employeeName ?? '').trim().isNotEmpty) ? (s.employeeName ?? '').trim() : (s.employeeId ?? '').trim()}'
+                      : 'Chưa gán nhân viên',
+                ),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _assignEmployeeForSale(s);
+                },
+              ),
+            ],
           ),
         );
       },
     );
   }
+
   Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
     return Container(
       alignment: align == TextAlign.right
@@ -566,6 +686,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     }
     const wDate = 150.0;
     const wCustomer = 200.0;
+    const wEmployee = 160.0;
     const wTotal = 120.0;
     const wDiscount = 100.0;
     const wPaid = 120.0;
@@ -574,7 +695,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     const wIssue = 140.0;
     const wItems = 420.0;
     const wActions = 170.0;
-    const tableWidth = wDate + wCustomer + wTotal + wDiscount + wPaid + wDebt + wPayType + wIssue + wItems + wActions;
+    const tableWidth = wDate + wCustomer + wEmployee + wTotal + wDiscount + wPaid + wDebt + wPayType + wIssue + wItems + wActions;
+
     String issueText(Sale s) {
       if (s.debt <= 0) return 'Đã thanh toán';
       final issue = _getIssue(s.id);
@@ -599,15 +721,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     children: [
                       _tableHeaderCell('Ngày', width: wDate),
                       _tableHeaderCell('Khách', width: wCustomer),
+                      _tableHeaderCell('Nhân viên', width: wEmployee),
                       _tableHeaderCell('Tổng', width: wTotal, align: TextAlign.right),
                       _tableHeaderCell('Giảm', width: wDiscount, align: TextAlign.right),
                       _tableHeaderCell('Đã trả', width: wPaid, align: TextAlign.right),
                       _tableHeaderCell('Còn nợ', width: wDebt, align: TextAlign.right),
                       _tableHeaderCell('Thanh toán', width: wPayType),
+
                       _tableHeaderCell('Trạng thái', width: wIssue),
                       _tableHeaderCell('Mặt hàng', width: wItems),
                       _tableHeaderCell('Thao tác', width: wActions, align: TextAlign.center),
-                    ], // <-- Đã thêm đóng ngoặc này
+                    ],
                   ),
                 ),
                 const Divider(height: 1),
@@ -619,10 +743,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                       final s = rows[i];
                       final customerName = (s.customerName ?? '').trim();
                       final customer = customerName.isEmpty ? 'Khách lẻ' : customerName;
+                      final employeeName = (s.employeeName ?? '').trim();
+                      final employeeId = (s.employeeId ?? '').trim();
+                      final employeeLabel = employeeName.isNotEmpty ? employeeName : (employeeId.isNotEmpty ? employeeId : '');
                       final items = s.items
                           .map((item) =>
                               '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}')
                           .join(', ');
+
                       return InkWell(
                         onTap: () {
                           Navigator.push(
@@ -643,10 +771,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               width: wCustomer,
                             ),
                             _tableCell(
+                              Text(employeeLabel, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              width: wEmployee,
+                            ),
+                            _tableCell(
                               Text(currency.format(s.total), style: const TextStyle(fontWeight: FontWeight.w700)),
                               width: wTotal,
                               alignment: Alignment.centerRight,
                             ),
+
                             _tableCell(
                               Text(currency.format(s.discount)),
                               width: wDiscount,
@@ -666,6 +799,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               Text(s.paidAmount > 0 ? _paymentTypeLabel(s.paymentType) : ''),
                               width: wPayType,
                             ),
+
                             _tableCell(Text(issueText(s)), width: wIssue),
                             _tableCell(
                               Text(items, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -801,6 +935,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       appBar: AppBar(
         title: const Text('Lịch sử bán hàng'),
         actions: [
+          IconButton(
+            tooltip: 'Gán nhân viên (thiếu)',
+            icon: const Icon(Icons.badge_outlined),
+            onPressed: () async {
+              await _bulkAssignEmployeeForMissingSales();
+            },
+          ),
           IconButton(
             tooltip: _isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng',
             icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
@@ -948,6 +1089,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                       final s = finalList[i];
                       final customerName = (s.customerName ?? '').trim();
                       final customer = customerName.isEmpty ? 'Khách lẻ' : customerName;
+                      final employeeName = (s.employeeName ?? '').trim();
+                      final employeeId = (s.employeeId ?? '').trim();
+                      final employeeLabel = employeeName.isNotEmpty ? employeeName : (employeeId.isNotEmpty ? employeeId : '');
                       return Card(
                         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                         elevation: 1,
@@ -982,14 +1126,26 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                       ),
                                     ],
                                     Expanded(
-                                      child: Text(
-                                        customer,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            customer,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          if (employeeLabel.isNotEmpty)
+                                            Text(
+                                              'NV: $employeeLabel',
+                                              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                        ],
                                       ),
                                     ),
                                     Container(
