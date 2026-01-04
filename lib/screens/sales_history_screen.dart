@@ -281,6 +281,155 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (v == 'bank') return 'Chuyển khoản';
     return 'Chưa phân loại';
   }
+  String _vietQrUrl({
+    required String bankId,
+    required String accountNo,
+    required String accountName,
+    required int amount,
+    required String description,
+    String template = 'compact2',
+  }) {
+    final addInfo = Uri.encodeComponent(description);
+    final accName = Uri.encodeComponent(accountName);
+    return 'https://img.vietqr.io/image/$bankId-$accountNo-$template.png?amount=$amount&addInfo=$addInfo&accountName=$accName';
+  }
+  String _sanitizeVietQrAddInfo(String s) {
+    var out = _vn(s);
+    out = out.replaceAll(RegExp(r'[^a-zA-Z0-9\s=xX\-]'), ' ');
+    out = out.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return out;
+  }
+  String _last5DigitsOfId(String id) {
+    final digits = id.replaceAll(RegExp(r'\D'), '');
+    if (digits.length >= 5) return digits.substring(digits.length - 5);
+    final raw = id.trim();
+    if (raw.length >= 5) return raw.substring(raw.length - 5);
+    return raw;
+  }
+  String _buildVietQrAddInfoFromSale({required String saleId, required Sale sale}) {
+    final parts = <String>[];
+    for (final it in sale.items) {
+      final name = (it.name).trim();
+      if (name.isEmpty) continue;
+      final qty = it.quantity;
+      final total = it.total;
+      parts.add('${name} x${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}=${total.toInt()}');
+    }
+    final tail = _last5DigitsOfId(saleId);
+    final raw = '${tail.isEmpty ? '' : '$tail '}Noi dung: ${parts.join('; ')}';
+    final safe = _sanitizeVietQrAddInfo(raw);
+    if (safe.length <= 50) return safe;
+    return '${safe.substring(0, 47)}...';
+  }
+  Future<void> _showVietQrDebtDialog(Sale s) async {
+    if (s.debt <= 0) return;
+    final db = DatabaseService.instance.db;
+    final debtRows = await db.query(
+      'debts',
+      columns: ['id', 'amount'],
+      where: "sourceType = 'sale' AND sourceId = ?",
+      whereArgs: [s.id],
+      orderBy: 'createdAt DESC',
+      limit: 1,
+    );
+    if (!mounted) return;
+    if (debtRows.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không tìm thấy ghi nợ của hóa đơn')));
+      return;
+    }
+    final remain = (debtRows.first['amount'] as num?)?.toDouble() ?? 0.0;
+    if (remain <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Khoản nợ đã tất toán')));
+      return;
+    }
+    final bank = await DatabaseService.instance.getDefaultVietQrBankAccount();
+    if (!mounted) return;
+    if (bank == null) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Chưa cấu hình ngân hàng'),
+          content: const Text(
+            'Bạn chưa cấu hình ngân hàng VietQR mặc định.\n\nVào Cài đặt > Ngân hàng VietQR để thêm và chọn mặc định.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+          ],
+        ),
+      );
+      return;
+    }
+    final bin = (bank['bin']?.toString() ?? '').trim();
+    final code = (bank['code']?.toString() ?? '').trim();
+    final bankId = bin.isNotEmpty ? bin : code;
+    final accountNo = (bank['accountNo']?.toString() ?? '').trim();
+    final accountName = (bank['accountName']?.toString() ?? '').trim();
+    final logo = (bank['logo']?.toString() ?? '').trim();
+    if (bankId.isEmpty || accountNo.isEmpty || accountName.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Thiếu thông tin ngân hàng'),
+          content: const Text('Thông tin ngân hàng VietQR mặc định chưa đầy đủ. Vui lòng kiểm tra lại.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+          ],
+        ),
+      );
+      return;
+    }
+    final amount = remain.round();
+    final desc = _buildVietQrAddInfoFromSale(saleId: s.id, sale: s);
+    final url = _vietQrUrl(
+      bankId: bankId,
+      accountNo: accountNo,
+      accountName: accountName,
+      amount: amount,
+      description: desc,
+    );
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('QR thanh toán nợ'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (logo.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Image.network(
+                  logo,
+                  width: 46,
+                  height: 46,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              ),
+            Text('Số tiền: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(amount)}'),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                url,
+                width: 260,
+                height: 260,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Text('Không tải được QR. Vui lòng kiểm tra mạng.'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(desc, maxLines: 2, overflow: TextOverflow.ellipsis),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+        ],
+      ),
+    );
+  }
   Future<void> _setSalePaymentType({required Sale sale}) async {
     final picked = await showModalBottomSheet<String>(
       context: context,
@@ -526,6 +675,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
+                                  if (s.debt > 0)
+                                    IconButton(
+                                      tooltip: 'QR nợ',
+                                      icon: const Icon(Icons.qr_code_2_outlined),
+                                      onPressed: () async {
+                                        await _showVietQrDebtDialog(s);
+                                      },
+                                    ),
                                   IconButton(
                                     tooltip: 'In hóa đơn',
                                     icon: const Icon(Icons.print_outlined),
@@ -1070,6 +1227,18 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                     // New Print Button & Delete Button & Edit Button
                                     Row(
                                       children: [
+                                        if (s.debt > 0) ...[
+                                          IconButton(
+                                            icon: const Icon(Icons.qr_code_2_outlined, color: Colors.blueAccent, size: 20),
+                                            tooltip: 'QR nợ',
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(),
+                                            onPressed: () async {
+                                              await _showVietQrDebtDialog(s);
+                                            },
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
                                         IconButton(
                                           icon: const Icon(Icons.print_outlined,
                                               color: Colors.blueAccent, size: 20),
