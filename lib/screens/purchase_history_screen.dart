@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_contacts/flutter_contacts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
@@ -11,9 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 
 import '../models/product.dart';
-import '../models/customer.dart';
 import '../models/debt.dart';
-import '../providers/customer_provider.dart';
 import '../providers/debt_provider.dart';
 import '../providers/product_provider.dart';
 import '../providers/auth_provider.dart';
@@ -21,10 +17,9 @@ import '../services/database_service.dart';
 import '../services/drive_sync_service.dart';
 import '../services/document_storage_service.dart';
 import '../services/product_image_service.dart';
-import '../utils/contact_serializer.dart';
 import '../utils/number_input_formatter.dart';
-import '../utils/text_normalizer.dart';
 import 'purchase_order_detail_screen.dart';
+import 'purchase_order_create_screen.dart';
 
 class PurchaseHistoryScreen extends StatefulWidget {
   final bool embedded;
@@ -79,9 +74,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   }
 
   final Set<String> _docUploading = <String>{};
-
-  static const _prefLastSupplierName = 'purchase_last_supplier_name';
-  static const _prefLastSupplierPhone = 'purchase_last_supplier_phone';
 
   @override
   void initState() {
@@ -526,7 +518,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
 
   Future<Product?> _showProductPicker() async {
     final products = context.read<ProductProvider>().products;
-    return await showModalBottomSheet<Product>(
+    if (products.isEmpty) return null;
+    return showModalBottomSheet<Product>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
@@ -626,561 +619,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         );
       },
     );
-  }
-
-  Future<Customer?> _ensureSupplier({required String supplierName, String? supplierPhone}) async {
-    if (supplierName.trim().isEmpty) return null;
-    final provider = context.read<CustomerProvider>();
-    final normalized = TextNormalizer.normalize(supplierName);
-    try {
-      final existing = provider.customers.firstWhere(
-        (c) => c.isSupplier && TextNormalizer.normalize(c.name) == normalized,
-      );
-      return existing;
-    } catch (_) {
-      final created = Customer(
-        name: supplierName.trim(),
-        phone: supplierPhone?.trim().isEmpty == true ? null : supplierPhone?.trim(),
-        isSupplier: true,
-      );
-      await provider.add(created);
-      await provider.load();
-      return created;
-    }
-  }
-
-
-  Future<Contact?> _showContactPicker(BuildContext context, List<Contact> contacts) async {
-    final TextEditingController searchController = TextEditingController();
-    List<Contact> filteredContacts = List.from(contacts);
-
-    return await showModalBottomSheet<Contact>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return Container(
-              padding: const EdgeInsets.all(16),
-              height: MediaQuery.of(context).size.height * 0.8,
-              child: Column(
-                children: [
-                  TextField(
-                    controller: searchController,
-                    decoration: InputDecoration(
-                      labelText: 'Tìm kiếm liên hệ',
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          searchController.clear();
-                          setState(() {
-                            filteredContacts = List.from(contacts);
-                          });
-                        },
-                      ),
-                    ),
-                    onChanged: (value) {
-                      if (value.isEmpty) {
-                        setState(() {
-                          filteredContacts = List.from(contacts);
-                        });
-                      } else {
-                        final query = value.toLowerCase();
-                        setState(() {
-                          filteredContacts = contacts.where((contact) {
-                            final nameMatch = contact.displayName.toLowerCase().contains(query);
-                            final phoneMatch = contact.phones.any(
-                              (phone) => phone.number.contains(query),
-                            );
-                            return nameMatch || phoneMatch;
-                          }).toList();
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: filteredContacts.isEmpty
-                        ? const Center(
-                            child: Text('Không tìm thấy liên hệ nào'),
-                          )
-                        : ListView.builder(
-                            itemCount: filteredContacts.length,
-                            itemBuilder: (context, index) {
-                              final contact = filteredContacts[index];
-                              return ListTile(
-                                leading: contact.photo != null
-                                    ? CircleAvatar(
-                                        backgroundImage: MemoryImage(contact.photo!), 
-                                        radius: 20,
-                                      )
-                                    : const CircleAvatar(
-                                        child: Icon(Icons.person),
-                                        radius: 20,
-                                      ),
-                                title: Text(contact.displayName),
-                                subtitle: Text(
-                                  contact.phones.isNotEmpty
-                                      ? contact.phones.first.number
-                                      : 'Không có SĐT',
-                                ),
-                                onTap: () {
-                                  Navigator.of(context).pop(contact);
-                                },
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<Product?> _addNewProductDialog() async {
-    final nameCtrl = TextEditingController();
-    final unitCtrl = TextEditingController(text: 'cái');
-    final priceCtrl = TextEditingController(text: '0');
-    final costPriceCtrl = TextEditingController(text: '0');
-    final barcodeCtrl = TextEditingController();
-
-    XFile? pickedImage;
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (dialogContext, setStateDialog) {
-          return AlertDialog(
-            title: const Text('Thêm sản phẩm'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 56,
-                        height: 56,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: Builder(
-                            builder: (_) {
-                              if (pickedImage != null) {
-                                return Image.file(File(pickedImage!.path), fit: BoxFit.cover);
-                              }
-                              return const ColoredBox(
-                                color: Color(0xFFEFEFEF),
-                                child: Center(child: Icon(Icons.inventory_2_outlined)),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final x = await ImagePicker().pickImage(
-                                  source: ImageSource.camera,
-                                  imageQuality: 85,
-                                );
-                                if (x == null) return;
-                                setStateDialog(() => pickedImage = x);
-                              },
-                              icon: const Icon(Icons.photo_camera),
-                              label: const Text('Chụp'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final x = await ImagePicker().pickImage(
-                                  source: ImageSource.gallery,
-                                  imageQuality: 85,
-                                );
-                                if (x == null) return;
-                                setStateDialog(() => pickedImage = x);
-                              },
-                              icon: const Icon(Icons.photo_library_outlined),
-                              label: const Text('Chọn'),
-                            ),
-                            if (pickedImage != null)
-                              TextButton.icon(
-                                onPressed: () => setStateDialog(() => pickedImage = null),
-                                icon: const Icon(Icons.delete_outline),
-                                label: const Text('Bỏ ảnh'),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên sản phẩm')),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: priceCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                    decoration: const InputDecoration(labelText: 'Giá bán'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: costPriceCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                    decoration: const InputDecoration(labelText: 'Giá vốn'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(controller: unitCtrl, decoration: const InputDecoration(labelText: 'Đơn vị')),
-                  const SizedBox(height: 8),
-                  TextField(controller: barcodeCtrl, decoration: const InputDecoration(labelText: 'Mã vạch (tuỳ chọn)')),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Hủy')),
-              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Lưu')),
-            ],
-          );
-        },
-      ),
-    );
-
-    if (ok != true) return null;
-    final name = nameCtrl.text.trim();
-    if (name.isEmpty) return null;
-
-    final provider = context.read<ProductProvider>();
-    final newName = TextNormalizer.normalize(name);
-    final duplicated = provider.products.any((p) => TextNormalizer.normalize(p.name) == newName);
-    if (duplicated) {
-      if (!mounted) return null;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tồn tại sản phẩm cùng tên')));
-      return null;
-    }
-
-    final p = Product(
-      name: name,
-      price: NumberInputFormatter.tryParse(priceCtrl.text) ?? 0,
-      costPrice: NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0,
-      unit: unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim(),
-      barcode: barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim(),
-      currentStock: 0,
-    );
-
-    if (pickedImage != null) {
-      final relPath = await ProductImageService.instance.saveFromXFile(
-        source: pickedImage!,
-        productId: p.id,
-      );
-      p.imagePath = relPath;
-    }
-
-    await provider.add(p);
-    await context.read<ProductProvider>().load();
-    return p;
-  }
-
-  Future<void> _addPurchaseDialog() async {
-    var products = context.read<ProductProvider>().products;
-    if (products.isEmpty) {
-      final created = await _addNewProductDialog();
-      if (created == null) return;
-      products = context.read<ProductProvider>().products;
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    final lastSupplierName = prefs.getString(_prefLastSupplierName);
-    final lastSupplierPhone = prefs.getString(_prefLastSupplierPhone);
-
-    String selectedProductId = products.first.id;
-    final qtyCtrl = TextEditingController(text: '1');
-    final unitCostCtrl = TextEditingController(text: products.first.costPrice.toStringAsFixed(0));
-    final paidAmountCtrl = TextEditingController(text: (1 * products.first.costPrice).toStringAsFixed(0));
-    bool oweAll = false;
-    final noteCtrl = TextEditingController();
-    final supplierNameCtrl = TextEditingController(text: lastSupplierName ?? '');
-    final supplierPhoneCtrl = TextEditingController(text: lastSupplierPhone ?? '');
-
-    List<Contact> allContacts = await ContactSerializer.loadContactsFromPrefs();
-    if (allContacts.isEmpty) {
-      try {
-        final granted = await FlutterContacts.requestPermission();
-        if (granted) {
-          allContacts = await FlutterContacts.getContacts(withProperties: true, withPhoto: true);
-          await ContactSerializer.saveContactsToPrefs(allContacts);
-        }
-      } catch (e) {
-        debugPrint('Error getting contacts in purchase dialog: $e');
-      }
-    }
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (dialogContext, setStateDialog) => AlertDialog(
-          title: const Text('Nhập hàng'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: supplierNameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nhà cung cấp (tuỳ chọn)',
-                      ),
-                      readOnly: true,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.contacts),
-                    onPressed: () async {
-                      final contact = await _showContactPicker(context, allContacts);
-                      if (contact != null && mounted) {
-                        supplierNameCtrl.text = contact.displayName;
-                        supplierPhoneCtrl.text = contact.phones.isNotEmpty ? contact.phones.first.number : '';
-                        setStateDialog(() {});
-                      }
-                    },
-                    tooltip: 'Chọn từ danh bạ',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: supplierPhoneCtrl,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'SĐT nhà cung cấp (tuỳ chọn)',
-                ),
-                readOnly: true,
-              ),
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: () async {
-                  final picked = await _showProductPicker();
-                  if (picked == null) return;
-                  selectedProductId = picked.id;
-                  unitCostCtrl.text = picked.costPrice.toStringAsFixed(0);
-                  if (!oweAll) {
-                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
-                    paidAmountCtrl.text = (q * picked.costPrice).toStringAsFixed(0);
-                  }
-                  setStateDialog(() {});
-                },
-                child: InputDecorator(
-                  decoration: const InputDecoration(labelText: 'Sản phẩm'),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          () {
-                            try {
-                              return products.firstWhere((e) => e.id == selectedProductId).name;
-                            } catch (_) {
-                              return '';
-                            }
-                          }(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const Icon(Icons.arrow_drop_down),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: qtyCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-                onChanged: (_) {
-                  if (!oweAll) {
-                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
-                    final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
-                    paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
-                  }
-                  setStateDialog(() {});
-                },
-                decoration: InputDecoration(
-                  labelText: () {
-                    try {
-                      final p = products.firstWhere((e) => e.id == selectedProductId);
-                      return 'Số lượng (${p.unit})';
-                    } catch (_) {
-                      return 'Số lượng';
-                    }
-                  }(),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: unitCostCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                onChanged: (_) {
-                  if (!oweAll) {
-                    final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
-                    final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
-                    paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
-                  }
-                  setStateDialog(() {});
-                },
-                decoration: const InputDecoration(labelText: 'Giá nhập / đơn vị'),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: paidAmountCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                      decoration: const InputDecoration(labelText: 'Tiền thanh toán'),
-                      enabled: !oweAll,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Nợ tất'),
-                      Checkbox(
-                        value: oweAll,
-                        onChanged: (v) {
-                          oweAll = v ?? false;
-                          if (oweAll) {
-                            paidAmountCtrl.text = '0';
-                          } else {
-                            final q = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
-                            final uc = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
-                            paidAmountCtrl.text = (q * uc).toStringAsFixed(0);
-                          }
-                          setStateDialog(() {});
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: noteCtrl,
-                decoration: const InputDecoration(labelText: 'Ghi chú (tuỳ chọn)'),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                () {
-                  try {
-                    final p = products.firstWhere((e) => e.id == selectedProductId);
-                    return 'Tồn hiện tại: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}';
-                  } catch (_) {
-                    return 'Tồn hiện tại: 0';
-                  }
-                }(),
-                style: const TextStyle(color: Colors.black54),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                final created = await _addNewProductDialog();
-                if (created == null) return;
-                products = context.read<ProductProvider>().products;
-                selectedProductId = created.id;
-                unitCostCtrl.text = created.costPrice.toStringAsFixed(0);
-                setStateDialog(() {});
-              },
-              child: const Text('Thêm sản phẩm'),
-            ),
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
-          ],
-        ),
-      ),
-    );
-
-    if (ok != true) return;
-
-    final qty = (NumberInputFormatter.tryParse(qtyCtrl.text) ?? 0).toDouble();
-    final unitCost = (NumberInputFormatter.tryParse(unitCostCtrl.text) ?? 0).toDouble();
-    final paidAmount = oweAll ? 0.0 : (NumberInputFormatter.tryParse(paidAmountCtrl.text) ?? 0).toDouble();
-    if (qty <= 0) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Số lượng không hợp lệ')));
-      return;
-    }
-
-    late final Product selected;
-    try {
-      selected = context.read<ProductProvider>().products.firstWhere((p) => p.id == selectedProductId);
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sản phẩm không hợp lệ')));
-      return;
-    }
-
-    final totalCost = qty * unitCost;
-    final debtAmount = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
-    Customer? supplier;
-    if (debtAmount > 0) {
-      final supplierName = supplierNameCtrl.text.trim();
-      if (supplierName.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Vui lòng nhập nhà cung cấp khi có nợ')));
-        return;
-      }
-      final supplierPhone = supplierPhoneCtrl.text.trim();
-      supplier = await _ensureSupplier(
-        supplierName: supplierName,
-        supplierPhone: supplierPhone.isEmpty ? null : supplierPhone,
-      );
-    }
-
-    final purchaseId = await DatabaseService.instance.insertPurchaseHistory(
-      productId: selected.id,
-      productName: selected.name,
-      quantity: qty,
-      unitCost: unitCost,
-      paidAmount: paidAmount,
-      supplierName: supplierNameCtrl.text.trim().isEmpty ? null : supplierNameCtrl.text.trim(),
-      supplierPhone: supplierPhoneCtrl.text.trim().isEmpty ? null : supplierPhoneCtrl.text.trim(),
-      note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
-    );
-
-    if (debtAmount > 0) {
-      final supplierName = supplierNameCtrl.text.trim();
-      final debt = Debt(
-        type: DebtType.oweOthers,
-        partyId: supplier?.id ?? 'supplier_unknown',
-        partyName: supplier?.name ?? (supplierName.isEmpty ? 'Nhà cung cấp' : supplierName),
-        amount: debtAmount,
-        description:
-            'Nhập hàng: ${selected.name}, SL ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)} ${selected.unit}, Giá nhập ${unitCost.toStringAsFixed(0)}, Thành tiền ${totalCost.toStringAsFixed(0)}, Đã trả ${paidAmount.toStringAsFixed(0)}',
-        sourceType: 'purchase',
-        sourceId: purchaseId,
-      );
-      await context.read<DebtProvider>().add(debt);
-    }
-
-    await prefs.setString(_prefLastSupplierName, supplierNameCtrl.text.trim());
-    await prefs.setString(_prefLastSupplierPhone, supplierPhoneCtrl.text.trim());
-
-    await context.read<ProductProvider>().load();
-    if (!mounted) return;
-    setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã nhập hàng')));
   }
 
   Future<void> _editPurchaseDialog(Map<String, dynamic> row) async {
@@ -1632,7 +1070,18 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                 children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: _addPurchaseDialog,
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const PurchaseOrderCreateScreen()),
+                        );
+                        if (!mounted) return;
+                        await context.read<ProductProvider>().load();
+                        await context.read<DebtProvider>().load();
+                        setState(() {
+                          _orderDebtInfoCache.clear();
+                        });
+                      },
                       icon: const Icon(Icons.add),
                       label: const Text('Nhập hàng'),
                     ),
@@ -1722,6 +1171,14 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     final assignedOrder = purchaseOrderId != null && purchaseOrderId.isNotEmpty;
 
                     return ListTile(
+                      dense: true,
+                      visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      onTap: () async {
+                        await _editPurchaseDialog(r);
+                        if (!mounted) return;
+                        setState(() {});
+                      },
                       leading: CircleAvatar(
                         backgroundColor: Colors.green.withValues(alpha: 0.12),
                         child: Builder(
@@ -1754,8 +1211,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('SL: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}  |  Giá nhập: ${currency.format(unitCost)}'),
-                          Text('Thành tiền: ${currency.format(totalCost)}'),
+                          Text(
+                            'SL: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}  |  Giá: ${currency.format(unitCost)}  |  TT: ${currency.format(totalCost)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           if (assignedOrder)
                             FutureBuilder<_OrderDebtInfo>(
                               future: _orderDebtInfoFuture(purchaseOrderId),
@@ -1775,7 +1235,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                               },
                             ),
                           if (!assignedOrder) ...[
-                            Text('Thanh toán: ${currency.format(paidAmount)}'),
+                            Text('Đã trả: ${currency.format(paidAmount)}'),
                             if (remainDebt > 0)
                               FutureBuilder(
                                 future: DatabaseService.instance.getDebtBySource(
@@ -1815,7 +1275,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                 style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
                               ),
                           ],
-                          if (supplierName != null && supplierName.isNotEmpty) Text('NCC: $supplierName'),
+                          if (supplierName != null && supplierName.isNotEmpty)
+                            Text('NCC: $supplierName', maxLines: 1, overflow: TextOverflow.ellipsis),
                           Row(
                             children: [
                               const Text('Chứng từ: '),
@@ -1900,16 +1361,11 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                   },
                             icon: Icon(assignedOrder ? Icons.receipt_long : Icons.receipt_long_outlined),
                           ),
-                          IconButton(
-                            tooltip: 'Chứng từ',
-                            onPressed: () => _showDocActions(row: r),
-                            icon: Icon(
-                              docUploaded ? Icons.verified_outlined : Icons.description_outlined,
-                              color: docUploaded ? Colors.green : null,
-                            ),
-                          ),
                           PopupMenuButton<String>(
                             onSelected: (v) async {
+                              if (v == 'doc') {
+                                _showDocActions(row: r);
+                              }
                               if (v == 'edit') {
                                 await _editPurchaseDialog(r);
                               }
@@ -1917,9 +1373,23 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                 await _deletePurchase(r);
                               }
                             },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(value: 'edit', child: Text('Sửa')),
-                              PopupMenuItem(value: 'delete', child: Text('Xóa')),
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                              PopupMenuItem(
+                                value: 'doc',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      docUploaded ? Icons.verified_outlined : Icons.description_outlined,
+                                      size: 18,
+                                      color: docUploaded ? Colors.green : null,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text('Chứng từ'),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(value: 'delete', child: Text('Xóa')),
                             ],
                           ),
                         ],
@@ -1949,7 +1419,18 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Nhập hàng',
-            onPressed: _addPurchaseDialog,
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PurchaseOrderCreateScreen()),
+              );
+              if (!mounted) return;
+              await context.read<ProductProvider>().load();
+              await context.read<DebtProvider>().load();
+              setState(() {
+                _orderDebtInfoCache.clear();
+              });
+            },
           ),
           IconButton(
             icon: const Icon(Icons.filter_list),
