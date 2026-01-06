@@ -25,6 +25,18 @@ class _DriveBackupManagerScreenState extends State<DriveBackupManagerScreen> {
   String? _error;
   List<Map<String, String>> _files = const [];
 
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    const k = 1024.0;
+    final kb = bytes / k;
+    if (kb < 1) return '$bytes B';
+    final mb = kb / k;
+    if (mb < 1) return '${kb.toStringAsFixed(1)} KB';
+    final gb = mb / k;
+    if (gb < 1) return '${mb.toStringAsFixed(1)} MB';
+    return '${gb.toStringAsFixed(2)} GB';
+  }
+
   Future<String?> _getToken() async {
     final token = await context.read<AuthProvider>().getAccessToken();
     if (token == null || token.isEmpty) return null;
@@ -286,7 +298,10 @@ class _DriveBackupManagerScreenState extends State<DriveBackupManagerScreen> {
                         final f = _files[i];
                         final name = f['name'] ?? '';
                         final modified = _parseModifiedTime(f['modifiedTime']);
-                        final subtitle = modified == null ? (f['modifiedTime'] ?? '') : fmt.format(modified);
+                        final subtitleTime = modified == null ? (f['modifiedTime'] ?? '') : fmt.format(modified);
+                        final sizeRaw = (f['size'] ?? '').trim();
+                        final sizeInt = int.tryParse(sizeRaw) ?? 0;
+                        final subtitle = sizeInt > 0 ? '$subtitleTime  •  ${_formatBytes(sizeInt)}' : subtitleTime;
                         final lower = name.toLowerCase();
                         final isZip = lower.endsWith('.zip');
                         final isDb = lower.endsWith('.db');

@@ -488,7 +488,7 @@ class DriveSyncService {
   Future<List<Map<String, String>>> listBackups({required String accessToken}) async {
     final folderId = await _ensureBackupFolder(accessToken: accessToken);
     final q = Uri.encodeQueryComponent("'${folderId}' in parents and trashed = false");
-    final uri = Uri.parse('https://www.googleapis.com/drive/v3/files?q=$q&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc');
+    final uri = Uri.parse('https://www.googleapis.com/drive/v3/files?q=$q&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime desc');
     final resp = await http.get(uri, headers: {'Authorization': 'Bearer $accessToken'});
     if (resp.statusCode == 200) {
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -497,6 +497,7 @@ class DriveSyncService {
                 'id': (e as Map<String, dynamic>)['id'] as String,
                 'name': e['name'] as String,
                 'modifiedTime': (e['modifiedTime'] as String?) ?? '',
+                'size': (e['size']?.toString() ?? ''),
               })
           .toList();
       return files;

@@ -38,6 +38,8 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
 
   final Map<String, TextEditingController> _mixDisplayNameCtrls = {};
   final Map<String, TextEditingController> _mixRawQtyCtrls = {};
+  final Map<String, TextEditingController> _mixRawCostCtrls = {};
+  final Map<String, TextEditingController> _mixRawPriceCtrls = {};
   final Map<String, FocusNode> _mixRawQtyFocus = {};
 
   String _mixRawKey(String mixProductId, String rawProductId) => '$mixProductId::$rawProductId';
@@ -61,6 +63,26 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
     return ctrl;
   }
 
+  TextEditingController _mixRawCostCtrlFor({required String mixProductId, required String rawProductId, required double initialCost}) {
+    final key = _mixRawKey(mixProductId, rawProductId);
+    final existing = _mixRawCostCtrls[key];
+    if (existing != null) return existing;
+
+    final ctrl = TextEditingController(text: initialCost == 0 ? '' : initialCost.toStringAsFixed(0));
+    _mixRawCostCtrls[key] = ctrl;
+    return ctrl;
+  }
+
+  TextEditingController _mixRawPriceCtrlFor({required String mixProductId, required String rawProductId, required double initialPrice}) {
+    final key = _mixRawKey(mixProductId, rawProductId);
+    final existing = _mixRawPriceCtrls[key];
+    if (existing != null) return existing;
+
+    final ctrl = TextEditingController(text: initialPrice == 0 ? '' : initialPrice.toStringAsFixed(0));
+    _mixRawPriceCtrls[key] = ctrl;
+    return ctrl;
+  }
+
   FocusNode _mixRawQtyFocusFor({required String mixProductId, required String rawProductId}) {
     final key = _mixRawKey(mixProductId, rawProductId);
     return _mixRawQtyFocus.putIfAbsent(key, () => FocusNode());
@@ -69,6 +91,8 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
   void _disposeMixRawFieldFor({required String mixProductId, required String rawProductId}) {
     final key = _mixRawKey(mixProductId, rawProductId);
     _mixRawQtyCtrls.remove(key)?.dispose();
+    _mixRawCostCtrls.remove(key)?.dispose();
+    _mixRawPriceCtrls.remove(key)?.dispose();
     _mixRawQtyFocus.remove(key)?.dispose();
   }
 
@@ -259,6 +283,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
         'rawUnit': raw.unit,
         'rawQty': 0.0,
         'rawUnitCost': raw.costPrice,
+        'rawUnitPrice': raw.price,
       });
     }
 
@@ -452,6 +477,12 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
       c.dispose();
     }
     for (final c in _mixRawQtyCtrls.values) {
+      c.dispose();
+    }
+    for (final c in _mixRawCostCtrls.values) {
+      c.dispose();
+    }
+    for (final c in _mixRawPriceCtrls.values) {
       c.dispose();
     }
     for (final f in _mixRawQtyFocus.values) {
@@ -694,6 +725,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                       final rawId = (m['rawProductId']?.toString() ?? '').trim();
                       final rawQty = (m['rawQty'] as num?)?.toDouble() ?? 0;
                       final rawUnitCost = (m['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
+                      final rawUnitPrice = (m['rawUnitPrice'] as num?)?.toDouble() ?? 0.0;
 
                       double? rawStock;
                       for (final p in context.read<ProductProvider>().products) {
@@ -708,88 +740,148 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                         rawProductId: rawId,
                         initialQty: rawQty,
                       );
+                      final costCtrl = _mixRawCostCtrlFor(
+                        mixProductId: it.productId,
+                        rawProductId: rawId,
+                        initialCost: rawUnitCost,
+                      );
+                      final priceCtrl = _mixRawPriceCtrlFor(
+                        mixProductId: it.productId,
+                        rawProductId: rawId,
+                        initialPrice: rawUnitPrice,
+                      );
                       final focusNode = _mixRawQtyFocusFor(mixProductId: it.productId, rawProductId: rawId);
+
+                      final rawLineTotal = rawQty * rawUnitPrice;
 
                       return Padding(
                         padding: const EdgeInsets.only(top: 8),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Column(
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
                                     rawName.isEmpty ? 'Nguyên liệu' : rawName,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${rawStock == null ? '' : 'Tồn: ${rawStock.toStringAsFixed(rawStock % 1 == 0 ? 0 : 2)}'}${rawStock == null ? '' : (rawUnit.isEmpty ? '' : ' $rawUnit')}  |  Giá: ${currency.format(rawUnitCost)}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              width: 96,
-                              child: TextField(
-                                controller: ctrl,
-                                focusNode: focusNode,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-                                decoration: InputDecoration(
-                                  labelText: rawUnit.isEmpty ? 'SL' : 'SL ($rawUnit)',
-                                  isDense: true,
                                 ),
-                                onChanged: (v) {
-                                  final val = NumberInputFormatter.tryParse(v);
-                                  if (val == null || val < 0) return;
-                                  final items = _getMixItems(it);
-                                  if (idx >= items.length) return;
-                                  items[idx]['rawQty'] = val;
-                                  _setMixItems(it, items);
-                                  _recalcMixTotalsFromMixItems(it, items);
-                                  setState(() {
-                                    _syncPaidWithTotalIfNotEdited(_total());
-                                  });
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              width: 84,
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: Text(
-                                  currency.format(rawQty * rawUnitCost),
+                                Text(
+                                  rawStock == null
+                                      ? ''
+                                      : 'Tồn: ${rawStock.toStringAsFixed(rawStock % 1 == 0 ? 0 : 2)}${rawUnit.isEmpty ? '' : ' $rawUnit'}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                  style: TextStyle(fontSize: 11, color: Colors.grey[700]),
                                 ),
-                              ),
+                              ],
                             ),
-                            IconButton(
-                              tooltip: 'Xóa nguyên liệu',
-                              onPressed: () {
-                                final items = _getMixItems(it);
-                                if (idx >= items.length) return;
-                                final removedId = (items[idx]['rawProductId']?.toString() ?? '').trim();
-                                items.removeAt(idx);
-                                _setMixItems(it, items);
-                                _recalcMixTotalsFromMixItems(it, items);
-                                if (removedId.isNotEmpty) {
-                                  _disposeMixRawFieldFor(mixProductId: it.productId, rawProductId: removedId);
-                                }
-                                setState(() {
-                                  _syncPaidWithTotalIfNotEdited(_total());
-                                });
-                              },
-                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                            const SizedBox(height: 6),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: ctrl,
+                                    focusNode: focusNode,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                                    decoration: InputDecoration(
+                                      labelText: rawUnit.isEmpty ? 'Số lượng' : 'Số lượng ($rawUnit)',
+                                      isDense: true,
+                                    ),
+                                    onChanged: (v) {
+                                      final val = NumberInputFormatter.tryParse(v);
+                                      if (val == null || val < 0) return;
+                                      final items = _getMixItems(it);
+                                      if (idx >= items.length) return;
+                                      items[idx]['rawQty'] = val;
+                                      _setMixItems(it, items);
+                                      _recalcMixTotalsFromMixItems(it, items);
+                                      setState(() {
+                                        _syncPaidWithTotalIfNotEdited(_total());
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: costCtrl,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                                    decoration: const InputDecoration(
+                                      labelText: 'Giá vốn',
+                                      isDense: true,
+                                    ),
+                                    onChanged: (v) {
+                                      final val = NumberInputFormatter.tryParse(v);
+                                      if (val == null || val < 0) return;
+                                      final items = _getMixItems(it);
+                                      if (idx >= items.length) return;
+                                      items[idx]['rawUnitCost'] = val;
+                                      _setMixItems(it, items);
+                                      _recalcMixTotalsFromMixItems(it, items);
+                                      setState(() {
+                                        _syncPaidWithTotalIfNotEdited(_total());
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: priceCtrl,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                                    decoration: const InputDecoration(
+                                      labelText: 'Giá bán',
+                                      isDense: true,
+                                    ),
+                                    onChanged: (v) {
+                                      final val = NumberInputFormatter.tryParse(v);
+                                      if (val == null || val < 0) return;
+                                      final items = _getMixItems(it);
+                                      if (idx >= items.length) return;
+                                      items[idx]['rawUnitPrice'] = val;
+                                      _setMixItems(it, items);
+                                      setState(() {});
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  width: 92,
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      currency.format(rawLineTotal),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Xóa nguyên liệu',
+                                  onPressed: () {
+                                    final items = _getMixItems(it);
+                                    if (idx >= items.length) return;
+                                    final removedId = (items[idx]['rawProductId']?.toString() ?? '').trim();
+                                    items.removeAt(idx);
+                                    _setMixItems(it, items);
+                                    _recalcMixTotalsFromMixItems(it, items);
+                                    if (removedId.isNotEmpty) {
+                                      _disposeMixRawFieldFor(mixProductId: it.productId, rawProductId: removedId);
+                                    }
+                                    setState(() {
+                                      _syncPaidWithTotalIfNotEdited(_total());
+                                    });
+                                  },
+                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                ),
+                              ],
                             ),
                           ],
                         ),

@@ -391,7 +391,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('QR thanh toán nợ'),
+        title: const Center(child: Text('QR thanh toán nợ')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -412,11 +412,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               borderRadius: BorderRadius.circular(8),
               child: Image.network(
                 url,
-                width: 260,
-                height: 260,
+                width: 320,
+                height: 320,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const Padding(
-                  padding: EdgeInsets.all(8),
+                  padding: EdgeInsets.all(6),
                   child: Text('Không tải được QR. Vui lòng kiểm tra mạng.'),
                 ),
               ),

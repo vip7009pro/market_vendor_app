@@ -58,7 +58,7 @@ class _VietQrBankAccountsScreenState extends State<VietQrBankAccountsScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('QR chuyển khoản'),
+        title: const Center(child: Text('QR chuyển khoản')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -77,16 +77,16 @@ class _VietQrBankAccountsScreenState extends State<VietQrBankAccountsScreen> {
             const SizedBox(height: 6),
             Text(accountNo, style: const TextStyle(fontWeight: FontWeight.w700)),
             Text(accountName, textAlign: TextAlign.center),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Image.network(
                 url,
-                width: 260,
-                height: 260,
+                width: 320,
+                height: 320,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const Padding(
-                  padding: EdgeInsets.all(8),
+                  padding: EdgeInsets.all(6),
                   child: Text('Không tải được QR. Vui lòng kiểm tra mạng.'),
                 ),
               ),

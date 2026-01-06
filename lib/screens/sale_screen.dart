@@ -548,7 +548,12 @@ class _SaleScreenState extends State<SaleScreen> {
                   ),
                 ),
               if (logo.isNotEmpty) const SizedBox(width: 8),
-              const Expanded(child: Text('Quét QR để chuyển khoản')),
+              const Expanded(
+                child: Text(
+                  'Quét QR để chuyển khoản',
+                  textAlign: TextAlign.center,
+                ),
+              ),
             ],
           ),
           content: Column(
@@ -556,11 +561,11 @@ class _SaleScreenState extends State<SaleScreen> {
             children: [
               Image.network(
                 url,
-                width: 320,
-                height: 380,
+                width: 340,
+                height: 340,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const Padding(
-                  padding: EdgeInsets.all(12),
+                  padding: EdgeInsets.all(6),
                   child: Text('Không tải được ảnh QR. Vui lòng thử lại.'),
                 ),
               ),
