@@ -531,6 +531,10 @@ class SheetsSyncService {
         'debtPaidUnset',
         'debtPaidTotal',
         'debtNotPaid',
+        'totalPaidCash',
+        'totalPaidBank',
+        'totalPaidUnset',
+        'totalPaid',
       ],
       rows: saleRowsForOrders.map((s) {
         final saleId = (s['id']?.toString() ?? '').trim();
@@ -552,6 +556,11 @@ class SheetsSyncService {
         final debtPaidUnset = debtPaidUnsetBySaleId[saleId] ?? 0.0;
         final debtPaidTotal = debtPaidTotalBySaleId[saleId] ?? 0.0;
         final debtNotPaid = debtRemainBySaleId[saleId] ?? 0.0;
+
+        final totalPaidCash = salePaidCash + debtPaidCash;
+        final totalPaidBank = salePaidBank + debtPaidBank;
+        final totalPaidUnset = salePaidUnset + debtPaidUnset;
+        final totalPaid = totalPaidCash + totalPaidBank + totalPaidUnset;
         return [
           saleId,
           s['createdAt'],
@@ -573,6 +582,10 @@ class SheetsSyncService {
           debtPaidUnset,
           debtPaidTotal,
           debtNotPaid,
+          totalPaidCash,
+          totalPaidBank,
+          totalPaidUnset,
+          totalPaid,
         ];
       }).where((r) => r.isNotEmpty),
     );

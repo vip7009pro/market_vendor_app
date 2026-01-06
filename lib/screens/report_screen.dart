@@ -882,6 +882,10 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('debtPaidUnset'),
         _cv('debtPaidTotal'),
         _cv('debtNotPaid'),
+        _cv('totalPaidCash'),
+        _cv('totalPaidBank'),
+        _cv('totalPaidUnset'),
+        _cv('totalPaid'),
       ]);
       // Debt stats by saleId (for list đơn hàng)
       final saleIdsInRangeForDebt = <String>[];
@@ -970,6 +974,11 @@ class _ReportScreenState extends State<ReportScreen> {
         final debtPaidUnset = debtPaidUnsetBySaleId[saleId] ?? 0.0;
         final debtPaidTotal = debtPaidTotalBySaleId[saleId] ?? 0.0;
         final debtNotPaid = debtRemainBySaleId[saleId] ?? 0.0;
+
+        final totalPaidCash = salePaidCash + debtPaidCash;
+        final totalPaidBank = salePaidBank + debtPaidBank;
+        final totalPaidUnset = salePaidUnset + debtPaidUnset;
+        final totalPaid = totalPaidCash + totalPaidBank + totalPaidUnset;
         listOrdersSheet.appendRow([
           _cv(saleId),
           _cv(s['createdAt']),
@@ -991,6 +1000,10 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(debtPaidUnset),
           _cv(debtPaidTotal),
           _cv(debtNotPaid),
+          _cv(totalPaidCash),
+          _cv(totalPaidBank),
+          _cv(totalPaidUnset),
+          _cv(totalPaid),
         ]);
       }
       final tripleBackdataSheet = excel['backdata_triple_kpi'];

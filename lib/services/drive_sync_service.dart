@@ -26,6 +26,43 @@ class DriveSyncService {
     return bytes.length >= 2 && bytes[0] == 0x50 && bytes[1] == 0x4B; // PK
   }
 
+  Future<Uint8List> _downloadFileWithProgress({
+    required String accessToken,
+    required String fileId,
+    void Function(double progress, String stage)? onProgress,
+    double startProgress = 0.0,
+    double endProgress = 1.0,
+  }) async {
+    final uri = Uri.parse('https://www.googleapis.com/drive/v3/files/$fileId?alt=media');
+    final req = http.Request('GET', uri);
+    req.headers['Authorization'] = 'Bearer $accessToken';
+
+    onProgress?.call(startProgress, 'Đang tải bản sao lưu...');
+
+    final streamed = await req.send();
+    if (streamed.statusCode != 200) {
+      final resp = await http.Response.fromStream(streamed);
+      throw Exception('Tải tệp sao lưu thất bại (${resp.statusCode})');
+    }
+
+    final contentLength = streamed.contentLength ?? -1;
+    final builder = BytesBuilder(copy: false);
+    int received = 0;
+    await for (final chunk in streamed.stream) {
+      builder.add(chunk);
+      received += chunk.length;
+      if (contentLength > 0) {
+        final raw = received / contentLength;
+        final clamped = raw.clamp(0.0, 1.0).toDouble();
+        final p = startProgress + (endProgress - startProgress) * clamped;
+        onProgress?.call(p, 'Đang tải bản sao lưu...');
+      }
+    }
+
+    onProgress?.call(endProgress, 'Đang xử lý...');
+    return builder.takeBytes();
+  }
+
   Future<Uint8List> _buildBackupZipBytes() async {
     final dbPath = await getDatabasesPath();
     final dbFile = File(p.join(dbPath, _dbFileName));
@@ -86,7 +123,13 @@ class DriveSyncService {
     return Uint8List.fromList(zipped);
   }
 
-  Future<void> _restoreFromZipBytes(Uint8List bytes) async {
+  Future<void> _restoreFromZipBytes(
+    Uint8List bytes, {
+    void Function(double progress, String stage)? onProgress,
+    double startProgress = 0.0,
+    double endProgress = 1.0,
+  }) async {
+    onProgress?.call(startProgress, 'Đang giải nén...');
     final decoded = ZipDecoder().decodeBytes(bytes);
 
     Uint8List? dbBytes;
@@ -132,6 +175,18 @@ class DriveSyncService {
       throw Exception('File zip không có $_dbFileName');
     }
 
+    final totalWriteOps =
+        1 + imagesToWrite.length + purchaseDocsToWrite.length + purchaseOrderDocsToWrite.length + expenseDocsToWrite.length;
+    int writtenOps = 0;
+    void tickProgress(String stage) {
+      if (totalWriteOps <= 0) return;
+      writtenOps += 1;
+      final raw = writtenOps / totalWriteOps;
+      final clamped = raw.clamp(0.0, 1.0).toDouble();
+      final p = startProgress + (endProgress - startProgress) * clamped;
+      onProgress?.call(p, stage);
+    }
+
     // Restore DB
     final dbPath = await getDatabasesPath();
     final filePath = p.join(dbPath, _dbFileName);
@@ -144,6 +199,7 @@ class DriveSyncService {
       await dbFile.delete();
     }
     await tmp.rename(filePath);
+    tickProgress('Đang khôi phục dữ liệu...');
 
     // Restore images
     final docs = await getApplicationDocumentsDirectory();
@@ -157,6 +213,7 @@ class DriveSyncService {
       final outFile = File(outPath);
       await outFile.parent.create(recursive: true);
       await outFile.writeAsBytes(e.value, flush: true);
+      tickProgress('Đang khôi phục hình ảnh...');
     }
 
     final purchaseDocsDir = Directory(p.join(docs.path, _purchaseDocsDirName));
@@ -168,6 +225,7 @@ class DriveSyncService {
       final outFile = File(outPath);
       await outFile.parent.create(recursive: true);
       await outFile.writeAsBytes(e.value, flush: true);
+      tickProgress('Đang khôi phục chứng từ nhập...');
     }
 
     final purchaseOrderDocsDir = Directory(p.join(docs.path, _purchaseOrderDocsDirName));
@@ -179,6 +237,7 @@ class DriveSyncService {
       final outFile = File(outPath);
       await outFile.parent.create(recursive: true);
       await outFile.writeAsBytes(e.value, flush: true);
+      tickProgress('Đang khôi phục chứng từ đơn nhập...');
     }
 
     final expenseDocsDir = Directory(p.join(docs.path, _expenseDocsDirName));
@@ -190,7 +249,10 @@ class DriveSyncService {
       final outFile = File(outPath);
       await outFile.parent.create(recursive: true);
       await outFile.writeAsBytes(e.value, flush: true);
+      tickProgress('Đang khôi phục chứng từ chi phí...');
     }
+
+    onProgress?.call(endProgress, 'Hoàn tất');
   }
 
   /// Ensures the backup folder exists and returns its folderId.
@@ -537,6 +599,47 @@ class DriveSyncService {
       await dbFile.delete();
     }
     await tmp.rename(filePath);
+  }
+
+  Future<void> restoreToLocalWithProgress({
+    required String accessToken,
+    required String fileId,
+    void Function(double progress, String stage)? onProgress,
+  }) async {
+    final bytes = await _downloadFileWithProgress(
+      accessToken: accessToken,
+      fileId: fileId,
+      onProgress: onProgress,
+      startProgress: 0.0,
+      endProgress: 0.60,
+    );
+
+    if (_looksLikeZip(bytes)) {
+      await _restoreFromZipBytes(
+        bytes,
+        onProgress: onProgress,
+        startProgress: 0.60,
+        endProgress: 1.0,
+      );
+      return;
+    }
+
+    onProgress?.call(0.70, 'Đang khôi phục dữ liệu...');
+
+    // Legacy: db-only backup
+    final dbPath = await getDatabasesPath();
+    final filePath = p.join(dbPath, _dbFileName);
+    final tmpPath = '$filePath.tmp';
+
+    final tmp = File(tmpPath);
+    await tmp.writeAsBytes(bytes, flush: true);
+
+    final dbFile = File(filePath);
+    if (await dbFile.exists()) {
+      await dbFile.delete();
+    }
+    await tmp.rename(filePath);
+    onProgress?.call(1.0, 'Hoàn tất');
   }
 
   Future<void> deleteFile({required String accessToken, required String fileId}) async {
