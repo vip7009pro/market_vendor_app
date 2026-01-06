@@ -34,6 +34,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
 
   final Map<int, TextEditingController> _qtyCtrls = {};
   final Map<int, TextEditingController> _priceCtrls = {};
+  final Map<int, TextEditingController> _costCtrls = {};
 
   final Map<String, TextEditingController> _mixDisplayNameCtrls = {};
   final Map<String, TextEditingController> _mixRawQtyCtrls = {};
@@ -117,6 +118,8 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
   }
 
   double _subtotal() => _items.fold(0.0, (p, e) => p + e.total);
+
+  double _totalCostSnap() => _items.fold(0.0, (p, e) => p + e.totalCost);
 
   double _discountValue() {
     final v = _parseMoney(_discountCtrl.text);
@@ -274,11 +277,16 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
 
       final qty = _parseQty(_qtyCtrls[i]?.text ?? '');
       final unitPrice = _parseMoney(_priceCtrls[i]?.text ?? '');
+      final unitCost = _parseMoney(_costCtrls[i]?.text ?? '');
       if (qty <= 0 || unitPrice < 0) {
         throw Exception('Số lượng/đơn giá không hợp lệ ở dòng ${i + 1}');
       }
+      if (unitCost < 0) {
+        throw Exception('Giá vốn không hợp lệ ở dòng ${i + 1}');
+      }
       it.quantity = qty;
       it.unitPrice = unitPrice;
+      it.unitCost = unitCost;
     }
 
     for (final it in _items) {
@@ -316,11 +324,14 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
       createdAt: _createdAt,
       customerId: oldSale.customerId,
       customerName: oldSale.customerName,
+      employeeId: oldSale.employeeId,
+      employeeName: oldSale.employeeName,
       items: _items,
       discount: discount,
       paidAmount: paid,
       paymentType: oldSale.paymentType,
       note: oldSale.note,
+      totalCost: _totalCostSnap(),
     );
 
     await DatabaseService.instance.updateSaleWithStockAdjustment(oldSale: oldSale, newSale: newSale);
@@ -407,6 +418,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
 
       _qtyCtrls[i] = TextEditingController(text: it.quantity.toStringAsFixed(it.quantity % 1 == 0 ? 0 : 2));
       _priceCtrls[i] = TextEditingController(text: it.unitPrice.toStringAsFixed(0));
+      _costCtrls[i] = TextEditingController(text: it.unitCost.toStringAsFixed(0));
     }
 
     _discountCtrl.addListener(() {
@@ -433,6 +445,9 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
     for (final c in _priceCtrls.values) {
       c.dispose();
     }
+    for (final c in _costCtrls.values) {
+      c.dispose();
+    }
     for (final c in _mixDisplayNameCtrls.values) {
       c.dispose();
     }
@@ -452,10 +467,12 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
 
     final subtotal = _subtotal();
+    final totalCostSnap = _totalCostSnap();
     final discount = _discountValue();
     final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
     final paid = _paidValue();
     final debt = (total - paid).clamp(0.0, double.infinity).toDouble();
+    final profitSnap = total - totalCostSnap;
 
     return Scaffold(
       appBar: AppBar(
@@ -543,6 +560,23 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                   const SizedBox(height: 6),
                   Row(
                     children: [
+                      Expanded(child: Text('Tổng vốn', style: TextStyle(color: Colors.grey[700]))),
+                      Text(currency.format(totalCostSnap), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(child: Text('Lợi nhuận', style: TextStyle(color: Colors.grey[700]))),
+                      Text(
+                        currency.format(profitSnap),
+                        style: TextStyle(fontWeight: FontWeight.w700, color: profitSnap >= 0 ? Colors.green : Colors.red),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
                       Expanded(child: Text('Còn nợ', style: TextStyle(color: Colors.grey[700]))),
                       Text(currency.format(debt), style: TextStyle(fontWeight: FontWeight.w700, color: debt > 0 ? Colors.red : Colors.green)),
                     ],
@@ -598,9 +632,19 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _costCtrls[i],
+                        keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                        inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                        decoration: const InputDecoration(labelText: 'Giá vốn (snap)', isDense: true),
+                        onChanged: (_) {
+                          setState(() {});
+                        },
+                      ),
                       const SizedBox(height: 6),
                       Text(
-                        'Hiện tại: ${it.quantity} ${it.unit} × ${currency.format(it.unitPrice)}',
+                        'Hiện tại: ${it.quantity} ${it.unit} × ${currency.format(it.unitPrice)} | Vốn: ${currency.format(it.unitCost)}',
                         style: TextStyle(color: Colors.grey[700], fontSize: 12),
                       ),
                     ],
