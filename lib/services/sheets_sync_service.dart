@@ -397,10 +397,16 @@ class SheetsSyncService {
         'saleId',
         'saleCreatedAt',
         'customerName',
+        'employeeId',
+        'employeeName',
         'productId',
         'productName',
         'unit',
         'quantity',
+        'unitPriceSnap',
+        'lineTotalSnap',
+        'unitCostSnap',
+        'lineCostTotalSnap',
         'source'
       ],
       rows: _expandExportHistoryRows(saleItemsForExportHistory),
@@ -474,10 +480,14 @@ class SheetsSyncService {
           s.id as saleId,
           s.createdAt as saleCreatedAt,
           s.customerName as customerName,
+          s.employeeId as employeeId,
+          s.employeeName as employeeName,
           si.productId as productId,
           si.name as name,
           si.unit as unit,
+          si.unitPrice as unitPrice,
           si.quantity as quantity,
+          si.unitCost as unitCost,
           si.itemType as itemType,
           si.mixItemsJson as mixItemsJson
         FROM sale_items si
@@ -496,10 +506,14 @@ class SheetsSyncService {
         s.id as saleId,
         s.createdAt as saleCreatedAt,
         s.customerName as customerName,
+        s.employeeId as employeeId,
+        s.employeeName as employeeName,
         si.productId as productId,
         si.name as name,
         si.unit as unit,
+        si.unitPrice as unitPrice,
         si.quantity as quantity,
+        si.unitCost as unitCost,
         si.itemType as itemType,
         si.mixItemsJson as mixItemsJson
       FROM sale_items si
@@ -524,14 +538,22 @@ class SheetsSyncService {
               if (e is Map) {
                 final rid = (e['rawProductId']?.toString() ?? '').trim();
                 if (rid.isEmpty) continue;
+                final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
+                final ruc = (e['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
                 yield [
                   r['saleId'],
                   r['saleCreatedAt'],
                   r['customerName'],
+                  r['employeeId'],
+                  r['employeeName'],
                   rid,
                   e['rawName'],
                   e['rawUnit'],
-                  (e['rawQty'] as num?)?.toDouble() ?? 0.0,
+                  rq,
+                  null,
+                  null,
+                  ruc,
+                  rq * ruc,
                   'MIX',
                 ];
               }
@@ -543,14 +565,24 @@ class SheetsSyncService {
       } else {
         final pid = (r['productId']?.toString() ?? '').trim();
         if (pid.isEmpty) continue;
+        final qty = (r['quantity'] as num?)?.toDouble() ?? 0.0;
+        final unitPriceSnap = (r['unitPrice'] as num?)?.toDouble() ?? 0.0;
+        final lineTotalSnap = unitPriceSnap * qty;
+        final unitCostSnap = (r['unitCost'] as num?)?.toDouble() ?? 0.0;
         yield [
           r['saleId'],
           r['saleCreatedAt'],
           r['customerName'],
+          r['employeeId'],
+          r['employeeName'],
           pid,
           r['name'],
           r['unit'],
-          (r['quantity'] as num?)?.toDouble() ?? 0.0,
+          qty,
+          unitPriceSnap,
+          lineTotalSnap,
+          unitCostSnap,
+          qty * unitCostSnap,
           'RAW',
         ];
       }
