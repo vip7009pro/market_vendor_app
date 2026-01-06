@@ -935,71 +935,29 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       appBar: AppBar(
         title: const Text('Lịch sử bán hàng'),
         actions: [
-          IconButton(
-            tooltip: 'Gán nhân viên (thiếu)',
-            icon: const Icon(Icons.badge_outlined),
-            onPressed: () async {
-              await _bulkAssignEmployeeForMissingSales();
-            },
-          ),
-          IconButton(
-            tooltip: _isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng',
-            icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
-            onPressed: () => setState(() => _isTableView = !_isTableView),
-          ),
-          IconButton(
-            tooltip: 'Bán hàng chi tiết',
-            icon: const Icon(Icons.view_list),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const SalesItemHistoryScreen(),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: () async {
-              final now = DateTime.now();
-              final picked = await showDateRangePicker(
-                context: context,
-                firstDate: DateTime(now.year - 2),
-                lastDate: DateTime(now.year + 1),
-                initialDateRange: _range,
-              );
-              if (picked != null) setState(() => _range = picked);
-            },
-          ),
-          if (_range != null)
-            IconButton(
-              tooltip: 'Xoá lọc ngày',
-              icon: const Icon(Icons.clear),
-              onPressed: () => setState(() => _range = null),
-            ),
-          const SizedBox(width: 6),
-          FilterChip(
-            label: const Text('Nợ lỗi'),
-            selected: _onlyDebtIssues,
-            onSelected: (v) => setState(() => _onlyDebtIssues = v),
-          ),
           PopupMenuButton<String>(
+            icon: const Icon(Icons.menu),
             onSelected: (val) async {
-              if (val == 'delete_all') {
+              if (val == 'bulk_assign_employee') {
+                await _bulkAssignEmployeeForMissingSales();
+              } else if (val == 'toggle_view') {
+                setState(() => _isTableView = !_isTableView);
+              } else if (val == 'sales_items_history') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const SalesItemHistoryScreen(),
+                  ),
+                );
+              } else if (val == 'delete_all') {
                 final ok = await showDialog<bool>(
                   context: context,
                   builder: (_) => AlertDialog(
                     title: const Text('Xóa tất cả lịch sử'),
-                    content: const Text(
-                        'Bạn có chắc muốn xóa tất cả lịch sử bán hàng?'),
+                    content: const Text('Bạn có chắc muốn xóa tất cả lịch sử bán hàng?'),
                     actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text('Hủy')),
-                      FilledButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          child: const Text('Xóa')),
+                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+                      FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
                     ],
                   ),
                 );
@@ -1012,11 +970,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                       action: SnackBarAction(
                         label: 'Hoàn tác',
                         onPressed: () async {
-                          final ok =
-                              await context.read<SaleProvider>().undoDeleteAll();
+                          final ok = await context.read<SaleProvider>().undoDeleteAll();
                           if (ok) {
-                            messenger.showSnackBar(
-                                const SnackBar(content: Text('Đã khôi phục')));
+                            messenger.showSnackBar(const SnackBar(content: Text('Đã khôi phục')));
                           }
                         },
                       ),
@@ -1024,14 +980,27 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   );
                 }
               } else if (val == 'export_csv') {
-                await _exportCsv(context, sortedFiltered); // Sử dụng sortedFiltered
+                await _exportCsv(context, sortedFiltered);
               }
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'delete_all', child: Text('Xóa tất cả')),
-              PopupMenuItem(value: 'export_csv', child: Text('Xuất CSV')),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'bulk_assign_employee',
+                child: const Text('Gán nhân viên (thiếu)'),
+              ),
+              PopupMenuItem(
+                value: 'toggle_view',
+                child: Text(_isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng'),
+              ),
+              const PopupMenuItem(
+                value: 'sales_items_history',
+                child: Text('Bán hàng chi tiết'),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'export_csv', child: Text('Xuất CSV')),
+              const PopupMenuItem(value: 'delete_all', child: Text('Xóa tất cả')),
             ],
-          )
+          ),
         ],
       ),
       body: Column(
@@ -1069,15 +1038,30 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     if (picked != null) setState(() => _range = picked);
                   },
                 ),
-                if (_range != null)
+                if (_range != null) ...[
+                  const SizedBox(width: 6),
                   IconButton(
                     tooltip: 'Xoá lọc ngày',
                     icon: const Icon(Icons.clear),
                     onPressed: () => setState(() => _range = null),
                   ),
+                ],
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Row(
+              children: [
+                FilterChip(
+                  label: const Text('Nợ lỗi'),
+                  selected: _onlyDebtIssues,
+                  onSelected: (v) => setState(() => _onlyDebtIssues = v),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           const Divider(height: 1),
           Expanded(
             child: _isTableView

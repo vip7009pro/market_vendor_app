@@ -84,6 +84,77 @@ class DatabaseService {
     return false;
   }
 
+  Future<List<String>> getUserTables() async {
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    );
+    final names = <String>[];
+    for (final r in rows) {
+      final n = (r['name']?.toString() ?? '').trim();
+      if (n.isEmpty) continue;
+      names.add(n);
+    }
+    return names;
+  }
+
+  Future<int> countRowsInTable(String table) async {
+    final t = table.trim();
+    if (t.isEmpty) return 0;
+    final rows = await db.rawQuery('SELECT COUNT(1) as c FROM $t');
+    return (rows.isNotEmpty ? (rows.first['c'] as int?) : 0) ?? 0;
+  }
+
+  Future<Map<String, int>> countRowsByTable(List<String> tables) async {
+    final out = <String, int>{};
+    for (final t in tables) {
+      try {
+        out[t] = await countRowsInTable(t);
+      } catch (_) {
+        out[t] = 0;
+      }
+    }
+    return out;
+  }
+
+  Future<void> clearTables(List<String> tables) async {
+    final unique = <String>{
+      for (final t in tables)
+        if (t.trim().isNotEmpty) t.trim(),
+    }.toList();
+
+    if (unique.isEmpty) return;
+
+    final order = <String, int>{
+      'sale_items': 1,
+      'debt_payments': 2,
+      'debts': 3,
+      'sales': 4,
+      'purchase_history': 5,
+      'purchase_orders': 6,
+      'expenses': 7,
+      'product_opening_stocks': 8,
+      'debt_reminder_settings': 9,
+      'audit_logs': 10,
+      'sync_logs': 11,
+      'deleted_entities': 12,
+      'employees': 13,
+      'vietqr_bank_accounts': 14,
+      'store_info': 15,
+      'customers': 16,
+      'products': 17,
+    };
+
+    unique.sort((a, b) => (order[a] ?? 999).compareTo(order[b] ?? 999));
+
+    await db.transaction((txn) async {
+      await txn.execute('PRAGMA foreign_keys = OFF');
+      for (final t in unique) {
+        await txn.delete(t);
+      }
+      await txn.execute('PRAGMA foreign_keys = ON');
+    });
+  }
+
   Future<Map<String, dynamic>?> getStoreInfo() async {
     final rows = await db.query('store_info', limit: 1);
     if (rows.isEmpty) return null;
@@ -119,7 +190,6 @@ class DatabaseService {
   
   // Lấy thời gian đồng bộ cuối cùng
   Future<DateTime?> getLastSyncTime(String table) async {
-    final db = await this.db;
     final result = await db.rawQuery(
       'SELECT MAX(updatedAt) as lastSync FROM $table WHERE isSynced = 1'
     );
@@ -131,8 +201,7 @@ class DatabaseService {
   // Đánh dấu các bản ghi đã đồng bộ
   Future<void> markAsSynced(String table, List<String> ids) async {
     if (ids.isEmpty) return;
-    
-    final db = await this.db;
+
     await db.update(
       table,
       {'isSynced': 1},
@@ -143,7 +212,6 @@ class DatabaseService {
   
   // Lấy các bản ghi chưa đồng bộ
   Future<List<Map<String, dynamic>>> getUnsyncedRecords(String table) async {
-    final db = await this.db;
     return await db.query(
       table,
       where: 'isSynced = ?',
@@ -154,12 +222,12 @@ class DatabaseService {
   // Lấy danh sách các bản ghi đã bị xóa chưa đồng bộ
   Future<List<Map<String, dynamic>>> getUnsyncedDeletions() async {
     try {
-      final db = await this.db;
       return await db.query(
         'deleted_entities',
         where: 'isSynced = ?',
         whereArgs: [0],
       );
+
     } catch (e) {
       developer.log('Error getting unsynced deletions: $e', error: e);
       return [];

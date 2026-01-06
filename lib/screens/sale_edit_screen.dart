@@ -343,6 +343,26 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
       throw Exception('Khách trả không được lớn hơn tổng tiền');
     }
 
+    final totalCostSnap = _totalCostSnap();
+    if (totalCostSnap > total) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Cảnh báo lợi nhuận âm'),
+          content: Text(
+            'Tổng vốn (${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(totalCostSnap)}) '
+            'đang lớn hơn tổng tiền bán (${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(total)}).\n\n'
+            'Bạn vẫn muốn lưu hóa đơn?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Vẫn lưu')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+
     final oldSale = widget.sale;
     final newSale = Sale(
       id: oldSale.id,
@@ -356,7 +376,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
       paidAmount: paid,
       paymentType: oldSale.paymentType,
       note: oldSale.note,
-      totalCost: _totalCostSnap(),
+      totalCost: totalCostSnap,
     );
 
     await DatabaseService.instance.updateSaleWithStockAdjustment(oldSale: oldSale, newSale: newSale);
@@ -752,7 +772,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                       );
                       final focusNode = _mixRawQtyFocusFor(mixProductId: it.productId, rawProductId: rawId);
 
-                      final rawLineTotal = rawQty * rawUnitPrice;
+                      final rawLineTotal = rawQty * rawUnitCost;
 
                       return Padding(
                         padding: const EdgeInsets.only(top: 8),

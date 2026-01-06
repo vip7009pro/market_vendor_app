@@ -65,7 +65,7 @@ class _PaymentMetricTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final child = Container(
-      width: 110,
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
@@ -114,6 +114,98 @@ class _PaymentMetricTile extends StatelessWidget {
                 fontSize: 14,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+    if (tooltip == null || tooltip!.trim().isEmpty) return child;
+    return Tooltip(message: tooltip!, child: child);
+  }
+}
+
+class _InventoryMetricTile extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final double qty;
+  final double amountCost;
+  final double amountSell;
+  final NumberFormat currency;
+  final List<Color> gradientColors;
+  final String? tooltip;
+  const _InventoryMetricTile({
+    required this.title,
+    required this.icon,
+    required this.qty,
+    required this.amountCost,
+    required this.amountSell,
+    required this.currency,
+    required this.gradientColors,
+    this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final qtyText = qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2);
+    final child = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: gradientColors,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(20),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: Colors.white),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'SL: $qtyText',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'GV: ${currency.format(amountCost)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'GB: ${currency.format(amountSell)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
           ),
         ],
       ),
@@ -778,11 +870,83 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('employeeName'),
         _cv('saleDiscount'),
         _cv('salePaidAmount'),
+        _cv('salePaidCash'),
+        _cv('salePaidBank'),
+        _cv('salePaidUnset'),
         _cv('salePaymentType'),
         _cv('saleTotalCost'),
         _cv('saleNote'),
         _cv('saleTotal'),
+        _cv('debtPaidCash'),
+        _cv('debtPaidBank'),
+        _cv('debtPaidUnset'),
+        _cv('debtPaidTotal'),
+        _cv('debtNotPaid'),
       ]);
+      // Debt stats by saleId (for list đơn hàng)
+      final saleIdsInRangeForDebt = <String>[];
+      for (final s in sales) {
+        final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
+        if (createdAt == null) continue;
+        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+        final sid = (s['id']?.toString() ?? '').trim();
+        if (sid.isEmpty) continue;
+        saleIdsInRangeForDebt.add(sid);
+      }
+      final debtPaidCashBySaleId = <String, double>{};
+      final debtPaidBankBySaleId = <String, double>{};
+      final debtPaidUnsetBySaleId = <String, double>{};
+      final debtPaidTotalBySaleId = <String, double>{};
+      final debtRemainBySaleId = <String, double>{};
+      if (saleIdsInRangeForDebt.isNotEmpty) {
+        final placeholders = List.filled(saleIdsInRangeForDebt.length, '?').join(',');
+        final debtRows = await db.query(
+          'debts',
+          columns: ['id', 'amount', 'sourceId'],
+          where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+          whereArgs: saleIdsInRangeForDebt,
+        );
+        final debtIds = <String>[];
+        final debtIdToSaleId = <String, String>{};
+        for (final d in debtRows) {
+          final did = (d['id']?.toString() ?? '').trim();
+          final sid = (d['sourceId']?.toString() ?? '').trim();
+          if (did.isEmpty || sid.isEmpty) continue;
+          debtIds.add(did);
+          debtIdToSaleId[did] = sid;
+          debtRemainBySaleId[sid] = (debtRemainBySaleId[sid] ?? 0) + ((d['amount'] as num?)?.toDouble() ?? 0.0);
+        }
+        if (debtIds.isNotEmpty) {
+          final dph = List.filled(debtIds.length, '?').join(',');
+          final payAgg = await db.rawQuery(
+            '''
+            SELECT
+              debtId as debtId,
+              SUM(CASE WHEN paymentType = 'cash' THEN amount ELSE 0 END) as paidCash,
+              SUM(CASE WHEN paymentType = 'bank' THEN amount ELSE 0 END) as paidBank,
+              SUM(CASE WHEN paymentType IS NULL OR TRIM(paymentType) = '' THEN amount ELSE 0 END) as paidUnset,
+              SUM(amount) as paidTotal
+            FROM debt_payments
+            WHERE debtId IN ($dph)
+            GROUP BY debtId
+            ''',
+            debtIds,
+          );
+          for (final r in payAgg) {
+            final did = (r['debtId']?.toString() ?? '').trim();
+            final sid = debtIdToSaleId[did];
+            if (sid == null || sid.isEmpty) continue;
+            final paidCash = (r['paidCash'] as num?)?.toDouble() ?? 0.0;
+            final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
+            final paidUnset = (r['paidUnset'] as num?)?.toDouble() ?? 0.0;
+            final paidTotal = (r['paidTotal'] as num?)?.toDouble() ?? 0.0;
+            debtPaidCashBySaleId[sid] = (debtPaidCashBySaleId[sid] ?? 0) + paidCash;
+            debtPaidBankBySaleId[sid] = (debtPaidBankBySaleId[sid] ?? 0) + paidBank;
+            debtPaidUnsetBySaleId[sid] = (debtPaidUnsetBySaleId[sid] ?? 0) + paidUnset;
+            debtPaidTotalBySaleId[sid] = (debtPaidTotalBySaleId[sid] ?? 0) + paidTotal;
+          }
+        }
+      }
       for (final s in sales) {
         final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
         if (createdAt == null) continue;
@@ -792,6 +956,20 @@ class _ReportScreenState extends State<ReportScreen> {
         if (saleId.isEmpty) continue;
         final subtotal = saleSubtotalById[saleId] ?? 0.0;
         final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+
+        final salePaidAmount = (s['paidAmount'] as num?)?.toDouble() ?? 0.0;
+        final salePaymentType = (s['paymentType']?.toString() ?? '').trim().toLowerCase();
+        final salePaidCash = salePaymentType == 'cash' ? salePaidAmount : 0.0;
+        final salePaidBank = salePaymentType == 'bank' ? salePaidAmount : 0.0;
+        final salePaidUnset = (salePaymentType.isEmpty || (salePaymentType != 'cash' && salePaymentType != 'bank'))
+            ? salePaidAmount
+            : 0.0;
+
+        final debtPaidCash = debtPaidCashBySaleId[saleId] ?? 0.0;
+        final debtPaidBank = debtPaidBankBySaleId[saleId] ?? 0.0;
+        final debtPaidUnset = debtPaidUnsetBySaleId[saleId] ?? 0.0;
+        final debtPaidTotal = debtPaidTotalBySaleId[saleId] ?? 0.0;
+        final debtNotPaid = debtRemainBySaleId[saleId] ?? 0.0;
         listOrdersSheet.appendRow([
           _cv(saleId),
           _cv(s['createdAt']),
@@ -800,11 +978,19 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(s['employeeId']),
           _cv(s['employeeName']),
           _cv(discount),
-          _cv(s['paidAmount']),
-          _cv(s['paymentType']),
+          _cv(salePaidAmount),
+          _cv(salePaidCash),
+          _cv(salePaidBank),
+          _cv(salePaidUnset),
+          _cv(salePaymentType),
           _cv(s['totalCost']),
           _cv(s['note']),
           _cv(total),
+          _cv(debtPaidCash),
+          _cv(debtPaidBank),
+          _cv(debtPaidUnset),
+          _cv(debtPaidTotal),
+          _cv(debtNotPaid),
         ]);
       }
       final tripleBackdataSheet = excel['backdata_triple_kpi'];
@@ -1438,170 +1624,463 @@ class _ReportScreenState extends State<ReportScreen> {
       appBar: AppBar(
         title: const Text('Báo cáo'),
         actions: [
-          TextButton.icon(
-            onPressed: _pickEmployeeFilter,
-            icon: const Icon(Icons.badge_outlined),
-            label: Text(selectedEmployeeName, overflow: TextOverflow.ellipsis),
-          ),
-          IconButton(
-            tooltip: 'Xuất Excel',
-            icon: const Icon(Icons.table_view_outlined),
-            onPressed: () => _exportAllSheetsExcel(context),
-          ),
-          IconButton(
-            tooltip: 'Chọn khoảng ngày',
-            icon: const Icon(Icons.calendar_today),
-            onPressed: () => _selectDateRange(context),
-          ),
-          IconButton(
-            tooltip: 'Lịch sử bán',
-            icon: const Icon(Icons.history),
-            onPressed: () => Navigator.of(context).pushNamed('/sales_history'),
-          ),
-          IconButton(
-            tooltip: 'Lịch sử công nợ',
-            icon: const Icon(Icons.receipt_long_outlined),
-            onPressed: () => Navigator.of(context).pushNamed('/debts_history'),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.menu),
+            onSelected: (v) {
+              if (v == 'export_excel') {
+                _exportAllSheetsExcel(context);
+              } else if (v == 'sales_history') {
+                Navigator.of(context).pushNamed('/sales_history');
+              } else if (v == 'debts_history') {
+                Navigator.of(context).pushNamed('/debts_history');
+              }
+            },
+            itemBuilder: (ctx) => const [
+              PopupMenuItem(
+                value: 'export_excel',
+                child: Text('Xuất Excel'),
+              ),
+              PopupMenuItem(
+                value: 'sales_history',
+                child: Text('Lịch sử bán'),
+              ),
+              PopupMenuItem(
+                value: 'debts_history',
+                child: Text('Lịch sử công nợ'),
+              ),
+            ],
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(1),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Card(
-              elevation: 2,
-              shadowColor: Colors.black.withAlpha(35),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.black.withAlpha(8)),
-              ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+            child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                padding: const EdgeInsets.all(8),
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.calendar_month, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Khoảng ngày: ${DateFormat('dd/MM/yyyy').format(_dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(_dateRange.end)}',
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                          ),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _pickEmployeeFilter,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
                         ),
-                      ],
+                        icon: const Icon(Icons.badge_outlined, size: 16),
+                        label: Text(
+                          selectedEmployeeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 10),
-                    FutureBuilder<_PayStats>(
-                      future: _loadPayStats(start: start, end: end, employeeId: _selectedEmployeeId),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _selectDateRange(context),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        icon: const Icon(Icons.calendar_today, size: 16),
+                        label: Text(
+                          '${DateFormat('dd/MM').format(_dateRange.start)} - ${DateFormat('dd/MM').format(_dateRange.end)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(1),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 14),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'Tổng quan kinh doanh',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: FutureBuilder<List<Object>>(
+                      future: Future.wait([
+                        DatabaseService.instance.db.query(
+                          'expenses',
+                          columns: ['amount', 'category', 'occurredAt'],
+                          where: 'occurredAt >= ? AND occurredAt <= ?',
+                          whereArgs: [start.toIso8601String(), end.toIso8601String()],
+                        ),
+                        _loadPayStats(
+                          start: start,
+                          end: end,
+                          employeeId: _selectedEmployeeId,
+                        ),
+                      ]),
                       builder: (context, snap) {
                         if (snap.connectionState != ConnectionState.done) {
                           return const SizedBox(
-                            height: 190,
+                            height: 120,
                             child: Center(child: CircularProgressIndicator()),
                           );
                         }
-                        final pay = snap.data ?? const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
-                        final total = pay.cashRevenue + pay.bankRevenue + pay.outstandingDebt;
-                        final tiles = <Widget>[
-                          _PaymentMetricTile(
-                            title: 'Tổng',
-                            icon: Icons.payments_outlined,
-                            value: total,
-                            currency: currency,
-                            tooltip: 'Tổng doanh thu (theo khoảng ngày)',
-                            gradientColors: const [Color(0xFF3B82F6), Color(0xFF6366F1)],
-                          ),
-                          _PaymentMetricTile(
-                            title: 'Vốn',
-                            icon: Icons.price_change_outlined,
-                            value: periodCost,
-                            currency: currency,
-                            tooltip: 'Chi phí / vốn (theo khoảng ngày)',
-                            gradientColors: const [Color(0xFFF59E0B), Color(0xFFF97316)],
-                          ),
-                          _PaymentMetricTile(
-                            title: 'LN',
-                            icon: Icons.trending_up_outlined,
-                            value: periodProfit,
-                            currency: currency,
-                            tooltip: 'Lợi nhuận (theo khoảng ngày)',
-                            gradientColors: periodProfit >= 0
-                                ? const [Color(0xFF10B981), Color(0xFF14B8A6)]
-                                : const [Color(0xFFEF4444), Color(0xFFF97316)],
-                          ),
-                          _PaymentMetricTile(
-                            title: 'Tiền',
-                            icon: Icons.money_outlined,
-                            value: pay.cashRevenue,
-                            currency: currency,
-                            tooltip: 'Tiền mặt (theo khoảng ngày)',
-                            gradientColors: const [Color(0xFF10B981), Color(0xFF22C55E)],
-                          ),
-                          _PaymentMetricTile(
-                            title: 'CK',
-                            icon: Icons.account_balance_outlined,
-                            value: pay.bankRevenue,
-                            currency: currency,
-                            tooltip: 'Chuyển khoản (theo khoảng ngày)',
-                            gradientColors: const [Color(0xFF06B6D4), Color(0xFF3B82F6)],
-                          ),
-                          _PaymentMetricTile(
-                            title: 'Nợ',
-                            icon: Icons.request_quote_outlined,
-                            value: pay.outstandingDebt,
-                            currency: currency,
-                            tooltip: 'Nợ chưa trả (theo khoảng ngày)',
-                            gradientColors: const [Color(0xFFEF4444), Color(0xFFF97316)],
-                          ),
-                        ];
-                        return LayoutBuilder(
-                          builder: (context, constraints) {
-                            final gap = constraints.maxWidth < 420 ? 8.0 : 10.0;
-                            Widget cell(Widget? child) {
-                              if (child == null) return const Expanded(child: SizedBox());
-                              return Expanded(child: Center(child: child));
-                            }
 
-                            final rows = <Widget>[];
-                            for (var i = 0; i < tiles.length; i += 3) {
-                              final a = i < tiles.length ? tiles[i] : null;
-                              final b = (i + 1) < tiles.length ? tiles[i + 1] : null;
-                              final c = (i + 2) < tiles.length ? tiles[i + 2] : null;
-                              rows.add(
-                                Row(
+                        final data = snap.data;
+                        final expenseRows = (data != null && data.isNotEmpty)
+                            ? (data[0] as List<Map<String, dynamic>>)
+                            : const <Map<String, dynamic>>[];
+                        final payStats = (data != null && data.length > 1)
+                            ? (data[1] as _PayStats)
+                            : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
+
+                        double totalExpenseAll = 0.0;
+                        double expenseOutsideBusiness = 0.0;
+                        final expenseByCategory = <String, double>{};
+                        for (final e in expenseRows) {
+                          final cat = (e['category']?.toString() ?? '').trim();
+                          final amount = (e['amount'] as num?)?.toDouble() ?? 0.0;
+                          totalExpenseAll += amount;
+                          if (cat == 'Chi tiêu ngoài kinh doanh') {
+                            expenseOutsideBusiness += amount;
+                            continue;
+                          }
+                          expenseByCategory[cat] = (expenseByCategory[cat] ?? 0) + amount;
+                        }
+
+                        final expenseReasonable = totalExpenseAll - expenseOutsideBusiness;
+                        final netProfit = periodProfit - expenseReasonable;
+
+                        final pieColors = <Color>[
+                          const Color(0xFF2E7DFF),
+                          const Color(0xFFFF8A00),
+                          const Color(0xFF2E7D32),
+                          const Color(0xFF6A1B9A),
+                          const Color(0xFF0D47A1),
+                          const Color(0xFF009688),
+                          const Color(0xFF424242),
+                          const Color(0xFFD81B60),
+                        ];
+
+                        final pieEntries = expenseByCategory.entries.toList()
+                          ..sort((a, b) => b.value.compareTo(a.value));
+                        final pieTotal = pieEntries.fold<double>(0.0, (p, e) => p + e.value);
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            GridView.count(
+                              crossAxisCount: 3,
+                              crossAxisSpacing: 10,
+                              mainAxisSpacing: 10,
+                              childAspectRatio: 1.55,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              children: [
+                                _PaymentMetricTile(
+                                  title: 'Doanh thu',
+                                  icon: Icons.payments_outlined,
+                                  value: periodRevenue,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF2E7DFF), Color(0xFF00C2FF)],
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Vốn',
+                                  icon: Icons.inventory_2_outlined,
+                                  value: periodCost,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFFFF8A00), Color(0xFFFFC107)],
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Lợi nhuận',
+                                  icon: Icons.trending_up,
+                                  value: periodProfit,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF2E7D32), Color(0xFF00C853)],
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Thu TM',
+                                  icon: Icons.attach_money,
+                                  value: payStats.cashRevenue,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF009688), Color(0xFF26A69A)],
+                                  tooltip: 'Tiền mặt (bán + thu nợ) trong kỳ',
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Thu CK',
+                                  icon: Icons.account_balance_outlined,
+                                  value: payStats.bankRevenue,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF3949AB), Color(0xFF5C6BC0)],
+                                  tooltip: 'Chuyển khoản (bán + thu nợ) trong kỳ',
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Nợ bán hàng',
+                                  icon: Icons.credit_card_off_outlined,
+                                  value: payStats.outstandingDebt,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF424242), Color(0xFF757575)],
+                                  tooltip: 'Tổng nợ bán hàng còn lại (không lọc theo ngày thu nợ)',
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Tổng chi phí',
+                                  icon: Icons.receipt_long_outlined,
+                                  value: totalExpenseAll,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF6A1B9A), Color(0xFFAB47BC)],
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Chi phí hợp lý',
+                                  icon: Icons.fact_check_outlined,
+                                  value: expenseReasonable,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF7B1FA2), Color(0xFFBA68C8)],
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Chi phí ngoài kinh doanh',
+                                  icon: Icons.local_mall_outlined,
+                                  value: expenseOutsideBusiness,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF455A64), Color(0xFF90A4AE)],
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Nợ phải trả',
+                                  icon: Icons.call_received_outlined,
+                                  value: totalOweOthers,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFFB71C1C), Color(0xFFFF5252)],
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Nợ phải thu',
+                                  icon: Icons.call_made_outlined,
+                                  value: totalOthersOweMe,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF0D47A1), Color(0xFF42A5F5)],
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Lợi nhuận ròng',
+                                  icon: Icons.trending_up,
+                                  value: netProfit,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF00695C), Color(0xFF26A69A)],
+                                  tooltip: 'Lợi nhuận ròng = Lợi nhuận - Chi phí hợp lý',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Card(
+                              elevation: 2,
+                              shadowColor: Colors.black.withAlpha(35),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(color: Colors.black.withAlpha(8)),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    cell(a),
-                                    SizedBox(width: gap),
-                                    cell(b),
-                                    SizedBox(width: gap),
-                                    cell(c),
+                                    const Text(
+                                      'Tỉ trọng chi phí',
+                                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '(${DateFormat('dd/MM').format(_dateRange.start)} - ${DateFormat('dd/MM').format(_dateRange.end)})',
+                                      style: const TextStyle(fontWeight: FontWeight.w700),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    if (pieEntries.isEmpty || pieTotal <= 0)
+                                      const SizedBox(
+                                        height: 160,
+                                        child: Center(child: Text('Chưa có dữ liệu')),
+                                      )
+                                    else
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          SizedBox(
+                                            width: 180,
+                                            height: 180,
+                                            child: PieChart(
+                                              PieChartData(
+                                                sectionsSpace: 2,
+                                                centerSpaceRadius: 44,
+                                                sections: List.generate(pieEntries.length, (i) {
+                                                  final e = pieEntries[i];
+                                                  final percent = (e.value / pieTotal) * 100;
+                                                  return PieChartSectionData(
+                                                    value: e.value,
+                                                    color: pieColors[i % pieColors.length],
+                                                    radius: 54,
+                                                    title: percent >= 12 ? '${percent.toStringAsFixed(0)}%' : '',
+                                                    titleStyle: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight: FontWeight.w900,
+                                                      fontSize: 12,
+                                                    ),
+                                                  );
+                                                }),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                for (var i = 0; i < pieEntries.length; i++)
+                                                  Padding(
+                                                    padding: const EdgeInsets.only(bottom: 8),
+                                                    child: Row(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Container(
+                                                          width: 12,
+                                                          height: 12,
+                                                          margin: const EdgeInsets.only(top: 3),
+                                                          decoration: BoxDecoration(
+                                                            color: pieColors[i % pieColors.length],
+                                                            borderRadius: BorderRadius.circular(3),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 8),
+                                                        Expanded(
+                                                          child: Text(
+                                                            pieEntries[i].key,
+                                                            style: const TextStyle(fontWeight: FontWeight.w700),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 8),
+                                                        Text(
+                                                          currency.format(pieEntries[i].value),
+                                                          style: const TextStyle(fontWeight: FontWeight.w800),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                   ],
                                 ),
-                              );
-                              if ((i + 3) < tiles.length) {
-                                rows.add(SizedBox(height: gap));
-                              }
-                            }
-
-                            return Column(children: rows);
-                          },
+                              ),
+                            ),
+                          ],
                         );
                       },
                     ),
-                    const SizedBox(height: 12),
-
-                    if (topProducts.isNotEmpty)
-                      _buildTopProductsCard(
-                        currency: currency,
-                        dateRange: _dateRange,
-                        rows: topProductsLimited,
-                      ),
-                    const SizedBox(height: 16),
-                    FutureBuilder<List<Map<String, dynamic>>>(
+                  ),
+                  const SizedBox(height: 14),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: _buildTopProductsCard(
+                      currency: currency,
+                      dateRange: _dateRange,
+                      rows: topProductsLimited,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'Tổng quan tồn kho',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: _buildInventorySummary(
+                      currency: currency,
+                      dateRange: _dateRange,
+                      products: products,
+                      exportQty: exportQty,
+                      exportAmount: exportAmount,
+                      exportAmountSell: exportAmountSell,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'Biểu đồ doanh thu / vốn / lợi nhuận',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 360,
+                    child: PageView(
+                      controller: _chartPageController,
+                      onPageChanged: (index) {
+                        _chartPageIndex.value = index;
+                      },
+                      children: [
+                        _buildChartCard(
+                          title: 'Theo ngày (${_dateRange.start.day}/${_dateRange.start.month} - ${_dateRange.end.day}/${_dateRange.end.month})',
+                          points: dailyData,
+                          currency: currency,
+                        ),
+                        _buildChartCard(
+                          title: 'Theo tháng (${now.year})',
+                          points: monthlyDataPoints,
+                          currency: currency,
+                        ),
+                        _buildChartCard(
+                          title: 'Theo năm',
+                          points: yearlyDataPoints,
+                          currency: currency,
+                          isYearly: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ValueListenableBuilder<int>(
+                    valueListenable: _chartPageIndex,
+                    builder: (context, pageIndex, _) {
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(3, (i) {
+                          final isActive = i == pageIndex;
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            width: isActive ? 16 : 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: isActive ? Colors.blue : Colors.grey.shade400,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                          );
+                        }),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: FutureBuilder<List<Map<String, dynamic>>>(
                       future: DatabaseService.instance.db.query(
                         'expenses',
                         columns: ['amount', 'category', 'occurredAt'],
@@ -1609,402 +2088,105 @@ class _ReportScreenState extends State<ReportScreen> {
                         whereArgs: [start.toIso8601String(), end.toIso8601String()],
                       ),
                       builder: (context, snap) {
-                        if (snap.connectionState != ConnectionState.done) {
-                          return const SizedBox(
-                            height: 92,
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
                         final rows = snap.data ?? const <Map<String, dynamic>>[];
-                        double totalAll = 0;
-                        double totalNonBiz = 0;
-                        final byCategory = <String, double>{};
-                        for (final r in rows) {
-                          final amount = (r['amount'] as num?)?.toDouble() ?? 0.0;
-                          totalAll += amount;
-                          final cat = (r['category']?.toString() ?? '').trim();
-                          if (cat.isNotEmpty) {
-                            byCategory[cat] = (byCategory[cat] ?? 0) + amount;
-                          }
-                          if (cat == 'Chi tiêu ngoài kinh doanh') {
-                            totalNonBiz += amount;
-                          }
+                        final expenseByDay = <String, double>{};
+                        final expenseByMonth = <int, double>{};
+                        final expenseByYear = <int, double>{};
+                        for (final e in rows) {
+                          final occurredAt = DateTime.tryParse(e['occurredAt']?.toString() ?? '');
+                          if (occurredAt == null) continue;
+                          final amount = (e['amount'] as num?)?.toDouble() ?? 0.0;
+                          final cat = (e['category']?.toString() ?? '').trim();
+                          if (cat == 'Chi tiêu ngoài kinh doanh') continue;
+                          final dayKey = DateFormat('dd/MM').format(occurredAt);
+                          expenseByDay[dayKey] = (expenseByDay[dayKey] ?? 0) + amount;
+                          expenseByMonth[occurredAt.month] = (expenseByMonth[occurredAt.month] ?? 0) + amount;
+                          expenseByYear[occurredAt.year] = (expenseByYear[occurredAt.year] ?? 0) + amount;
                         }
-                        final totalBusiness = totalAll - totalNonBiz;
-                        final netProfit = periodProfit - totalBusiness;
-
-                        final pieTotal = byCategory.values.fold<double>(0.0, (p, e) => p + e);
-                        final pieCats = byCategory.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-                        final pieColors = <Color>[
-                          const Color(0xFF3B82F6),
-                          const Color(0xFF10B981),
-                          const Color(0xFFF59E0B),
-                          const Color(0xFFEF4444),
-                          const Color(0xFF8B5CF6),
-                          const Color(0xFF06B6D4),
-                          const Color(0xFF22C55E),
-                          const Color(0xFFF97316),
-                          const Color(0xFF64748B),
-                        ];
+                        final netDailyPoints = dailyData.map((p) {
+                          final exp = expenseByDay[p.x] ?? 0.0;
+                          final net = p.profit - exp;
+                          return _Point(p.x, 0, cost: 0, profit: net);
+                        }).toList();
+                        final netMonthlyPoints = monthlyDataPoints.map((p) {
+                          final m = int.tryParse(p.x) ?? 0;
+                          final exp = expenseByMonth[m] ?? 0.0;
+                          final net = p.profit - exp;
+                          return _Point(p.x, 0, cost: 0, profit: net);
+                        }).toList();
+                        final netYearlyPoints = yearlyDataPoints.map((p) {
+                          final y = int.tryParse(p.x) ?? 0;
+                          final exp = expenseByYear[y] ?? 0.0;
+                          final net = p.profit - exp;
+                          return _Point(p.x, 0, cost: 0, profit: net);
+                        }).toList();
                         return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'Tổng nợ tôi',
-                                    value: totalOthersOweMe,
-                                    currency: currency,
-                                    color: Colors.red,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'Nợ từ bán hàng',
-                                    value: totalOthersOweMeFromSales,
-                                    currency: currency,
-                                    color: Colors.redAccent,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'Nợ ngoài',
-                                    value: totalOthersOweMeOutside,
-                                    currency: currency,
-                                    color: Colors.deepOrange,
-                                  ),
-                                ),
-                              ],
+                            const Text(
+                              'Biểu đồ lợi nhuận ròng (Doanh - Vốn - Chi phí)',
+                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                             ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'Tôi nợ',
-                                    value: totalOweOthers,
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 320,
+                              child: PageView(
+                                controller: _netChartPageController,
+                                onPageChanged: (index) {
+                                  _netChartPageIndex.value = index;
+                                },
+                                children: [
+                                  _buildNetProfitChartCard(
+                                    title: 'Theo ngày (${_dateRange.start.day}/${_dateRange.start.month} - ${_dateRange.end.day}/${_dateRange.end.month})',
+                                    points: netDailyPoints,
                                     currency: currency,
-                                    color: Colors.amber,
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'Chi phí HL',
-                                    value: totalBusiness,
+                                  _buildNetProfitChartCard(
+                                    title: 'Theo tháng (${now.year})',
+                                    points: netMonthlyPoints,
                                     currency: currency,
-                                    color: Colors.deepPurple,
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'Ngoài KD',
-                                    value: totalNonBiz,
+                                  _buildNetProfitChartCard(
+                                    title: 'Theo năm',
+                                    points: netYearlyPoints,
                                     currency: currency,
-                                    color: Colors.brown,
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'LN kỳ',
-                                    value: periodProfit,
-                                    currency: currency,
-                                    color: periodProfit >= 0 ? Colors.green : Colors.red,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'CP HL kỳ',
-                                    value: totalBusiness,
-                                    currency: currency,
-                                    color: Colors.deepPurple,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: _SingleKpi(
-                                    title: 'LN ròng',
-                                    value: netProfit,
-                                    currency: currency,
-                                    color: netProfit >= 0 ? Colors.teal : Colors.red,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-
-                            if (pieTotal > 0)
-                              Card(
-                                elevation: 2,
-                                shadowColor: Colors.black.withAlpha(35),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  side: BorderSide(color: Colors.black.withAlpha(8)),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Tỉ trọng chi phí (theo nhóm)',
-                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      SizedBox(
-                                        height: 320,
-                                        child: PieChart(
-                                          PieChartData(
-                                            centerSpaceRadius: 0,
-                                            sectionsSpace: 2,
-                                            pieTouchData: PieTouchData(enabled: false),
-                                            sections: [
-                                              for (var i = 0; i < pieCats.length; i++)
-                                                () {
-                                                  final e = pieCats[i];
-                                                  final pct = pieTotal <= 0 ? 0.0 : (e.value / pieTotal);
-                                                  final title = '${e.key}\n${currency.format(e.value)}\n${(pct * 100).toStringAsFixed(1)}%';
-                                                  final c = pieColors[i % pieColors.length];
-                                                  return PieChartSectionData(
-                                                    color: c,
-                                                    value: e.value,
-                                                    radius: 140,
-                                                    title: title,
-                                                    titlePositionPercentageOffset: 0.62,
-                                                    titleStyle: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontWeight: FontWeight.w800,
-                                                      fontSize: 10,
-                                                      height: 1.15,
-                                                    ),
-                                                  );
-                                                }(),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      Wrap(
-                                        spacing: 10,
-                                        runSpacing: 6,
-                                        children: [
-                                          for (var i = 0; i < pieCats.length; i++)
-                                            () {
-                                              final e = pieCats[i];
-                                              final pct = pieTotal <= 0 ? 0.0 : (e.value / pieTotal);
-                                              final c = pieColors[i % pieColors.length];
-                                              return Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Container(
-                                                    width: 10,
-                                                    height: 10,
-                                                    decoration: BoxDecoration(color: c, shape: BoxShape.circle),
-                                                  ),
-                                                  const SizedBox(width: 6),
-                                                  Text(
-                                                    '${e.key}: ${currency.format(e.value)} (${(pct * 100).toStringAsFixed(1)}%)',
-                                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                                                  ),
-                                                ],
-                                              );
-                                            }(),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                ],
                               ),
+                            ),
+                            const SizedBox(height: 8),
+                            ValueListenableBuilder<int>(
+                              valueListenable: _netChartPageIndex,
+                              builder: (context, pageIndex, _) {
+                                return Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: List.generate(3, (i) {
+                                    final isActive = i == pageIndex;
+                                    return AnimatedContainer(
+                                      duration: const Duration(milliseconds: 200),
+                                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                                      width: isActive ? 16 : 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        color: isActive ? Colors.teal : Colors.grey.shade400,
+                                        borderRadius: BorderRadius.circular(99),
+                                      ),
+                                    );
+                                  }),
+                                );
+                              },
+                            ),
                             const SizedBox(height: 16),
                           ],
                         );
                       },
                     ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Tổng quan tồn kho',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            _buildInventorySummary(
-              currency: currency,
-              dateRange: _dateRange,
-              products: products,
-              exportQty: exportQty,
-              exportAmount: exportAmount,
-              exportAmountSell: exportAmountSell,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Biểu đồ doanh thu / vốn / lợi nhuận',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 360,
-              child: PageView(
-                controller: _chartPageController,
-                onPageChanged: (index) {
-                  _chartPageIndex.value = index;
-                },
-                children: [
-                  _buildChartCard(
-                    title: 'Theo ngày (${_dateRange.start.day}/${_dateRange.start.month} - ${_dateRange.end.day}/${_dateRange.end.month})',
-                    points: dailyData,
-                    currency: currency,
-                  ),
-                  _buildChartCard(
-                    title: 'Theo tháng (${now.year})',
-                    points: monthlyDataPoints,
-                    currency: currency,
-                  ),
-                  _buildChartCard(
-                    title: 'Theo năm',
-                    points: yearlyDataPoints,
-                    currency: currency,
-                    isYearly: true,
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
-            ValueListenableBuilder<int>(
-              valueListenable: _chartPageIndex,
-              builder: (context, pageIndex, _) {
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(3, (i) {
-                    final isActive = i == pageIndex;
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      width: isActive ? 16 : 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: isActive ? Colors.blue : Colors.grey.shade400,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    );
-                  }),
-                );
-              },
-            ),
-            const SizedBox(height: 16),
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: DatabaseService.instance.db.query(
-                'expenses',
-                columns: ['amount', 'category', 'occurredAt'],
-                where: 'occurredAt >= ? AND occurredAt <= ?',
-                whereArgs: [start.toIso8601String(), end.toIso8601String()],
-              ),
-              builder: (context, snap) {
-                final rows = snap.data ?? const <Map<String, dynamic>>[];
-                final expenseByDay = <String, double>{};
-                final expenseByMonth = <int, double>{};
-                final expenseByYear = <int, double>{};
-                for (final e in rows) {
-                  final occurredAt = DateTime.tryParse(e['occurredAt']?.toString() ?? '');
-                  if (occurredAt == null) continue;
-                  final amount = (e['amount'] as num?)?.toDouble() ?? 0.0;
-                  final cat = (e['category']?.toString() ?? '').trim();
-                  if (cat == 'Chi tiêu ngoài kinh doanh') continue;
-                  final dayKey = DateFormat('dd/MM').format(occurredAt);
-                  expenseByDay[dayKey] = (expenseByDay[dayKey] ?? 0) + amount;
-                  expenseByMonth[occurredAt.month] = (expenseByMonth[occurredAt.month] ?? 0) + amount;
-                  expenseByYear[occurredAt.year] = (expenseByYear[occurredAt.year] ?? 0) + amount;
-                }
-                final netDailyPoints = dailyData.map((p) {
-                  final exp = expenseByDay[p.x] ?? 0.0;
-                  final net = p.profit - exp;
-                  return _Point(p.x, 0, cost: 0, profit: net);
-                }).toList();
-                final netMonthlyPoints = monthlyDataPoints.map((p) {
-                  final m = int.tryParse(p.x) ?? 0;
-                  final exp = expenseByMonth[m] ?? 0.0;
-                  final net = p.profit - exp;
-                  return _Point(p.x, 0, cost: 0, profit: net);
-                }).toList();
-                final netYearlyPoints = yearlyDataPoints.map((p) {
-                  final y = int.tryParse(p.x) ?? 0;
-                  final exp = expenseByYear[y] ?? 0.0;
-                  final net = p.profit - exp;
-                  return _Point(p.x, 0, cost: 0, profit: net);
-                }).toList();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Biểu đồ lợi nhuận ròng (Doanh - Vốn - Chi phí)',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 320,
-                      child: PageView(
-                        controller: _netChartPageController,
-                        onPageChanged: (index) {
-                          _netChartPageIndex.value = index;
-                        },
-                        children: [
-                          _buildNetProfitChartCard(
-                            title: 'Theo ngày (${_dateRange.start.day}/${_dateRange.start.month} - ${_dateRange.end.day}/${_dateRange.end.month})',
-                            points: netDailyPoints,
-                            currency: currency,
-                          ),
-                          _buildNetProfitChartCard(
-                            title: 'Theo tháng (${now.year})',
-                            points: netMonthlyPoints,
-                            currency: currency,
-                          ),
-                          _buildNetProfitChartCard(
-                            title: 'Theo năm',
-                            points: netYearlyPoints,
-                            currency: currency,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    ValueListenableBuilder<int>(
-                      valueListenable: _netChartPageIndex,
-                      builder: (context, pageIndex, _) {
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(3, (i) {
-                            final isActive = i == pageIndex;
-                            return AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              margin: const EdgeInsets.symmetric(horizontal: 4),
-                              width: isActive ? 16 : 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: isActive ? Colors.teal : Colors.grey.shade400,
-                                borderRadius: BorderRadius.circular(99),
-                              ),
-                            );
-                          }),
-                        );
-                      },
-                    ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -2058,6 +2240,24 @@ class _ReportScreenState extends State<ReportScreen> {
         ),
       ),
     );
+  }
+
+  String _formatCompactMoney(double value) {
+    final abs = value.abs();
+    final sign = value < 0 ? '-' : '';
+    if (abs >= 1000000) {
+      final v = abs / 1000000;
+      if (v >= 10) {
+        return '${sign}${v.floor()}M';
+      }
+      final t = (v * 10).floor() / 10;
+      return '${sign}${t.toStringAsFixed(t % 1 == 0 ? 0 : 1)}M';
+    }
+    if (abs >= 1000) {
+      final k = (abs / 1000).floor();
+      return '${sign}${k}K';
+    }
+    return '${sign}${abs.toInt()}';
   }
 
   Widget _buildNetProfitChartCard({
@@ -2114,7 +2314,7 @@ class _ReportScreenState extends State<ReportScreen> {
                                   getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                     final point = points[groupIndex];
                                     return BarTooltipItem(
-                                      currency.format(point.profit),
+                                      _formatCompactMoney(point.profit),
                                       const TextStyle(
                                         color: Colors.white,
                                         fontWeight: FontWeight.w900,
@@ -2158,16 +2358,7 @@ class _ReportScreenState extends State<ReportScreen> {
                                     showTitles: true,
                                     reservedSize: 44,
                                     getTitlesWidget: (value, meta) {
-                                      String txt;
-                                      final abs = value.abs();
-                                      if (abs >= 1000000) {
-                                        txt = '${(value / 1000000).toStringAsFixed(1)}M';
-                                      } else if (abs >= 1000) {
-                                        txt = '${(value / 1000).toStringAsFixed(0)}k';
-                                      } else {
-                                        txt = value.toInt().toString();
-                                      }
-                                      return Text(txt, style: const TextStyle(fontSize: 10));
+                                      return Text(_formatCompactMoney(value), style: const TextStyle(fontSize: 10));
                                     },
                                   ),
                                 ),
@@ -2374,6 +2565,7 @@ class _ReportScreenState extends State<ReportScreen> {
             child: Center(child: CircularProgressIndicator()),
           );
         }
+
         final data = snap.data;
         final openingMap = (data != null && data.isNotEmpty)
             ? (data[0] as Map<String, double>)
@@ -2381,6 +2573,7 @@ class _ReportScreenState extends State<ReportScreen> {
         final purchases = (data != null && data.length > 1)
             ? (data[1] as List<Map<String, dynamic>>)
             : <Map<String, dynamic>>[];
+
         double openingQty = 0;
         double openingAmount = 0;
         double openingAmountSell = 0;
@@ -2393,11 +2586,16 @@ class _ReportScreenState extends State<ReportScreen> {
           final price = (p.price as double);
           openingAmountSell += qty * price;
         }
-        final importQty = purchases.fold<double>(0, (p, r) => p + ((r['quantity'] as num?)?.toDouble() ?? 0));
+
+        final importQty = purchases.fold<double>(
+          0,
+          (p, r) => p + ((r['quantity'] as num?)?.toDouble() ?? 0),
+        );
         final importAmount = purchases.fold<double>(
           0,
           (p, r) => p + ((r['totalCost'] as num?)?.toDouble() ?? 0),
         );
+
         final productsById = <String, dynamic>{
           for (final p in products) (p.id as String): p,
         };
@@ -2413,140 +2611,62 @@ class _ReportScreenState extends State<ReportScreen> {
             return p + (qty * price);
           },
         );
+
         final endingQty = openingQty + importQty - exportQty;
         final endingAmount = openingAmount + importAmount - exportAmount;
         final endingAmountSell = openingAmountSell + importAmountSell - exportAmountSell;
-        return Card(
-          elevation: 2,
-          shadowColor: Colors.black.withAlpha(35),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.black.withAlpha(8)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Tồn kho (${DateFormat('dd/MM/yyyy').format(dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(dateRange.end)})',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _InventoryMetric(
-                        title: 'Tồn đầu kỳ',
-                        qty: openingQty,
-                        amount: openingAmount,
-                        amountSell: openingAmountSell,
-                        currency: currency,
-                        color: Colors.blue,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _InventoryMetric(
-                        title: 'Nhập trong kỳ',
-                        qty: importQty,
-                        amount: importAmount,
-                        amountSell: importAmountSell,
-                        currency: currency,
-                        color: Colors.green,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _InventoryMetric(
-                        title: 'Xuất trong kỳ',
-                        qty: exportQty,
-                        amount: exportAmount,
-                        amountSell: exportAmountSell,
-                        currency: currency,
-                        color: Colors.red,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _InventoryMetric(
-                        title: 'Tồn cuối kỳ',
-                        qty: endingQty,
-                        amount: endingAmount,
-                        amountSell: endingAmountSell,
-                        currency: currency,
-                        color: Colors.purple,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+
+        return GridView.count(
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 1.55,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            _InventoryMetricTile(
+              title: 'Tồn đầu kỳ',
+              icon: Icons.inventory_2_outlined,
+              qty: openingQty,
+              amountCost: openingAmount,
+              amountSell: openingAmountSell,
+              currency: currency,
+              gradientColors: const [Color(0xFF1565C0), Color(0xFF42A5F5)],
+              tooltip: 'SL + giá trị (GV/GB) tồn đầu kỳ',
             ),
-          ),
+            _InventoryMetricTile(
+              title: 'Nhập trong kỳ',
+              icon: Icons.call_received_outlined,
+              qty: importQty,
+              amountCost: importAmount,
+              amountSell: importAmountSell,
+              currency: currency,
+              gradientColors: const [Color(0xFF2E7D32), Color(0xFF66BB6A)],
+              tooltip: 'SL + giá trị (GV/GB) nhập trong kỳ',
+            ),
+            _InventoryMetricTile(
+              title: 'Xuất trong kỳ',
+              icon: Icons.call_made_outlined,
+              qty: exportQty,
+              amountCost: exportAmount,
+              amountSell: exportAmountSell,
+              currency: currency,
+              gradientColors: const [Color(0xFFB71C1C), Color(0xFFFF5252)],
+              tooltip: 'SL + giá trị (GV/GB) xuất trong kỳ',
+            ),
+            _InventoryMetricTile(
+              title: 'Tồn cuối kỳ',
+              icon: Icons.inventory_outlined,
+              qty: endingQty,
+              amountCost: endingAmount,
+              amountSell: endingAmountSell,
+              currency: currency,
+              gradientColors: const [Color(0xFF6A1B9A), Color(0xFFAB47BC)],
+              tooltip: 'SL + giá trị (GV/GB) tồn cuối kỳ',
+            ),
+          ],
         );
       },
-    );
-  }
-}
-
-class _InventoryMetric extends StatelessWidget {
-  final String title;
-  final double qty;
-  final double amount;
-  final double? amountSell;
-  final NumberFormat currency;
-  final Color color;
-  const _InventoryMetric({
-    required this.title,
-    required this.qty,
-    required this.amount,
-    this.amountSell,
-    required this.currency,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final qtyText = qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2);
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withAlpha(40)),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            color.withAlpha(34),
-            color.withAlpha(10),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(12),
-            blurRadius: 10,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: color)),
-          const SizedBox(height: 6),
-          Text('SL: $qtyText', style: const TextStyle(fontSize: 12, color: Colors.black87)),
-          const SizedBox(height: 2),
-          Text('GV: ${currency.format(amount)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-          if (amountSell != null) ...[
-            const SizedBox(height: 2),
-            Text('GB: ${currency.format(amountSell)}', style: const TextStyle(fontSize: 12, color: Colors.black87)),
-          ],
-        ],
-      ),
     );
   }
 }

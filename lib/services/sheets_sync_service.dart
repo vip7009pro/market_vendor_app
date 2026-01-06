@@ -148,6 +148,100 @@ class SheetsSyncService {
 
     final saleItemsForExportHistory = await _getSaleItemsInRange(range: range);
 
+    // Build helper maps for list đơn hàng
+    final rangeStart = range == null
+        ? null
+        : DateTime(range.start.year, range.start.month, range.start.day);
+    final rangeEnd = range == null
+        ? null
+        : DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
+
+    final saleSubtotalRows = await db.rawQuery(
+      '''
+      SELECT
+        s.id as saleId,
+        SUM(si.unitPrice * si.quantity) as subtotal
+      FROM sales s
+      JOIN sale_items si ON si.saleId = s.id
+      ${rangeStart != null ? 'WHERE s.createdAt >= ? AND s.createdAt <= ?' : ''}
+      GROUP BY s.id
+      ''',
+      rangeStart != null ? [rangeStart.toIso8601String(), rangeEnd!.toIso8601String()] : null,
+    );
+    final saleSubtotalById = <String, double>{};
+    for (final r in saleSubtotalRows) {
+      final sid = (r['saleId']?.toString() ?? '').trim();
+      if (sid.isEmpty) continue;
+      saleSubtotalById[sid] = (r['subtotal'] as num?)?.toDouble() ?? 0.0;
+    }
+
+    final saleRowsForOrders = await db.query(
+      'sales',
+      where: rangeStart != null ? 'createdAt >= ? AND createdAt <= ?' : null,
+      whereArgs: rangeStart != null ? [rangeStart.toIso8601String(), rangeEnd!.toIso8601String()] : null,
+      orderBy: 'createdAt DESC',
+    );
+
+    final saleIdsForDebt = saleRowsForOrders
+        .map((e) => (e['id']?.toString() ?? '').trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    final debtPaidCashBySaleId = <String, double>{};
+    final debtPaidBankBySaleId = <String, double>{};
+    final debtPaidUnsetBySaleId = <String, double>{};
+    final debtPaidTotalBySaleId = <String, double>{};
+    final debtRemainBySaleId = <String, double>{};
+    if (saleIdsForDebt.isNotEmpty) {
+      final placeholders = List.filled(saleIdsForDebt.length, '?').join(',');
+      final debtRows = await db.query(
+        'debts',
+        columns: ['id', 'amount', 'sourceId'],
+        where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+        whereArgs: saleIdsForDebt,
+      );
+      final debtIds = <String>[];
+      final debtIdToSaleId = <String, String>{};
+      for (final d in debtRows) {
+        final did = (d['id']?.toString() ?? '').trim();
+        final sid = (d['sourceId']?.toString() ?? '').trim();
+        if (did.isEmpty || sid.isEmpty) continue;
+        debtIds.add(did);
+        debtIdToSaleId[did] = sid;
+        debtRemainBySaleId[sid] = (debtRemainBySaleId[sid] ?? 0) + ((d['amount'] as num?)?.toDouble() ?? 0.0);
+      }
+      if (debtIds.isNotEmpty) {
+        final dph = List.filled(debtIds.length, '?').join(',');
+        final payAgg = await db.rawQuery(
+          '''
+          SELECT
+            debtId as debtId,
+            SUM(CASE WHEN paymentType = 'cash' THEN amount ELSE 0 END) as paidCash,
+            SUM(CASE WHEN paymentType = 'bank' THEN amount ELSE 0 END) as paidBank,
+            SUM(CASE WHEN paymentType IS NULL OR TRIM(paymentType) = '' THEN amount ELSE 0 END) as paidUnset,
+            SUM(amount) as paidTotal
+          FROM debt_payments
+          WHERE debtId IN ($dph)
+          GROUP BY debtId
+          ''',
+          debtIds,
+        );
+        for (final r in payAgg) {
+          final did = (r['debtId']?.toString() ?? '').trim();
+          final sid = debtIdToSaleId[did];
+          if (sid == null || sid.isEmpty) continue;
+          final paidCash = (r['paidCash'] as num?)?.toDouble() ?? 0.0;
+          final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
+          final paidUnset = (r['paidUnset'] as num?)?.toDouble() ?? 0.0;
+          final paidTotal = (r['paidTotal'] as num?)?.toDouble() ?? 0.0;
+          debtPaidCashBySaleId[sid] = (debtPaidCashBySaleId[sid] ?? 0) + paidCash;
+          debtPaidBankBySaleId[sid] = (debtPaidBankBySaleId[sid] ?? 0) + paidBank;
+          debtPaidUnsetBySaleId[sid] = (debtPaidUnsetBySaleId[sid] ?? 0) + paidUnset;
+          debtPaidTotalBySaleId[sid] = (debtPaidTotalBySaleId[sid] ?? 0) + paidTotal;
+        }
+      }
+    }
+
     final openingRows = await db.query('product_opening_stocks');
 
     final monthYear = _monthYearForEnding(range);
@@ -410,6 +504,77 @@ class SheetsSyncService {
         'source'
       ],
       rows: _expandExportHistoryRows(saleItemsForExportHistory),
+    );
+
+    await _upsertSheet(
+      accessToken: accessToken,
+      spreadsheetId: spreadsheetId,
+      sheetTitle: 'list đơn hàng',
+      headers: const [
+        'saleId',
+        'saleCreatedAt',
+        'customerId',
+        'customerName',
+        'employeeId',
+        'employeeName',
+        'saleDiscount',
+        'salePaidAmount',
+        'salePaidCash',
+        'salePaidBank',
+        'salePaidUnset',
+        'salePaymentType',
+        'saleTotalCost',
+        'saleNote',
+        'saleTotal',
+        'debtPaidCash',
+        'debtPaidBank',
+        'debtPaidUnset',
+        'debtPaidTotal',
+        'debtNotPaid',
+      ],
+      rows: saleRowsForOrders.map((s) {
+        final saleId = (s['id']?.toString() ?? '').trim();
+        if (saleId.isEmpty) return const <Object?>[];
+        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
+        final subtotal = saleSubtotalById[saleId] ?? 0.0;
+        final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+
+        final salePaidAmount = (s['paidAmount'] as num?)?.toDouble() ?? 0.0;
+        final salePaymentType = (s['paymentType']?.toString() ?? '').trim().toLowerCase();
+        final salePaidCash = salePaymentType == 'cash' ? salePaidAmount : 0.0;
+        final salePaidBank = salePaymentType == 'bank' ? salePaidAmount : 0.0;
+        final salePaidUnset = (salePaymentType.isEmpty || (salePaymentType != 'cash' && salePaymentType != 'bank'))
+            ? salePaidAmount
+            : 0.0;
+
+        final debtPaidCash = debtPaidCashBySaleId[saleId] ?? 0.0;
+        final debtPaidBank = debtPaidBankBySaleId[saleId] ?? 0.0;
+        final debtPaidUnset = debtPaidUnsetBySaleId[saleId] ?? 0.0;
+        final debtPaidTotal = debtPaidTotalBySaleId[saleId] ?? 0.0;
+        final debtNotPaid = debtRemainBySaleId[saleId] ?? 0.0;
+        return [
+          saleId,
+          s['createdAt'],
+          s['customerId'],
+          s['customerName'],
+          s['employeeId'],
+          s['employeeName'],
+          discount,
+          salePaidAmount,
+          salePaidCash,
+          salePaidBank,
+          salePaidUnset,
+          salePaymentType,
+          s['totalCost'],
+          s['note'],
+          total,
+          debtPaidCash,
+          debtPaidBank,
+          debtPaidUnset,
+          debtPaidTotal,
+          debtNotPaid,
+        ];
+      }).where((r) => r.isNotEmpty),
     );
 
     await _upsertSheet(
@@ -808,6 +973,7 @@ class SheetsSyncService {
     'list nhập hàng',
     'list xuất hàng',
     'lịch sử xuất kho',
+    'list đơn hàng',
     'list tồn đầu kỳ',
     'list tồn cuối kỳ',
   ];

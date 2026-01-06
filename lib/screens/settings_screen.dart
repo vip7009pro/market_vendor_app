@@ -11,6 +11,7 @@ import '../providers/purchase_provider.dart';
 import '../services/database_service.dart';
 import '../services/drive_sync_service.dart';
 import 'drive_backup_manager_screen.dart';
+import 'local_data_tables_screen.dart';
 import 'sheets_sync_screen.dart';
 import 'theme_selection_screen.dart';
 import 'tax_declaration_form_screen.dart';
@@ -29,41 +30,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _driveSyncing = false;
   bool _driveRestoring = false;
   String _appVersion = '';
-
-  Future<void> _clearLocalDatabase() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Xóa dữ liệu trên máy'),
-        content: const Text('Bạn có chắc muốn xóa toàn bộ dữ liệu trên máy? Thao tác này không thể hoàn tác.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-
-    try {
-      await DatabaseService.instance.close();
-      await DatabaseService.instance.resetLocalDatabase();
-      await DatabaseService.instance.reinitialize();
-
-      if (!mounted) return;
-      await Future.wait([
-        Provider.of<ProductProvider>(context, listen: false).load(),
-        Provider.of<CustomerProvider>(context, listen: false).load(),
-        Provider.of<SaleProvider>(context, listen: false).load(),
-        Provider.of<DebtProvider>(context, listen: false).load(),
-      ]);
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa dữ liệu trên máy')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi xóa dữ liệu: $e')));
-    }
-  }
 
   // Build a menu button with icon and label
   Widget _buildMenuButton(
@@ -718,7 +684,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   leading: const Icon(Icons.delete_forever_outlined, color: Colors.redAccent),
                   title: const Text('Xóa dữ liệu trên máy', style: TextStyle(color: Colors.redAccent)),
                   subtitle: const Text('Xóa toàn bộ dữ liệu local (không thể hoàn tác)'),
-                  onTap: _clearLocalDatabase,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LocalDataTablesScreen()),
+                    );
+                  },
                 ),
         ]),
           ),
