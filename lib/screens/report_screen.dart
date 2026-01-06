@@ -47,114 +47,6 @@ class _PayStats {
   });
 }
 
-class _PaymentKpi extends StatelessWidget {
-  final String title;
-  final double totalRevenue;
-  final _PayStats stats;
-  final double businessCost;
-  final double profit;
-  final NumberFormat currency;
-  final Color color;
-  const _PaymentKpi({
-    required this.title,
-    required this.totalRevenue,
-    required this.stats,
-    required this.businessCost,
-    required this.profit,
-    required this.currency,
-    required this.color,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final labelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54);
-    final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800);
-    final grad = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        color.withAlpha(40),
-        color.withAlpha(12),
-      ],
-    );
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black.withAlpha(8)),
-        gradient: grad,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: Text('Tổng DT', style: labelStyle)),
-              Text(currency.format(totalRevenue), style: valueStyle),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(child: Text('Tiền mặt', style: labelStyle)),
-              Text(currency.format(stats.cashRevenue), style: valueStyle),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(child: Text('Chuyển khoản', style: labelStyle)),
-              Text(currency.format(stats.bankRevenue), style: valueStyle),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(child: Text('Nợ chưa trả', style: labelStyle)),
-              Text(currency.format(stats.outstandingDebt), style: valueStyle?.copyWith(color: Colors.redAccent)),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(child: Text('Chi phí', style: labelStyle)),
-              Text(currency.format(businessCost), style: valueStyle),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(child: Text('Lợi nhuận', style: labelStyle)),
-              Text(
-                currency.format(profit),
-                style: valueStyle?.copyWith(color: profit >= 0 ? Colors.green : Colors.redAccent),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _PaymentMetricTile extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -711,12 +603,35 @@ class _ReportScreenState extends State<ReportScreen> {
           try {
             final decoded = jsonDecode(raw);
             if (decoded is List) {
+              final mixQty = (r['quantity'] as num?)?.toDouble() ?? 0.0;
+              final mixUnitPrice = (r['unitPrice'] as num?)?.toDouble() ?? 0.0;
+              final mixLineTotal = mixQty * mixUnitPrice;
+
+              double rawSellTotal = 0.0;
+              for (final e in decoded) {
+                if (e is! Map) continue;
+                final rid = (e['rawProductId']?.toString() ?? '').trim();
+                if (rid.isEmpty) continue;
+                final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
+                if (rq <= 0) continue;
+                final prod = productsById[rid];
+                final rawPrice = (prod?['price'] as num?)?.toDouble() ?? 0.0;
+                rawSellTotal += rq * rawPrice;
+              }
+              final factor = (rawSellTotal <= 0) ? 0.0 : (mixLineTotal / rawSellTotal);
+
               for (final e in decoded) {
                 if (e is Map) {
                   final rid = (e['rawProductId']?.toString() ?? '').trim();
                   if (rid.isEmpty) continue;
                   final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
                   final ruc = (e['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
+
+                  final prod = productsById[rid];
+                  final rawPrice = (prod?['price'] as num?)?.toDouble() ?? 0.0;
+                  final unitPriceSnap = rawPrice * factor;
+                  final lineTotalSnap = unitPriceSnap * rq;
+
                   exportHistorySheet.appendRow([
                     _cv(r['saleId']),
                     _cv(r['saleCreatedAt']),
@@ -727,8 +642,8 @@ class _ReportScreenState extends State<ReportScreen> {
                     _cv(e['rawName']),
                     _cv(e['rawUnit']),
                     _cv(rq),
-                    null,
-                    null,
+                    _cv(unitPriceSnap),
+                    _cv(lineTotalSnap),
                     _cv(ruc),
                     _cv(rq * ruc),
                     _cv('MIX'),
@@ -1378,19 +1293,11 @@ class _ReportScreenState extends State<ReportScreen> {
     final debtsProvider = context.watch<DebtProvider>();
 
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final startOfWeek = startOfDay.subtract(Duration(days: startOfDay.weekday - 1));
-    final startOfMonth = DateTime(now.year, now.month, 1);
-    final startOfYear = DateTime(now.year, 1, 1);
 
     final inRangeSales = sales.where((s) =>
         !s.createdAt.isBefore(DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day)) &&
         !s.createdAt.isAfter(DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59))
     ).toList();
-
-    final allSalesByEmployee = (_selectedEmployeeId == null)
-        ? sales
-        : sales.where((s) => (s.employeeId ?? '').trim() == (_selectedEmployeeId ?? '').trim()).toList();
 
     final filteredSales = (_selectedEmployeeId == null)
         ? inRangeSales
@@ -1403,22 +1310,6 @@ class _ReportScreenState extends State<ReportScreen> {
     );
     final exportAmount = inRangeSales.fold<double>(0, (p, s) => p + s.totalCost);
     final exportAmountSell = inRangeSales.fold<double>(0, (p, s) => p + s.total);
-
-    final todaySales = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.total);
-    final todayCost = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfDay)).fold(0.0, (p, s) => p + s.totalCost);
-    final todayProfit = todaySales - todayCost;
-
-    final weekSales = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfWeek)).fold(0.0, (p, s) => p + s.total);
-    final weekCost = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfWeek)).fold(0.0, (p, s) => p + s.totalCost);
-    final weekProfit = weekSales - weekCost;
-
-    final monthSales = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfMonth)).fold(0.0, (p, s) => p + s.total);
-    final monthCost = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfMonth)).fold(0.0, (p, s) => p + s.totalCost);
-    final monthProfit = monthSales - monthCost;
-
-    final yearSales = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfYear)).fold(0.0, (p, s) => p + s.total);
-    final yearCost = allSalesByEmployee.where((s) => s.createdAt.isAfter(startOfYear)).fold(0.0, (p, s) => p + s.totalCost);
-    final yearProfit = yearSales - yearCost;
 
     final totalOweOthers = debtsProvider.totalOweOthers;
     final openOthersOweMe = debtsProvider.debts.where((d) => d.type == DebtType.othersOweMe && !d.settled).toList();
@@ -1580,7 +1471,8 @@ class _ReportScreenState extends State<ReportScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Card(
-              elevation: 0,
+              elevation: 2,
+              shadowColor: Colors.black.withAlpha(35),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
                 side: BorderSide(color: Colors.black.withAlpha(8)),
@@ -1614,7 +1506,6 @@ class _ReportScreenState extends State<ReportScreen> {
                         }
                         final pay = snap.data ?? const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
                         final total = pay.cashRevenue + pay.bankRevenue + pay.outstandingDebt;
-                        final profitColor = periodProfit >= 0 ? Colors.green : Colors.redAccent;
                         final tiles = <Widget>[
                           _PaymentMetricTile(
                             title: 'Tổng',
@@ -1634,11 +1525,13 @@ class _ReportScreenState extends State<ReportScreen> {
                           ),
                           _PaymentMetricTile(
                             title: 'LN',
-                            icon: periodProfit >= 0 ? Icons.trending_up_outlined : Icons.trending_down_outlined,
+                            icon: Icons.trending_up_outlined,
                             value: periodProfit,
                             currency: currency,
                             tooltip: 'Lợi nhuận (theo khoảng ngày)',
-                            gradientColors: [profitColor, profitColor.withAlpha(191)],
+                            gradientColors: periodProfit >= 0
+                                ? const [Color(0xFF10B981), Color(0xFF14B8A6)]
+                                : const [Color(0xFFEF4444), Color(0xFFF97316)],
                           ),
                           _PaymentMetricTile(
                             title: 'Tiền',
@@ -1668,151 +1561,46 @@ class _ReportScreenState extends State<ReportScreen> {
                         return LayoutBuilder(
                           builder: (context, constraints) {
                             final gap = constraints.maxWidth < 420 ? 8.0 : 10.0;
-                            return Column(
-                              children: [
+                            Widget cell(Widget? child) {
+                              if (child == null) return const Expanded(child: SizedBox());
+                              return Expanded(child: Center(child: child));
+                            }
+
+                            final rows = <Widget>[];
+                            for (var i = 0; i < tiles.length; i += 3) {
+                              final a = i < tiles.length ? tiles[i] : null;
+                              final b = (i + 1) < tiles.length ? tiles[i + 1] : null;
+                              final c = (i + 2) < tiles.length ? tiles[i + 2] : null;
+                              rows.add(
                                 Row(
                                   children: [
-                                    Expanded(child: Center(child: tiles[0])),
+                                    cell(a),
                                     SizedBox(width: gap),
-                                    Expanded(child: Center(child: tiles[1])),
+                                    cell(b),
                                     SizedBox(width: gap),
-                                    Expanded(child: Center(child: tiles[2])),
+                                    cell(c),
                                   ],
                                 ),
-                                SizedBox(height: gap),
-                                Row(
-                                  children: [
-                                    Expanded(child: Center(child: tiles[3])),
-                                    SizedBox(width: gap),
-                                    Expanded(child: Center(child: tiles[4])),
-                                    SizedBox(width: gap),
-                                    Expanded(child: Center(child: tiles[5])),
-                                  ],
-                                ),
-                              ],
-                            );
+                              );
+                              if ((i + 3) < tiles.length) {
+                                rows.add(SizedBox(height: gap));
+                              }
+                            }
+
+                            return Column(children: rows);
                           },
                         );
                       },
                     ),
                     const SizedBox(height: 12),
-                    FutureBuilder<List<_PayStats>>(
-                      future: Future.wait([
-                        _loadPayStats(start: startOfDay, end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999), employeeId: _selectedEmployeeId),
-                        _loadPayStats(start: startOfWeek, end: DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day, 23, 59, 59, 999).add(const Duration(days: 6)), employeeId: _selectedEmployeeId),
-                        _loadPayStats(start: startOfMonth, end: DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999), employeeId: _selectedEmployeeId),
-                        _loadPayStats(start: startOfYear, end: DateTime(now.year, 12, 31, 23, 59, 59, 999), employeeId: _selectedEmployeeId),
-                      ]),
-                      builder: (context, snap) {
-                        if (snap.connectionState != ConnectionState.done) {
-                          return const SizedBox(
-                            height: 92,
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        final stats = snap.data ?? const <_PayStats>[];
-                        final todayPay = stats.isNotEmpty ? stats[0] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
-                        final weekPay = stats.length > 1 ? stats[1] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
-                        final monthPay = stats.length > 2 ? stats[2] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
-                        final yearPay = stats.length > 3 ? stats[3] : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
 
-                        final fixedToday = _PayStats(
-                          cashRevenue: todayPay.cashRevenue,
-                          bankRevenue: todayPay.bankRevenue,
-                          outstandingDebt: todayPay.outstandingDebt,
-                        );
-                        final fixedWeek = _PayStats(
-                          cashRevenue: weekPay.cashRevenue,
-                          bankRevenue: weekPay.bankRevenue,
-                          outstandingDebt: weekPay.outstandingDebt,
-                        );
-                        final fixedMonth = _PayStats(
-                          cashRevenue: monthPay.cashRevenue,
-                          bankRevenue: monthPay.bankRevenue,
-                          outstandingDebt: monthPay.outstandingDebt,
-                        );
-                        final fixedYear = _PayStats(
-                          cashRevenue: yearPay.cashRevenue,
-                          bankRevenue: yearPay.bankRevenue,
-                          outstandingDebt: yearPay.outstandingDebt,
-                        );
-
-                        return LayoutBuilder(
-                          builder: (context, constraints) {
-                            final isNarrow = constraints.maxWidth < 720;
-                            final wToday = _PaymentKpi(
-                              title: 'Hôm nay',
-                              stats: fixedToday,
-                              totalRevenue: fixedToday.cashRevenue + fixedToday.bankRevenue + fixedToday.outstandingDebt,
-                              businessCost: todayCost,
-                              profit: todayProfit,
-                              currency: currency,
-                              color: Colors.blue,
-                            );
-                            final wWeek = _PaymentKpi(
-                              title: 'Tuần này',
-                              stats: fixedWeek,
-                              totalRevenue: fixedWeek.cashRevenue + fixedWeek.bankRevenue + fixedWeek.outstandingDebt,
-                              businessCost: weekCost,
-                              profit: weekProfit,
-                              currency: currency,
-                              color: Colors.green,
-                            );
-                            final wMonth = _PaymentKpi(
-                              title: 'Tháng này',
-                              stats: fixedMonth,
-                              totalRevenue: fixedMonth.cashRevenue + fixedMonth.bankRevenue + fixedMonth.outstandingDebt,
-                              businessCost: monthCost,
-                              profit: monthProfit,
-                              currency: currency,
-                              color: Colors.purple,
-                            );
-                            final wYear = _PaymentKpi(
-                              title: 'Năm nay',
-                              stats: fixedYear,
-                              totalRevenue: fixedYear.cashRevenue + fixedYear.bankRevenue + fixedYear.outstandingDebt,
-                              businessCost: yearCost,
-                              profit: yearProfit,
-                              currency: currency,
-                              color: Colors.orange,
-                            );
-                            if (!isNarrow) {
-                              return Row(
-                                children: [
-                                  Expanded(child: wToday),
-                                  const SizedBox(width: 6),
-                                  Expanded(child: wWeek),
-                                  const SizedBox(width: 6),
-                                  Expanded(child: wMonth),
-                                  const SizedBox(width: 6),
-                                  Expanded(child: wYear),
-                                ],
-                              );
-                            }
-                            return Column(
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(child: wToday),
-                                    const SizedBox(width: 6),
-                                    Expanded(child: wWeek),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Expanded(child: wMonth),
-                                    const SizedBox(width: 6),
-                                    Expanded(child: wYear),
-                                  ],
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
+                    if (topProducts.isNotEmpty)
+                      _buildTopProductsCard(
+                        currency: currency,
+                        dateRange: _dateRange,
+                        rows: topProductsLimited,
+                      ),
+                    const SizedBox(height: 16),
                     FutureBuilder<List<Map<String, dynamic>>>(
                       future: DatabaseService.instance.db.query(
                         'expenses',
@@ -1823,7 +1611,7 @@ class _ReportScreenState extends State<ReportScreen> {
                       builder: (context, snap) {
                         if (snap.connectionState != ConnectionState.done) {
                           return const SizedBox(
-                            height: 72,
+                            height: 92,
                             child: Center(child: CircularProgressIndicator()),
                           );
                         }
@@ -1956,7 +1744,8 @@ class _ReportScreenState extends State<ReportScreen> {
 
                             if (pieTotal > 0)
                               Card(
-                                elevation: 0,
+                                elevation: 2,
+                                shadowColor: Colors.black.withAlpha(35),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   side: BorderSide(color: Colors.black.withAlpha(8)),
@@ -2057,17 +1846,6 @@ class _ReportScreenState extends State<ReportScreen> {
               exportQty: exportQty,
               exportAmount: exportAmount,
               exportAmountSell: exportAmountSell,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Top sản phẩm bán chạy',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            _buildTopProductsCard(
-              currency: currency,
-              dateRange: _dateRange,
-              rows: topProductsLimited,
             ),
             const SizedBox(height: 16),
             const Text(
@@ -2238,7 +2016,8 @@ class _ReportScreenState extends State<ReportScreen> {
   }) {
     final maxQty = rows.isEmpty ? 0.0 : rows.map((e) => e.qty).reduce((a, b) => a > b ? a : b);
     return Card(
-      elevation: 0,
+      elevation: 2,
+      shadowColor: Colors.black.withAlpha(35),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.black.withAlpha(8)),
@@ -2248,6 +2027,8 @@ class _ReportScreenState extends State<ReportScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const Text('Top hàng bán chạy', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+            const SizedBox(height: 6),
             Text(
               '(${DateFormat('dd/MM/yyyy').format(dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(dateRange.end)})',
               style: const TextStyle(fontWeight: FontWeight.w700),
@@ -2285,7 +2066,8 @@ class _ReportScreenState extends State<ReportScreen> {
     required NumberFormat currency,
   }) {
     return Card(
-      elevation: 0,
+      elevation: 2,
+      shadowColor: Colors.black.withAlpha(35),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.black.withAlpha(8)),
@@ -2392,21 +2174,21 @@ class _ReportScreenState extends State<ReportScreen> {
                                 topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                                 rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                               ),
-                              barGroups: [
-                                for (var i = 0; i < points.length; i++)
-                                  BarChartGroupData(
-                                    x: i,
-                                    showingTooltipIndicators: const [0],
-                                    barRods: [
-                                      BarChartRodData(
-                                        toY: points[i].profit,
-                                        color: (points[i].profit >= 0 ? Colors.teal : Colors.red).withAlpha(191),
-                                        width: 16,
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                    ],
-                                  ),
-                              ],
+                              barGroups: List.generate(
+                                points.length,
+                                (i) => BarChartGroupData(
+                                  x: i,
+                                  showingTooltipIndicators: const [0],
+                                  barRods: [
+                                    BarChartRodData(
+                                      toY: points[i].profit,
+                                      color: (points[i].profit >= 0 ? Colors.teal : Colors.red).withAlpha(191),
+                                      width: 16,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -2429,7 +2211,8 @@ class _ReportScreenState extends State<ReportScreen> {
     bool isYearly = false,
   }) {
     return Card(
-      elevation: 0,
+      elevation: 2,
+      shadowColor: Colors.black.withAlpha(35),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.black.withAlpha(8)),
@@ -2491,6 +2274,7 @@ class _ReportScreenState extends State<ReportScreen> {
                                 bottomTitles: AxisTitles(
                                   sideTitles: SideTitles(
                                     showTitles: true,
+                                    reservedSize: 42,
                                     getTitlesWidget: (value, meta) {
                                       final i = value.toInt();
                                       if (i < 0 || i >= points.length) return const SizedBox.shrink();
@@ -2504,7 +2288,6 @@ class _ReportScreenState extends State<ReportScreen> {
                                         ),
                                       );
                                     },
-                                    reservedSize: 42,
                                   ),
                                 ),
                                 leftTitles: AxisTitles(
@@ -2527,33 +2310,33 @@ class _ReportScreenState extends State<ReportScreen> {
                                 topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                                 rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                               ),
-                              barGroups: [
-                                for (var i = 0; i < points.length; i++)
-                                  BarChartGroupData(
-                                    x: i,
-                                    barsSpace: 2,
-                                    barRods: [
-                                      BarChartRodData(
-                                        toY: points[i].y,
-                                        color: Colors.blue.withAlpha(191),
-                                        width: isYearly ? 16 : 12,
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                      BarChartRodData(
-                                        toY: points[i].cost,
-                                        color: Colors.orange.withAlpha(191),
-                                        width: isYearly ? 16 : 12,
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                      BarChartRodData(
-                                        toY: points[i].profit,
-                                        color: (points[i].profit >= 0 ? Colors.green : Colors.red).withAlpha(191),
-                                        width: isYearly ? 16 : 12,
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                    ],
-                                  ),
-                              ],
+                              barGroups: List.generate(
+                                points.length,
+                                (i) => BarChartGroupData(
+                                  x: i,
+                                  barsSpace: 2,
+                                  barRods: [
+                                    BarChartRodData(
+                                      toY: points[i].y,
+                                      color: Colors.blue.withAlpha(191),
+                                      width: isYearly ? 16 : 12,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                    BarChartRodData(
+                                      toY: points[i].cost,
+                                      color: Colors.orange.withAlpha(191),
+                                      width: isYearly ? 16 : 12,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                    BarChartRodData(
+                                      toY: points[i].profit,
+                                      color: (points[i].profit >= 0 ? Colors.green : Colors.red).withAlpha(191),
+                                      width: isYearly ? 16 : 12,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -2634,7 +2417,8 @@ class _ReportScreenState extends State<ReportScreen> {
         final endingAmount = openingAmount + importAmount - exportAmount;
         final endingAmountSell = openingAmountSell + importAmountSell - exportAmountSell;
         return Card(
-          elevation: 0,
+          elevation: 2,
+          shadowColor: Colors.black.withAlpha(35),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(color: Colors.black.withAlpha(8)),
