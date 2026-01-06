@@ -631,17 +631,6 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
               icon: Icon(_isTableViewProducts ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
               onPressed: () => setState(() => _isTableViewProducts = !_isTableViewProducts),
             ),
-          ] else if (tabIndex == 1) ...[
-            IconButton(
-              tooltip: 'Đơn nhập',
-              icon: const Icon(Icons.receipt_long_outlined),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PurchaseOrderListScreen()),
-                );
-              },
-            ),
             IconButton(
               icon: const Icon(Icons.table_chart_outlined),
               tooltip: 'Bảng kê tồn kho',
@@ -661,6 +650,17 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
               icon: const Icon(Icons.add),
               onPressed: () => _showProductDialog(context),
               tooltip: 'Thêm sản phẩm',
+            ),
+          ] else if (tabIndex == 1) ...[
+            IconButton(
+              tooltip: 'Đơn nhập',
+              icon: const Icon(Icons.receipt_long_outlined),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PurchaseOrderListScreen()),
+                );
+              },
             ),
           ] else if (tabIndex == 2) ...[
             IconButton(
