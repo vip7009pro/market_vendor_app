@@ -82,11 +82,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Row(
             children: [
-              Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 12),
+              Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 10),
               Text(
                 label,
                 style: Theme.of(context).textTheme.bodyLarge,
@@ -369,72 +369,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 2.5,
-            children: [
-              _buildMenuButton(
-                context,
-                icon: Icons.inventory_2_outlined,
-                label: 'Sản phẩm',
-                onTap: () => Navigator.of(context).pushNamed('/products'),
-              ),
-              _buildMenuButton(
-                context,
-                icon: Icons.people_outline,
-                label: 'Khách hàng',
-                onTap: () => Navigator.of(context).pushNamed('/customers'),
-              ),
-              _buildMenuButton(
-                context,
-                icon: Icons.store,
-                label: 'Cửa hàng',
-                onTap: () => Navigator.push(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final w = constraints.maxWidth;
+              final crossAxisCount = w >= 520 ? 3 : 2;
+              final childAspectRatio = crossAxisCount == 3 ? 3.2 : 2.8;
+              final children = <Widget>[
+                _buildMenuButton(
                   context,
-                  MaterialPageRoute(builder: (context) => const StoreInfoScreen()),
+                  icon: Icons.inventory_2_outlined,
+                  label: 'Sản phẩm',
+                  onTap: () => Navigator.of(context).pushNamed('/products'),
                 ),
-              ),
-              _buildMenuButton(
-                context,
-                icon: Icons.palette_outlined,
-                label: 'Giao diện',
-                onTap: () => Navigator.push(
+                _buildMenuButton(
                   context,
-                  MaterialPageRoute(builder: (context) => const ThemeSelectionScreen()),
+                  icon: Icons.people_outline,
+                  label: 'Khách hàng',
+                  onTap: () => Navigator.of(context).pushNamed('/customers'),
                 ),
-              ),
-              _buildMenuButton(
-                context,
-                icon: Icons.description_outlined,
-                label: 'Khai thuế',
-                onTap: () => Navigator.push(
+                _buildMenuButton(
                   context,
-                  MaterialPageRoute(builder: (context) => const TaxDeclarationFormScreen()),
+                  icon: Icons.store,
+                  label: 'Cửa hàng',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const StoreInfoScreen()),
+                  ),
                 ),
-              ),
-              _buildMenuButton(
-                context,
-                icon: Icons.qr_code_2_outlined,
-                label: 'Ngân hàng',
-                onTap: () => Navigator.push(
+                _buildMenuButton(
                   context,
-                  MaterialPageRoute(builder: (context) => const VietQrBankAccountsScreen()),
+                  icon: Icons.palette_outlined,
+                  label: 'Giao diện',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ThemeSelectionScreen()),
+                  ),
                 ),
-              ),
-              _buildMenuButton(
-                context,
-                icon: Icons.badge_outlined,
-                label: 'Nhân viên',
-                onTap: () => Navigator.push(
+                _buildMenuButton(
                   context,
-                  MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()),
+                  icon: Icons.description_outlined,
+                  label: 'Khai thuế',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const TaxDeclarationFormScreen()),
+                  ),
                 ),
-              ),
-            ],
+                _buildMenuButton(
+                  context,
+                  icon: Icons.qr_code_2_outlined,
+                  label: 'Ngân hàng',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const VietQrBankAccountsScreen()),
+                  ),
+                ),
+                _buildMenuButton(
+                  context,
+                  icon: Icons.badge_outlined,
+                  label: 'Nhân viên',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()),
+                  ),
+                ),
+              ];
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: childAspectRatio,
+                ),
+                itemCount: children.length,
+                itemBuilder: (context, i) => children[i],
+              );
+            },
           ),
           
           const SizedBox(height: 24),
