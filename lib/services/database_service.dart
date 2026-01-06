@@ -2509,7 +2509,9 @@ class DatabaseService {
           if (t == 'MIX') {
             totalCost += (it.unitCost * it.quantity);
           } else {
-            totalCost += ((productMap[it.productId] ?? it.unitCost) * it.quantity);
+            final snap = it.unitCost;
+            final effective = (snap > 0) ? snap : (productMap[it.productId] ?? 0.0);
+            totalCost += (effective * it.quantity);
           }
         }
 
@@ -2533,7 +2535,7 @@ class DatabaseService {
           final t = (it.itemType ?? '').toUpperCase().trim();
           final snapUnitCost = (t == 'MIX')
               ? it.unitCost
-              : (productMap[it.productId] ?? it.unitCost);
+              : ((it.unitCost > 0) ? it.unitCost : (productMap[it.productId] ?? 0.0));
           await txn.insert('sale_items', {
             'saleId': newSale.id,
             'productId': it.productId,
