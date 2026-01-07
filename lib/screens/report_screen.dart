@@ -1225,6 +1225,67 @@ class _ReportScreenState extends State<ReportScreen> {
     return _PayStats(cashRevenue: cash, bankRevenue: bank, outstandingDebt: outstanding);
   }
 
+  Future<_PayPaidInPeriodStats> _loadPayPaidInPeriodStats({required DateTime start, required DateTime end, String? employeeId}) async {
+    final db = DatabaseService.instance.db;
+    final eid = (employeeId ?? '').trim();
+
+    double cash = 0.0;
+    double bank = 0.0;
+
+    String? saleWhere = 'createdAt >= ? AND createdAt <= ?';
+    final saleWhereArgs = <Object?>[start.toIso8601String(), end.toIso8601String()];
+    if (eid.isNotEmpty) {
+      saleWhere = '$saleWhere AND employeeId = ?';
+      saleWhereArgs.add(eid);
+    }
+    final saleRows = await db.query(
+      'sales',
+      columns: ['paidAmount', 'paymentType'],
+      where: saleWhere,
+      whereArgs: saleWhereArgs,
+    );
+    for (final r in saleRows) {
+      final paid = (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
+      if (paid <= 0) continue;
+      final t = (r['paymentType']?.toString() ?? '').trim().toLowerCase();
+      if (t == 'cash') {
+        cash += paid;
+      } else {
+        bank += paid;
+      }
+    }
+
+    final debtPaymentRows = await db.rawQuery(
+      '''
+      SELECT
+        p.paymentType as paymentType,
+        SUM(p.amount) as total
+      FROM debt_payments p
+      JOIN debts d ON d.id = p.debtId
+      JOIN sales s ON s.id = d.sourceId
+      WHERE d.sourceType = 'sale'
+        AND p.createdAt >= ? AND p.createdAt <= ?
+        ${eid.isEmpty ? '' : 'AND s.employeeId = ?'}
+      GROUP BY p.paymentType
+      ''',
+      eid.isEmpty
+          ? [start.toIso8601String(), end.toIso8601String()]
+          : [start.toIso8601String(), end.toIso8601String(), eid],
+    );
+    for (final r in debtPaymentRows) {
+      final total = (r['total'] as num?)?.toDouble() ?? 0.0;
+      if (total <= 0) continue;
+      final t = (r['paymentType']?.toString() ?? '').trim().toLowerCase();
+      if (t == 'cash') {
+        cash += total;
+      } else {
+        bank += total;
+      }
+    }
+
+    return _PayPaidInPeriodStats(cashPaid: cash, bankPaid: bank);
+  }
+
   @override
   void dispose() {
     _chartPageController.dispose();
@@ -1497,6 +1558,11 @@ class _ReportScreenState extends State<ReportScreen> {
                           end: end,
                           employeeId: _selectedEmployeeId,
                         ),
+                        _loadPayPaidInPeriodStats(
+                          start: start,
+                          end: end,
+                          employeeId: _selectedEmployeeId,
+                        ),
                       ]),
                       builder: (context, snap) {
                         if (snap.connectionState != ConnectionState.done) {
@@ -1513,6 +1579,9 @@ class _ReportScreenState extends State<ReportScreen> {
                         final payStats = (data != null && data.length > 1)
                             ? (data[1] as _PayStats)
                             : const _PayStats(cashRevenue: 0, bankRevenue: 0, outstandingDebt: 0);
+                        final payPaidInPeriodStats = (data != null && data.length > 2)
+                            ? (data[2] as _PayPaidInPeriodStats)
+                            : const _PayPaidInPeriodStats(cashPaid: 0, bankPaid: 0);
 
                         double totalExpenseAll = 0.0;
                         double expenseOutsideBusiness = 0.0;
@@ -1746,6 +1815,53 @@ class _ReportScreenState extends State<ReportScreen> {
                                   currency: currency,
                                   gradientColors: const [Color(0xFF00695C), Color(0xFF26A69A)],
                                   tooltip: 'Lợi nhuận ròng = Lợi nhuận - Chi phí hợp lý',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                _PaymentMetricTile(
+                                  title: 'Thu TM trong kỳ',
+                                  icon: Icons.payments_outlined,
+                                  value: payPaidInPeriodStats.cashPaid,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF00796B), Color(0xFF26A69A)],
+                                  tooltip: 'Tiền mặt thu trong khoảng đã chọn (theo ngày thanh toán)',
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => _KpiBackdataScreen(
+                                          kind: _KpiBackdataKind.cashPaidInPeriod,
+                                          dateRange: _dateRange,
+                                          employeeId: _selectedEmployeeId,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                _PaymentMetricTile(
+                                  title: 'Thu CK trong kỳ',
+                                  icon: Icons.account_balance_wallet_outlined,
+                                  value: payPaidInPeriodStats.bankPaid,
+                                  currency: currency,
+                                  gradientColors: const [Color(0xFF283593), Color(0xFF5C6BC0)],
+                                  tooltip: 'Chuyển khoản thu trong khoảng đã chọn (theo ngày thanh toán)',
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => _KpiBackdataScreen(
+                                          kind: _KpiBackdataKind.bankPaidInPeriod,
+                                          dateRange: _dateRange,
+                                          employeeId: _selectedEmployeeId,
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
                             ),

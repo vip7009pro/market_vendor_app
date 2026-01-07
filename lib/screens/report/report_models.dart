@@ -34,3 +34,12 @@ class _PayStats {
     required this.outstandingDebt,
   });
 }
+
+class _PayPaidInPeriodStats {
+  final double cashPaid;
+  final double bankPaid;
+  const _PayPaidInPeriodStats({
+    required this.cashPaid,
+    required this.bankPaid,
+  });
+}

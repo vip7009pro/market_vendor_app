@@ -4,6 +4,8 @@ enum _KpiBackdataKind {
   triple,
   cash,
   bank,
+  cashPaidInPeriod,
+  bankPaidInPeriod,
   outstanding,
 }
 
@@ -39,6 +41,10 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
         return 'Backdata Thu tiền mặt';
       case _KpiBackdataKind.bank:
         return 'Backdata Thu chuyển khoản';
+      case _KpiBackdataKind.cashPaidInPeriod:
+        return 'Backdata Thu tiền mặt trong kỳ';
+      case _KpiBackdataKind.bankPaidInPeriod:
+        return 'Backdata Thu chuyển khoản trong kỳ';
       case _KpiBackdataKind.outstanding:
         return 'Backdata Nợ bán hàng';
     }
@@ -57,6 +63,41 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
     if (v is double) return ex.DoubleCellValue(v);
     if (v is num) return ex.DoubleCellValue(v.toDouble());
     return ex.TextCellValue(v.toString());
+  }
+
+  String _formatQty(num v) {
+    final d = v.toDouble();
+    if (d % 1 == 0) return d.toInt().toString();
+    return d.toStringAsFixed(2);
+  }
+
+  Future<Map<String, List<Map<String, dynamic>>>> _loadSaleItemsBySaleIds(List<String> saleIds) async {
+    if (saleIds.isEmpty) return const <String, List<Map<String, dynamic>>>{};
+    final db = DatabaseService.instance.db;
+    final uniq = saleIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
+    if (uniq.isEmpty) return const <String, List<Map<String, dynamic>>>{};
+    final placeholders = List.filled(uniq.length, '?').join(',');
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        saleId as saleId,
+        name as name,
+        unitPrice as unitPrice,
+        quantity as quantity
+      FROM sale_items
+      WHERE saleId IN ($placeholders)
+      ORDER BY saleId
+      ''',
+      uniq,
+    );
+
+    final bySaleId = <String, List<Map<String, dynamic>>>{};
+    for (final r in rows) {
+      final sid = (r['saleId']?.toString() ?? '').trim();
+      if (sid.isEmpty) continue;
+      (bySaleId[sid] ??= <Map<String, dynamic>>[]).add(Map<String, dynamic>.from(r));
+    }
+    return bySaleId;
   }
 
   Future<List<Map<String, dynamic>>> _loadRows() async {
@@ -164,6 +205,75 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
       return merged;
     }
 
+    if (widget.kind == _KpiBackdataKind.cashPaidInPeriod || widget.kind == _KpiBackdataKind.bankPaidInPeriod) {
+      final isCash = widget.kind == _KpiBackdataKind.cashPaidInPeriod;
+      final salePaid = await db.rawQuery(
+        '''
+        SELECT
+          s.id as saleId,
+          s.createdAt as createdAt,
+          s.customerName as customerName,
+          s.employeeId as employeeId,
+          s.employeeName as employeeName,
+          s.paidAmount as amount,
+          s.paymentType as paymentType,
+          'sale' as source
+        FROM sales s
+        WHERE s.createdAt >= ? AND s.createdAt <= ?
+          AND COALESCE(s.paidAmount, 0) > 0
+          AND (
+            (? = 1 AND LOWER(COALESCE(s.paymentType, '')) = 'cash')
+            OR
+            (? = 0 AND LOWER(COALESCE(s.paymentType, '')) != 'cash')
+          )
+          ${employeeId.isEmpty ? '' : 'AND s.employeeId = ?'}
+        ORDER BY s.createdAt DESC
+        ''',
+        employeeId.isEmpty
+            ? [start.toIso8601String(), end.toIso8601String(), isCash ? 1 : 0, isCash ? 1 : 0]
+            : [start.toIso8601String(), end.toIso8601String(), isCash ? 1 : 0, isCash ? 1 : 0, employeeId],
+      );
+
+      final debtPaid = await db.rawQuery(
+        '''
+        SELECT
+          d.sourceId as saleId,
+          p.createdAt as createdAt,
+          d.partyName as customerName,
+          s.employeeId as employeeId,
+          s.employeeName as employeeName,
+          p.amount as amount,
+          p.paymentType as paymentType,
+          'debt' as source
+        FROM debt_payments p
+        JOIN debts d ON d.id = p.debtId
+        JOIN sales s ON s.id = d.sourceId
+        WHERE d.sourceType = 'sale'
+          AND p.createdAt >= ? AND p.createdAt <= ?
+          AND (
+            (? = 1 AND LOWER(COALESCE(p.paymentType, '')) = 'cash')
+            OR
+            (? = 0 AND LOWER(COALESCE(p.paymentType, '')) != 'cash')
+          )
+          ${employeeId.isEmpty ? '' : 'AND s.employeeId = ?'}
+        ORDER BY p.createdAt DESC
+        ''',
+        employeeId.isEmpty
+            ? [start.toIso8601String(), end.toIso8601String(), isCash ? 1 : 0, isCash ? 1 : 0]
+            : [start.toIso8601String(), end.toIso8601String(), isCash ? 1 : 0, isCash ? 1 : 0, employeeId],
+      );
+
+      final merged = <Map<String, dynamic>>[];
+      merged.addAll(salePaid.map((e) => Map<String, dynamic>.from(e)));
+      merged.addAll(debtPaid.map((e) => Map<String, dynamic>.from(e)));
+      merged.sort((a, b) {
+        final at = DateTime.tryParse((a['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bt = DateTime.tryParse((b['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bt.compareTo(at);
+      });
+      return merged;
+    }
+
     final rows = await db.rawQuery(
       '''
       SELECT
@@ -231,15 +341,24 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
   Future<void> _exportExcel(List<Map<String, dynamic>> rows) async {
     setState(() => _exporting = true);
     try {
+      final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
       final excel = ex.Excel.createExcel();
       excel.delete('Sheet1');
       final sheet = excel['backdata'];
+
+      final saleIds = rows
+          .map((e) => (e['saleId']?.toString() ?? '').trim())
+          .where((e) => e.isNotEmpty)
+          .toSet()
+          .toList();
+      final itemsBySaleId = await _loadSaleItemsBySaleIds(saleIds);
 
       if (widget.kind == _KpiBackdataKind.triple) {
         sheet.appendRow([
           _cv('Ngày'),
           _cv('Khách'),
           _cv('Sản phẩm'),
+          _cv('Số lượng'),
           _cv('Đơn giá'),
           _cv('Thành tiền'),
           _cv('Giá vốn'),
@@ -262,6 +381,7 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
             _cv(dateLabel),
             _cv(customer),
             _cv(name),
+            _cv(qty),
             _cv(unitPrice),
             _cv(lineTotal),
             _cv(unitCost),
@@ -275,17 +395,31 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
           _cv('Khách'),
           _cv('SaleId'),
           _cv('DebtId'),
+          _cv('Chi tiết'),
           _cv('Còn nợ'),
         ]);
         for (final r in rows) {
           final createdAt = (r['saleCreatedAt'] ?? '').toString();
           final dt = DateTime.tryParse(createdAt);
           final dateLabel = dt == null ? createdAt : DateFormat('dd/MM/yyyy').format(dt);
+          final sid = (r['saleId']?.toString() ?? '').trim();
+          final items = itemsBySaleId[sid] ?? const <Map<String, dynamic>>[];
+          final detail = items
+              .map((it) {
+                final name = (it['name'] ?? '').toString();
+                final unitPrice = (it['unitPrice'] as num?)?.toDouble() ?? 0.0;
+                final qty = (it['quantity'] as num?)?.toDouble() ?? 0.0;
+                final total = unitPrice * qty;
+                return '$name, ${currency.format(unitPrice)}, ${_formatQty(qty)}, ${currency.format(total)}';
+              })
+              .where((e) => e.trim().isNotEmpty)
+              .join('; ');
           sheet.appendRow([
             _cv(dateLabel),
             _cv(r['customerName']),
             _cv(r['saleId']),
             _cv(r['debtId']),
+            _cv(detail),
             _cv(r['remain']),
           ]);
         }
@@ -296,18 +430,32 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
           _cv('SaleId'),
           _cv('Nguồn'),
           _cv('Hình thức'),
+          _cv('Chi tiết'),
           _cv('Số tiền'),
         ]);
         for (final r in rows) {
           final createdAt = (r['createdAt'] ?? '').toString();
           final dt = DateTime.tryParse(createdAt);
           final dateLabel = dt == null ? createdAt : DateFormat('dd/MM/yyyy').format(dt);
+          final sid = (r['saleId']?.toString() ?? '').trim();
+          final items = itemsBySaleId[sid] ?? const <Map<String, dynamic>>[];
+          final detail = items
+              .map((it) {
+                final name = (it['name'] ?? '').toString();
+                final unitPrice = (it['unitPrice'] as num?)?.toDouble() ?? 0.0;
+                final qty = (it['quantity'] as num?)?.toDouble() ?? 0.0;
+                final total = unitPrice * qty;
+                return '$name, ${currency.format(unitPrice)}, ${_formatQty(qty)}, ${currency.format(total)}';
+              })
+              .where((e) => e.trim().isNotEmpty)
+              .join('; ');
           sheet.appendRow([
             _cv(dateLabel),
             _cv(r['customerName']),
             _cv(r['saleId']),
             _cv(r['source']),
             _cv(r['paymentType']),
+            _cv(detail),
             _cv(r['amount']),
           ]);
         }
@@ -349,15 +497,37 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
 
   List<String> _columns() {
     if (widget.kind == _KpiBackdataKind.triple) {
-      return const ['Ngày', 'Khách', 'Sản phẩm', 'Đơn giá', 'Thành tiền', 'Giá vốn', 'Tiền vốn', 'Lợi nhuận'];
+      return const ['Ngày', 'Khách', 'Sản phẩm', 'Số lượng', 'Đơn giá', 'Thành tiền', 'Giá vốn', 'Tiền vốn', 'Lợi nhuận'];
     }
     if (widget.kind == _KpiBackdataKind.outstanding) {
-      return const ['Ngày', 'Khách', 'SaleId', 'DebtId', 'Còn nợ'];
+      return const ['Ngày', 'Khách', 'SaleId', 'DebtId', 'Chi tiết', 'Còn nợ'];
     }
-    return const ['Ngày', 'Khách', 'SaleId', 'Nguồn', 'Hình thức', 'Số tiền'];
+    return const ['Ngày', 'Khách', 'SaleId', 'Nguồn', 'Hình thức', 'Chi tiết', 'Số tiền'];
   }
 
-  List<List<String>> _rowsAsStrings(List<Map<String, dynamic>> rows, NumberFormat currency) {
+  String _buildDetailForSaleId(
+    String saleId,
+    NumberFormat currency,
+    Map<String, List<Map<String, dynamic>>> itemsBySaleId,
+  ) {
+    final items = itemsBySaleId[saleId] ?? const <Map<String, dynamic>>[];
+    return items
+        .map((it) {
+          final name = (it['name'] ?? '').toString();
+          final unitPrice = (it['unitPrice'] as num?)?.toDouble() ?? 0.0;
+          final qty = (it['quantity'] as num?)?.toDouble() ?? 0.0;
+          final total = unitPrice * qty;
+          return '$name, ${currency.format(unitPrice)}, ${_formatQty(qty)}, ${currency.format(total)}';
+        })
+        .where((e) => e.trim().isNotEmpty)
+        .join('; ');
+  }
+
+  List<List<String>> _rowsAsStrings(
+    List<Map<String, dynamic>> rows,
+    NumberFormat currency,
+    Map<String, List<Map<String, dynamic>>> itemsBySaleId,
+  ) {
     if (widget.kind == _KpiBackdataKind.triple) {
       return rows.map((r) {
         final createdAt = (r['saleCreatedAt'] ?? '').toString();
@@ -373,6 +543,7 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
           dateLabel,
           (r['customerName'] ?? '').toString(),
           (r['productName'] ?? '').toString(),
+          _formatQty(qty),
           currency.format(unitPrice),
           currency.format(lineTotal),
           currency.format(unitCost),
@@ -388,11 +559,14 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
         final dt = DateTime.tryParse(createdAt);
         final dateLabel = dt == null ? createdAt : DateFormat('dd/MM/yyyy').format(dt);
         final remain = (r['remain'] as num?)?.toDouble() ?? 0.0;
+        final sid = (r['saleId'] ?? '').toString().trim();
+        final detail = sid.isEmpty ? '' : _buildDetailForSaleId(sid, currency, itemsBySaleId);
         return [
           dateLabel,
           (r['customerName'] ?? '').toString(),
           (r['saleId'] ?? '').toString(),
           (r['debtId'] ?? '').toString(),
+          detail,
           currency.format(remain),
         ];
       }).toList();
@@ -403,12 +577,15 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
       final dt = DateTime.tryParse(createdAt);
       final dateLabel = dt == null ? createdAt : DateFormat('dd/MM/yyyy').format(dt);
       final amount = (r['amount'] as num?)?.toDouble() ?? 0.0;
+      final sid = (r['saleId'] ?? '').toString().trim();
+      final detail = sid.isEmpty ? '' : _buildDetailForSaleId(sid, currency, itemsBySaleId);
       return [
         dateLabel,
         (r['customerName'] ?? '').toString(),
         (r['saleId'] ?? '').toString(),
         (r['source'] ?? '').toString(),
         (r['paymentType'] ?? '').toString(),
+        detail,
         currency.format(amount),
       ];
     }).toList();
@@ -570,10 +747,25 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _loadRows(),
+      body: FutureBuilder<List<Object>>(
+        future: () async {
+          final rows = await _loadRows();
+          final saleIds = rows
+              .map((e) => (e['saleId']?.toString() ?? '').trim())
+              .where((e) => e.isNotEmpty)
+              .toSet()
+              .toList();
+          final itemsBySaleId = await _loadSaleItemsBySaleIds(saleIds);
+          return [rows, itemsBySaleId];
+        }(),
         builder: (context, snap) {
-          final rows = snap.data ?? const <Map<String, dynamic>>[];
+          final data = snap.data;
+          final rows = (data != null && data.isNotEmpty)
+              ? (data[0] as List<Map<String, dynamic>>)
+              : const <Map<String, dynamic>>[];
+          final itemsBySaleId = (data != null && data.length > 1)
+              ? (data[1] as Map<String, List<Map<String, dynamic>>>)
+              : const <String, List<Map<String, dynamic>>>{};
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -610,7 +802,7 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
                               builder: (context, constraints) {
                                 final tableHeight = constraints.maxHeight;
                                 final headers = _columns();
-                                final body = _rowsAsStrings(rows, currency);
+                                final body = _rowsAsStrings(rows, currency, itemsBySaleId);
                                 final widths = _calcWidths(headers: headers, rows: body);
                                 final minTableWidth = MediaQuery.of(context).size.width - 24;
                                 final sumWidth = widths.fold<double>(0.0, (p, e) => p + e);
