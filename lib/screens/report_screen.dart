@@ -121,7 +121,12 @@ class _ReportScreenState extends State<ReportScreen> {
     return ex.TextCellValue(v.toString());
   }
 
-  Future<void> _exportAllSheetsExcel(BuildContext context) async {
+  String _customerLabel(Object? v) {
+    final s = (v ?? '').toString().trim();
+    return s.isEmpty ? 'Khách lẻ' : s;
+  }
+
+  Future<String?> _exportAllSheetsExcel(BuildContext context, {bool shareAfter = false}) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
       showDialog<void>(
@@ -156,6 +161,29 @@ class _ReportScreenState extends State<ReportScreen> {
       };
       final debts = await DatabaseService.instance.getDebtsForSync();
       final debtPayments = await DatabaseService.instance.getDebtPaymentsForSync(range: _dateRange);
+      final debtIdsForPayment = debtPayments
+          .map((e) => (e['debtId']?.toString() ?? '').trim())
+          .where((e) => e.isNotEmpty)
+          .toSet()
+          .toList();
+      final debtSourceById = <String, Map<String, String?>>{};
+      if (debtIdsForPayment.isNotEmpty) {
+        final placeholders = List.filled(debtIdsForPayment.length, '?').join(',');
+        final debtMetaRows = await db.query(
+          'debts',
+          columns: ['id', 'sourceType', 'sourceId'],
+          where: 'id IN ($placeholders)',
+          whereArgs: debtIdsForPayment,
+        );
+        for (final r in debtMetaRows) {
+          final did = (r['id']?.toString() ?? '').trim();
+          if (did.isEmpty) continue;
+          debtSourceById[did] = {
+            'sourceType': r['sourceType']?.toString(),
+            'sourceId': r['sourceId']?.toString(),
+          };
+        }
+      }
       final purchases = await db.query(
         'purchase_history',
         orderBy: 'createdAt DESC',
@@ -319,10 +347,12 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('sourceId'),
       ]);
       for (final d in debts) {
+        final customerIdRaw = (d['customerId'] ?? d['partyId'] ?? '').toString();
+        final customerNameRaw = (d['customerName'] ?? d['partyName'] ?? '').toString();
         debtsSheet.appendRow([
           _cv(d['id']),
-          _cv(d['customerId']),
-          _cv(d['customerName']),
+          _cv(_customerLabel(customerIdRaw)),
+          _cv(_customerLabel(customerNameRaw)),
           _cv(d['amount']),
           _cv(d['createdAt']),
           _cv(d['dueDate']),
@@ -346,19 +376,25 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('note'),
         _cv('createdAt'),
         _cv('isSynced'),
+        _cv('sourceType'),
+        _cv('sourceId'),
       ]);
       for (final p in debtPayments) {
+        final did = (p['debtId']?.toString() ?? '').trim();
+        final source = debtSourceById[did];
         debtPaymentsSheet.appendRow([
           _cv(p['paymentId']),
           _cv(p['debtId']),
           _cv(p['debtType']),
           _cv(p['partyId']),
-          _cv(p['partyName']),
+          _cv(_customerLabel(p['partyName'])),
           _cv(p['amount']),
           _cv(p['paymentType']),
           _cv(p['note']),
           _cv(p['createdAt']),
           _cv(p['isSynced']),
+          _cv(source?['sourceType']),
+          _cv(source?['sourceId']),
         ]);
       }
       final expensesSheet = excel['list chi phí'];
@@ -460,34 +496,33 @@ class _ReportScreenState extends State<ReportScreen> {
               final factor = (rawSellTotal <= 0) ? 0.0 : (mixLineTotal / rawSellTotal);
 
               for (final e in decoded) {
-                if (e is Map) {
-                  final rid = (e['rawProductId']?.toString() ?? '').trim();
-                  if (rid.isEmpty) continue;
-                  final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
-                  final ruc = (e['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
+                if (e is! Map) continue;
+                final rid = (e['rawProductId']?.toString() ?? '').trim();
+                if (rid.isEmpty) continue;
+                final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
+                final ruc = (e['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
 
-                  final prod = productsById[rid];
-                  final rawPrice = (prod?['price'] as num?)?.toDouble() ?? 0.0;
-                  final unitPriceSnap = rawPrice * factor;
-                  final lineTotalSnap = unitPriceSnap * rq;
+                final prod = productsById[rid];
+                final rawPrice = (prod?['price'] as num?)?.toDouble() ?? 0.0;
+                final unitPriceSnap = rawPrice * factor;
+                final lineTotalSnap = unitPriceSnap * rq;
 
-                  exportHistorySheet.appendRow([
-                    _cv(r['saleId']),
-                    _cv(r['saleCreatedAt']),
-                    _cv(r['customerName']),
-                    _cv(r['employeeId']),
-                    _cv(r['employeeName']),
-                    _cv(rid),
-                    _cv(e['rawName']),
-                    _cv(e['rawUnit']),
-                    _cv(rq),
-                    _cv(unitPriceSnap),
-                    _cv(lineTotalSnap),
-                    _cv(ruc),
-                    _cv(rq * ruc),
-                    _cv('MIX'),
-                  ]);
-                }
+                exportHistorySheet.appendRow([
+                  _cv(r['saleId']),
+                  _cv(r['saleCreatedAt']),
+                  _cv(_customerLabel(r['customerName'])),
+                  _cv(r['employeeId']),
+                  _cv(r['employeeName']),
+                  _cv(rid),
+                  _cv(e['rawName']),
+                  _cv(e['rawUnit']),
+                  _cv(rq),
+                  _cv(unitPriceSnap),
+                  _cv(lineTotalSnap),
+                  _cv(ruc),
+                  _cv(rq * ruc),
+                  _cv('MIX'),
+                ]);
               }
             }
           } catch (_) {
@@ -503,7 +538,7 @@ class _ReportScreenState extends State<ReportScreen> {
           exportHistorySheet.appendRow([
             _cv(r['saleId']),
             _cv(r['saleCreatedAt']),
-            _cv(r['customerName']),
+            _cv(_customerLabel(r['customerName'])),
             _cv(r['employeeId']),
             _cv(r['employeeName']),
             _cv(pid),
@@ -589,7 +624,7 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(saleId),
           _cv(sale['createdAt']),
           _cv(sale['customerId']),
-          _cv(sale['customerName']),
+          _cv(_customerLabel(sale['customerName'])),
           _cv(sale['employeeId']),
           _cv(sale['employeeName']),
           _cv(sale['discount']),
@@ -651,23 +686,18 @@ class _ReportScreenState extends State<ReportScreen> {
       final debtRemainBySaleId = <String, double>{};
       if (saleIdsInRangeForDebt.isNotEmpty) {
         final placeholders = List.filled(saleIdsInRangeForDebt.length, '?').join(',');
-        final debtRows = await db.query(
+        final debtsForSales = await db.query(
           'debts',
           columns: ['id', 'amount', 'sourceId'],
           where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
           whereArgs: saleIdsInRangeForDebt,
         );
-        final debtIdToSaleId = <String, String>{};
         final debtIds = <String>[];
         final debtAmountById = <String, double>{};
-        for (final d in debtRows) {
+        for (final d in debtsForSales) {
           final did = (d['id']?.toString() ?? '').trim();
-          final sid = (d['sourceId']?.toString() ?? '').trim();
           if (did.isEmpty) continue;
           debtIds.add(did);
-          if (sid.isNotEmpty) {
-            debtIdToSaleId[did] = sid;
-          }
           debtAmountById[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
         }
         if (debtIds.isNotEmpty) {
@@ -688,8 +718,8 @@ class _ReportScreenState extends State<ReportScreen> {
           );
           for (final r in payAgg) {
             final did = (r['debtId']?.toString() ?? '').trim();
-            final sid = debtIdToSaleId[did];
-            if (sid == null || sid.isEmpty) continue;
+            final sid = (r['sourceId']?.toString() ?? '').trim();
+            if (did.isEmpty || sid.isEmpty) continue;
             final paidCash = (r['paidCash'] as num?)?.toDouble() ?? 0.0;
             final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
             final paidUnset = (r['paidUnset'] as num?)?.toDouble() ?? 0.0;
@@ -733,7 +763,7 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(saleId),
           _cv(s['createdAt']),
           _cv(s['customerId']),
-          _cv(s['customerName']),
+          _cv(_customerLabel(s['customerName'])),
           _cv(s['employeeId']),
           _cv(s['employeeName']),
           _cv(discount),
@@ -784,7 +814,7 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(s['createdAt']),
           _cv(s['employeeId']),
           _cv(s['employeeName']),
-          _cv(s['customerName']),
+          _cv(_customerLabel(s['customerName'])),
           _cv(subtotal),
           _cv(discount),
           _cv(total),
@@ -1048,6 +1078,11 @@ class _ReportScreenState extends State<ReportScreen> {
       }
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pop();
+        if (shareAfter) {
+          await Share.shareXFiles([
+            XFile(filePath),
+          ], text: 'Báo cáo (${DateFormat('dd/MM/yyyy').format(_dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(_dateRange.end)})');
+        }
         messenger.showSnackBar(
           SnackBar(
             content: Text('Đã xuất Excel: $fileName'),
@@ -1060,6 +1095,7 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
         );
       }
+      return filePath;
     } catch (e) {
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -1067,6 +1103,7 @@ class _ReportScreenState extends State<ReportScreen> {
           SnackBar(content: Text('Lỗi xuất Excel: $e')),
         );
       }
+      return null;
     }
   }
 
@@ -1453,16 +1490,25 @@ class _ReportScreenState extends State<ReportScreen> {
             onSelected: (v) {
               if (v == 'export_excel') {
                 _exportAllSheetsExcel(context);
+              } else if (v == 'share_excel') {
+                _exportAllSheetsExcel(context, shareAfter: true);
               } else if (v == 'sales_history') {
                 Navigator.of(context).pushNamed('/sales_history');
               } else if (v == 'debts_history') {
-                Navigator.of(context).pushNamed('/debts_history');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DebtScreen()),
+                );
               }
             },
             itemBuilder: (ctx) => const [
               PopupMenuItem(
                 value: 'export_excel',
                 child: Text('Xuất Excel'),
+              ),
+              PopupMenuItem(
+                value: 'share_excel',
+                child: Text('Share Excel'),
               ),
               PopupMenuItem(
                 value: 'sales_history',
@@ -1530,7 +1576,7 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(1),
+              padding: const EdgeInsets.fromLTRB(2, 0, 12, 2),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1868,7 +1914,7 @@ class _ReportScreenState extends State<ReportScreen> {
                             const SizedBox(height: 12),
                             const SizedBox(height: 14),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 1),
+                    padding: const EdgeInsets.symmetric(horizontal: 0),
                     child: _buildTopProductsCard(
                       currency: currency,
                       dateRange: _dateRange,
@@ -2186,9 +2232,7 @@ class _ReportScreenState extends State<ReportScreen> {
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.black.withAlpha(8)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
+      child:  Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Top hàng bán chạy', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
@@ -2220,7 +2264,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
           ],
         ),
-      ),
+      
     );
   }
 
