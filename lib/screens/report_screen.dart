@@ -1750,6 +1750,15 @@ class _ReportScreenState extends State<ReportScreen> {
                               ],
                             ),
                             const SizedBox(height: 12),
+                            const SizedBox(height: 14),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1),
+                    child: _buildTopProductsCard(
+                      currency: currency,
+                      dateRange: _dateRange,
+                      rows: topProductsLimited,
+                    ),
+                  ),
                             Card(
                               elevation: 2,
                               shadowColor: Colors.black.withAlpha(35),
@@ -1855,15 +1864,7 @@ class _ReportScreenState extends State<ReportScreen> {
                       },
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: _buildTopProductsCard(
-                      currency: currency,
-                      dateRange: _dateRange,
-                      rows: topProductsLimited,
-                    ),
-                  ),
+                  
                   const SizedBox(height: 16),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12),
@@ -2070,7 +2071,7 @@ class _ReportScreenState extends State<ReportScreen> {
         side: BorderSide(color: Colors.black.withAlpha(8)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
