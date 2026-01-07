@@ -1009,7 +1009,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
             padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
             child: Row(
               children: [
-                Expanded(
+                SizedBox(
+                  width: 180,
                   child: TextField(
                     decoration: const InputDecoration(
                       hintText: 'Tìm theo khách hàng / mặt hàng',
@@ -1018,6 +1019,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     ),
                     onChanged: (v) => setState(() => _query = v.trim()),
                   ),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('Nợ lỗi'),
+                  selected: _onlyDebtIssues,
+                  labelStyle: const TextStyle(fontSize: 12),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onSelected: (v) => setState(() => _onlyDebtIssues = v),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -1054,21 +1064,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     onPressed: () => setState(() => _range = null),
                   ),
                 ],
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-            child: Row(
-              children: [
-                FilterChip(
-                  label: const Text('Nợ lỗi'),
-                  selected: _onlyDebtIssues,
-                  labelStyle: const TextStyle(fontSize: 12),
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  onSelected: (v) => setState(() => _onlyDebtIssues = v),
-                ),
               ],
             ),
           ),

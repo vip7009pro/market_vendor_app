@@ -50,6 +50,7 @@ class _SaleScreenState extends State<SaleScreen> {
   double _qtyStep = 1;
   VoidCallback? _clearProductField;
   VoidCallback? _unfocusProductField;
+
   List<Customer> _recentCustomers = [];
   List<Product> _recentProducts = [];
 
@@ -1417,48 +1418,64 @@ class _SaleScreenState extends State<SaleScreen> {
 
         return StatefulBuilder(
           builder: (context, setState) {
+            void applyFilter(String value) {
+              if (value.trim().isEmpty) {
+                setState(() {
+                  filteredProducts = List.from(baseProducts);
+                });
+                return;
+              }
+              final query = value.toLowerCase();
+              setState(() {
+                filteredProducts = baseProducts.where((product) {
+                  final nameMatch = product.name.toLowerCase().contains(query);
+                  final barcodeMatch = product.barcode?.toLowerCase().contains(query) ?? false;
+                  return nameMatch || barcodeMatch;
+                }).toList();
+              });
+            }
+
             return Container(
               padding: const EdgeInsets.all(16),
               height: MediaQuery.of(context).size.height * 0.8,
               child: Column(
                 children: [
-                  TextField(
-                    controller: searchController,
-                    decoration: InputDecoration(
-                      labelText: 'Tìm kiếm sản phẩm',
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          searchController.clear();
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: searchController,
+                          decoration: InputDecoration(
+                            labelText: 'Tìm kiếm sản phẩm',
+                            isDense: true,
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                searchController.clear();
+                                applyFilter('');
+                              },
+                            ),
+                          ),
+                          onChanged: applyFilter,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Thêm sản phẩm nhanh',
+                        icon: const Icon(Icons.add),
+                        onPressed: () async {
+                          await _addQuickProductDialog(
+                            prefillName: searchController.text.trim().isEmpty ? null : searchController.text.trim(),
+                          );
+                          if (!context.mounted) return;
+                          final products = await DatabaseService.instance.getProductsForSale();
+                          baseProducts = products.toList();
                           setState(() {
-                            filteredProducts = List.from(baseProducts);
+                            applyFilter(searchController.text);
                           });
                         },
                       ),
-                    ),
-                    onChanged: (value) {
-                      if (value.isEmpty) {
-                        setState(() {
-                          filteredProducts = List.from(baseProducts);
-                        });
-                      } else {
-                        final query = value.toLowerCase();
-                        setState(() {
-                          filteredProducts =
-                              baseProducts.where((product) {
-                                final nameMatch = product.name
-                                    .toLowerCase()
-                                    .contains(query);
-                                final barcodeMatch =
-                                    product.barcode?.toLowerCase().contains(
-                                      query,
-                                    ) ??
-                                    false;
-                                return nameMatch || barcodeMatch;
-                              }).toList();
-                        });
-                      }
-                    },
+                    ],
                   ),
                   const SizedBox(height: 16),
                   Expanded(
@@ -1617,6 +1634,12 @@ class _SaleScreenState extends State<SaleScreen> {
 
   @override
   Widget build(BuildContext context) {
+    assert(() {
+      _recentCustomers.length;
+      _recentProducts.length;
+      return true;
+    }());
+
     final products = context.watch<ProductProvider>().products;
     final customers = context.watch<CustomerProvider>().customers;
     final subtotal = _items.fold(0.0, (p, e) => p + e.total);
@@ -1636,6 +1659,32 @@ class _SaleScreenState extends State<SaleScreen> {
             onPressed: _pickEmployee,
             icon: const Icon(Icons.badge_outlined),
             label: Text((_employeeName ?? '').trim().isEmpty ? 'Nhân viên' : (_employeeName ?? '').trim()),
+          ),
+          IconButton(
+            tooltip: 'Thêm sản phẩm',
+            icon: const Icon(Icons.add_shopping_cart_outlined),
+            onPressed: () async {
+              final product = await _showProductPicker();
+              if (product == null) return;
+              if (!mounted) return;
+              setState(() {
+                _addSelectedProductToSale(product);
+              });
+              if (product.itemType != ProductItemType.mix) {
+                await _applyLastUnitTo(
+                  _items.lastWhere((item) => item.productId == product.id),
+                );
+              }
+              await _saveRecentProduct(product);
+              if (!_paidEdited) {
+                final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                if (!mounted) return;
+                setState(() => _paid = total2);
+              }
+              _clearProductField?.call();
+              _unfocusProductField?.call();
+            },
           ),
           // Nút đặt hàng bằng giọng nói
           Builder(
@@ -1802,28 +1851,23 @@ class _SaleScreenState extends State<SaleScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).dividerColor),
-                    borderRadius: BorderRadius.circular(12),
-                    color: Theme.of(context).colorScheme.surface,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),                 
                   child: Row(
                     children: [
-                      const Icon(Icons.person_outline, size: 18),
+                      const Icon(Icons.person_outline, size: 20),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           (_customerName ?? '').trim().isNotEmpty ? (_customerName ?? '').trim() : 'Chọn khách hàng',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontWeight: FontWeight.w700,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
                             color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.expand_more, size: 18),
+                      const SizedBox(width: 26),
                     ],
                   ),
                 ),
@@ -1868,60 +1912,6 @@ class _SaleScreenState extends State<SaleScreen> {
               //     ),
               //   ],
               // ),
-              const SizedBox(height: 12),
-              // Product selection
-              InkWell(
-                onTap: () async {
-                  final product = await _showProductPicker();
-                  if (product != null) {
-                    setState(() {
-                      _addSelectedProductToSale(product);
-                    });
-                    if (product.itemType != ProductItemType.mix) {
-                      await _applyLastUnitTo(
-                        _items.lastWhere(
-                          (item) => item.productId == product.id,
-                        ),
-                      );
-                    }
-                    await _saveRecentProduct(product);
-                    if (!_paidEdited) {
-                      final subtotal2 = _items.fold(
-                        0.0,
-                        (p, e) => p + e.total,
-                      );
-                      final total2 =
-                          (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
-                      setState(() => _paid = total2);
-                    }
-                    _clearProductField?.call();
-                    _unfocusProductField?.call();
-                  }
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).dividerColor),
-                    borderRadius: BorderRadius.circular(12),
-                    color: Theme.of(context).colorScheme.surface,
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.add_shopping_cart_outlined, size: 18),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Thêm sản phẩm',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      Icon(Icons.expand_more, size: 18),
-                    ],
-                  ),
-                ),
-              ),
               const SizedBox(height: 8),
               // Wrap(
               //   spacing: 8,
@@ -2293,62 +2283,70 @@ class _SaleScreenState extends State<SaleScreen> {
                                                   child: Column(
                                                     crossAxisAlignment: CrossAxisAlignment.start,
                                                     children: [
-                                                      Text(
-                                                        rawName.isEmpty ? 'Nguyên liệu' : rawName,
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow.ellipsis,
+                                                      Row(
+                                                        children: [
+                                                          Expanded(
+                                                            child: Text(
+                                                              rawName.isEmpty ? 'Nguyên liệu' : rawName,
+                                                              maxLines: 1,
+                                                              overflow: TextOverflow.ellipsis,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          Text(
+                                                            rawStock == null
+                                                                ? ''
+                                                                : 'Tồn: ${rawStock.toStringAsFixed(rawStock % 1 == 0 ? 0 : 2)}${rawUnit.isEmpty ? '' : ' $rawUnit'}',
+                                                            maxLines: 1,
+                                                            overflow: TextOverflow.ellipsis,
+                                                            style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                                                          ),
+                                                        ],
                                                       ),
-                                                      const SizedBox(height: 2),
-                                                      Text(
-                                                        '${rawStock == null ? '' : 'Tồn: ${rawStock.toStringAsFixed(rawStock % 1 == 0 ? 0 : 2)}'}${rawStock == null ? '' : (rawUnit.isEmpty ? '' : ' $rawUnit')}  |  Giá: ${currency.format(rawUnitCost)}',
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow.ellipsis,
-                                                        style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                                                      const SizedBox(height: 4),
+                                                      Row(
+                                                        children: [
+                                                          SizedBox(
+                                                            width: 74,
+                                                            child: TextField(
+                                                              controller: ctrl,
+                                                              focusNode: focusNode,
+                                                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                                              inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                                                              decoration: InputDecoration(
+                                                                hintText: rawUnit.isEmpty ? 'SL' : 'SL ($rawUnit)',
+                                                                isDense: true,
+                                                              ),
+                                                              onChanged: (v) {
+                                                                final val = NumberInputFormatter.tryParse(v);
+                                                                if (val == null || val < 0) return;
+                                                                final items = _getMixItems(it);
+                                                                if (idx >= items.length) return;
+                                                                items[idx]['rawQty'] = val;
+                                                                _setMixItems(it, items);
+                                                                _recalcMixTotalsFromMixItems(it, items);
+                                                                setState(() {
+                                                                  if (!_paidEdited) {
+                                                                    final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                                                                    final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                                                                    _paid = total2;
+                                                                  }
+                                                                });
+                                                              },
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          Expanded(
+                                                            child: Text(
+                                                              'Giá: ${currency.format(rawUnitCost)}  •  Thành: ${currency.format(rawQty * rawUnitCost)}',
+                                                              maxLines: 1,
+                                                              overflow: TextOverflow.ellipsis,
+                                                              style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                                                            ),
+                                                          ),
+                                                        ],
                                                       ),
                                                     ],
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                SizedBox(
-                                                  width: 92,
-                                                  child: TextField(
-                                                    controller: ctrl,
-                                                    focusNode: focusNode,
-                                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-                                                    decoration: InputDecoration(
-                                                      labelText: rawUnit.isEmpty ? 'SL' : 'SL ($rawUnit)',
-                                                      isDense: true,
-                                                    ),
-                                                    onChanged: (v) {
-                                                      final val = NumberInputFormatter.tryParse(v);
-                                                      if (val == null || val < 0) return;
-                                                      final items = _getMixItems(it);
-                                                      if (idx >= items.length) return;
-                                                      items[idx]['rawQty'] = val;
-                                                      _setMixItems(it, items);
-                                                      _recalcMixTotalsFromMixItems(it, items);
-                                                      setState(() {
-                                                        if (!_paidEdited) {
-                                                          final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
-                                                          final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
-                                                          _paid = total2;
-                                                        }
-                                                      });
-                                                    },
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                SizedBox(
-                                                  width: 88,
-                                                  child: Align(
-                                                    alignment: Alignment.centerRight,
-                                                    child: Text(
-                                                      currency.format(rawQty * rawUnitCost),
-                                                      maxLines: 1,
-                                                      overflow: TextOverflow.ellipsis,
-                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                                                    ),
                                                   ),
                                                 ),
                                                 IconButton(
