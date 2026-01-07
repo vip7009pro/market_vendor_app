@@ -121,7 +121,12 @@ class _ReportScreenState extends State<ReportScreen> {
     return ex.TextCellValue(v.toString());
   }
 
-  Future<void> _exportAllSheetsExcel(BuildContext context) async {
+  String _customerOrRetail(Object? v) {
+    final s = (v ?? '').toString().trim();
+    return s.isEmpty ? 'Khách lẻ' : s;
+  }
+
+  Future<void> _shareAllSheetsExcel(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
       showDialog<void>(
@@ -136,11 +141,12 @@ class _ReportScreenState extends State<ReportScreen> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
               SizedBox(width: 12),
-              Expanded(child: Text('Đang xuất Excel...')),
+              Expanded(child: Text('Đang tạo file Excel...')),
             ],
           ),
         ),
       );
+
       final monthYear = DateTime(_dateRange.start.year, _dateRange.start.month);
       final monthStart = DateTime(monthYear.year, monthYear.month, 1);
       final monthEnd = DateTime(monthYear.year, monthYear.month + 1, 0, 23, 59, 59, 999);
@@ -155,6 +161,9 @@ class _ReportScreenState extends State<ReportScreen> {
         for (final p in productsRows) (p['id'] as String): p,
       };
       final debts = await DatabaseService.instance.getDebtsForSync();
+      final debtById = <String, Map<String, dynamic>>{
+        for (final d in debts) (d['id']?.toString() ?? ''): d,
+      };
       final debtPayments = await DatabaseService.instance.getDebtPaymentsForSync(range: _dateRange);
       final purchases = await db.query(
         'purchase_history',
@@ -321,8 +330,8 @@ class _ReportScreenState extends State<ReportScreen> {
       for (final d in debts) {
         debtsSheet.appendRow([
           _cv(d['id']),
-          _cv(d['customerId']),
-          _cv(d['customerName']),
+          _cv(d['partyId'] ?? d['customerId']),
+          _cv(_customerOrRetail(d['partyName'] ?? d['customerName'])),
           _cv(d['amount']),
           _cv(d['createdAt']),
           _cv(d['dueDate']),
@@ -346,19 +355,25 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('note'),
         _cv('createdAt'),
         _cv('isSynced'),
+        _cv('sourceType'),
+        _cv('sourceId'),
       ]);
       for (final p in debtPayments) {
+        final did = (p['debtId']?.toString() ?? '').trim();
+        final debt = debtById[did];
         debtPaymentsSheet.appendRow([
           _cv(p['paymentId']),
           _cv(p['debtId']),
           _cv(p['debtType']),
           _cv(p['partyId']),
-          _cv(p['partyName']),
+          _cv(_customerOrRetail(p['partyName'])),
           _cv(p['amount']),
           _cv(p['paymentType']),
           _cv(p['note']),
           _cv(p['createdAt']),
           _cv(p['isSynced']),
+          _cv(debt?['sourceType']),
+          _cv(debt?['sourceId']),
         ]);
       }
       final expensesSheet = excel['list chi phí'];
@@ -437,122 +452,59 @@ class _ReportScreenState extends State<ReportScreen> {
       for (final r in saleItemsInRange) {
         final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
         if (itemType == 'MIX') {
-          final raw = (r['mixItemsJson']?.toString() ?? '').trim();
-          if (raw.isEmpty) continue;
-          try {
-            final decoded = jsonDecode(raw);
-            if (decoded is List) {
-              final mixQty = (r['quantity'] as num?)?.toDouble() ?? 0.0;
-              final mixUnitPrice = (r['unitPrice'] as num?)?.toDouble() ?? 0.0;
-              final mixLineTotal = mixQty * mixUnitPrice;
-
-              double rawSellTotal = 0.0;
-              for (final e in decoded) {
-                if (e is! Map) continue;
-                final rid = (e['rawProductId']?.toString() ?? '').trim();
-                if (rid.isEmpty) continue;
-                final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
-                if (rq <= 0) continue;
-                final prod = productsById[rid];
-                final rawPrice = (prod?['price'] as num?)?.toDouble() ?? 0.0;
-                rawSellTotal += rq * rawPrice;
-              }
-              final factor = (rawSellTotal <= 0) ? 0.0 : (mixLineTotal / rawSellTotal);
-
-              for (final e in decoded) {
-                if (e is Map) {
-                  final rid = (e['rawProductId']?.toString() ?? '').trim();
-                  if (rid.isEmpty) continue;
-                  final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
-                  final ruc = (e['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
-
-                  final prod = productsById[rid];
-                  final rawPrice = (prod?['price'] as num?)?.toDouble() ?? 0.0;
-                  final unitPriceSnap = rawPrice * factor;
-                  final lineTotalSnap = unitPriceSnap * rq;
-
-                  exportHistorySheet.appendRow([
-                    _cv(r['saleId']),
-                    _cv(r['saleCreatedAt']),
-                    _cv(r['customerName']),
-                    _cv(r['employeeId']),
-                    _cv(r['employeeName']),
-                    _cv(rid),
-                    _cv(e['rawName']),
-                    _cv(e['rawUnit']),
-                    _cv(rq),
-                    _cv(unitPriceSnap),
-                    _cv(lineTotalSnap),
-                    _cv(ruc),
-                    _cv(rq * ruc),
-                    _cv('MIX'),
-                  ]);
-                }
-              }
-            }
-          } catch (_) {
-            continue;
+          final mix = (r['mixItemsJson']?.toString() ?? '').trim();
+          final decoded = (mix.isEmpty) ? null : jsonDecode(mix);
+          final List items = (decoded is List) ? decoded : const [];
+          for (final raw in items) {
+            if (raw is! Map) continue;
+            final rid = (raw['productId']?.toString() ?? '').trim();
+            if (rid.isEmpty) continue;
+            final name = (raw['name']?.toString() ?? '').trim();
+            final unit = (raw['unit']?.toString() ?? '').trim();
+            final qty = (raw['quantity'] as num?)?.toDouble() ?? 0.0;
+            final unitPrice = (raw['unitPrice'] as num?)?.toDouble() ?? 0.0;
+            final unitCost = (raw['unitCost'] as num?)?.toDouble() ?? 0.0;
+            exportHistorySheet.appendRow([
+              _cv(r['saleId']),
+              _cv(r['saleCreatedAt']),
+              _cv(_customerOrRetail(r['customerName'])),
+              _cv(r['employeeId']),
+              _cv(r['employeeName']),
+              _cv(rid),
+              _cv(name),
+              _cv(unit),
+              _cv(qty),
+              _cv(unitPrice),
+              _cv(unitPrice * qty),
+              _cv(unitCost),
+              _cv(unitCost * qty),
+              _cv('mix'),
+            ]);
           }
-        } else {
-          final pid = (r['productId']?.toString() ?? '').trim();
-          if (pid.isEmpty) continue;
-          final qty = (r['quantity'] as num?)?.toDouble() ?? 0.0;
-          final unitPriceSnap = (r['unitPrice'] as num?)?.toDouble() ?? 0.0;
-          final lineTotalSnap = unitPriceSnap * qty;
-          final unitCostSnap = (r['unitCost'] as num?)?.toDouble() ?? 0.0;
-          exportHistorySheet.appendRow([
-            _cv(r['saleId']),
-            _cv(r['saleCreatedAt']),
-            _cv(r['customerName']),
-            _cv(r['employeeId']),
-            _cv(r['employeeName']),
-            _cv(pid),
-            _cv(r['name']),
-            _cv(r['unit']),
-            _cv(qty),
-            _cv(unitPriceSnap),
-            _cv(lineTotalSnap),
-            _cv(unitCostSnap),
-            _cv(qty * unitCostSnap),
-            _cv('RAW'),
-          ]);
+          continue;
         }
-      }
-      final purchaseSheet = excel['list nhập hàng'];
-      purchaseSheet.appendRow([
-        _cv('id'),
-        _cv('createdAt'),
-        _cv('productId'),
-        _cv('productName'),
-        _cv('productUnit'),
-        _cv('quantity'),
-        _cv('unitCost'),
-        _cv('totalCost'),
-        _cv('supplierName'),
-        _cv('supplierPhone'),
-        _cv('note'),
-        _cv('updatedAt'),
-      ]);
-      for (final ph in purchases) {
-        final pid = ph['productId'] as String;
-        final prod = productsById[pid];
-        purchaseSheet.appendRow([
-          _cv(ph['id']),
-          _cv(ph['createdAt']),
+
+        final pid = (r['productId']?.toString() ?? '').trim();
+        exportHistorySheet.appendRow([
+          _cv(r['saleId']),
+          _cv(r['saleCreatedAt']),
+          _cv(_customerOrRetail(r['customerName'])),
+          _cv(r['employeeId']),
+          _cv(r['employeeName']),
           _cv(pid),
-          _cv(ph['productName']),
-          _cv(prod?['unit']),
-          _cv(ph['quantity']),
-          _cv(ph['unitCost']),
-          _cv(ph['totalCost']),
-          _cv(ph['supplierName']),
-          _cv(ph['supplierPhone']),
-          _cv(ph['note']),
-          _cv(ph['updatedAt']),
+          _cv(r['name']),
+          _cv(r['unit']),
+          _cv(r['quantity']),
+          _cv(r['unitPrice']),
+          _cv(((r['unitPrice'] as num?)?.toDouble() ?? 0.0) * ((r['quantity'] as num?)?.toDouble() ?? 0.0)),
+          _cv(r['unitCost']),
+          _cv(((r['unitCost'] as num?)?.toDouble() ?? 0.0) * ((r['quantity'] as num?)?.toDouble() ?? 0.0)),
+          _cv('normal'),
         ]);
       }
-      final saleSheet = excel['list xuất hàng'];
-      saleSheet.appendRow([
+
+      final salesSheet = excel['list đơn hàng'];
+      salesSheet.appendRow([
         _cv('saleId'),
         _cv('saleCreatedAt'),
         _cv('customerId'),
@@ -560,204 +512,123 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('employeeId'),
         _cv('employeeName'),
         _cv('saleDiscount'),
-        _cv('salePaidAmount'),
-        _cv('salePaymentType'),
-        _cv('saleTotalCost'),
-        _cv('saleNote'),
-        _cv('productId'),
-        _cv('productName'),
-        _cv('productUnit'),
-        _cv('unitPrice'),
-        _cv('quantity'),
-        _cv('lineTotal'),
-        _cv('unitCostSnap'),
-        _cv('lineCostTotalSnap'),
-      ]);
-      for (final it in saleItems) {
-        final saleId = it['saleId'] as String?;
-        if (saleId == null) continue;
-        final sale = saleById[saleId];
-        if (sale == null) continue;
-        final pid = it['productId'] as String?;
-        final prod = pid == null ? null : productsById[pid];
-        final unitPrice = (it['unitPrice'] as num?)?.toDouble() ?? 0;
-        final qty = (it['quantity'] as num?)?.toDouble() ?? 0;
-        final lineTotal = unitPrice * qty;
-        final unitCostSnap = (it['unitCost'] as num?)?.toDouble() ?? 0.0;
-        final lineCostTotalSnap = unitCostSnap * qty;
-        saleSheet.appendRow([
-          _cv(saleId),
-          _cv(sale['createdAt']),
-          _cv(sale['customerId']),
-          _cv(sale['customerName']),
-          _cv(sale['employeeId']),
-          _cv(sale['employeeName']),
-          _cv(sale['discount']),
-          _cv(sale['paidAmount']),
-          _cv(sale['paymentType']),
-          _cv(sale['totalCost']),
-          _cv(sale['note']),
-          _cv(pid),
-          _cv(it['name']),
-          _cv(prod?['unit'] ?? it['unit']),
-          _cv(unitPrice),
-          _cv(qty),
-          _cv(lineTotal),
-          _cv(unitCostSnap),
-          _cv(lineCostTotalSnap),
-        ]);
-      }
-      final listOrdersSheet = excel['list đơn hàng'];
-      listOrdersSheet.appendRow([
-        _cv('saleId'),
-        _cv('saleCreatedAt'),
-        _cv('customerId'),
-        _cv('customerName'),
-        _cv('employeeId'),
-        _cv('employeeName'),
-        _cv('saleDiscount'),
-        _cv('salePaidAmount'),
-        _cv('salePaidCash'),
-        _cv('salePaidBank'),
-        _cv('salePaidUnset'),
-        _cv('salePaymentType'),
-        _cv('saleTotalCost'),
-        _cv('saleNote'),
+        _cv('saleSubtotal'),
         _cv('saleTotal'),
-        _cv('debtPaidCash'),
-        _cv('debtPaidBank'),
-        _cv('debtPaidUnset'),
-        _cv('debtPaidTotal'),
-        _cv('debtNotPaid'),
-        _cv('totalPaidCash'),
-        _cv('totalPaidBank'),
-        _cv('totalPaidUnset'),
-        _cv('totalPaid'),
+        _cv('salePaid'),
+        _cv('salePaymentType'),
+        _cv('saleDebtId'),
+        _cv('saleDebtAmount'),
+        _cv('saleDebtPaidTotal'),
+        _cv('saleDebtRemain'),
       ]);
-      // Debt stats by saleId (for list đơn hàng)
-      final saleIdsInRangeForDebt = <String>[];
-      for (final s in sales) {
-        final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
-        if (createdAt == null) continue;
-        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
-        final sid = (s['id']?.toString() ?? '').trim();
-        if (sid.isEmpty) continue;
-        saleIdsInRangeForDebt.add(sid);
+      final debtIdToSaleId = <String, String>{};
+      final debtIds = <String>[];
+      final debtAmountById = <String, double>{};
+      for (final d in debts) {
+        final did = (d['id']?.toString() ?? '').trim();
+        final sid = (d['sourceId']?.toString() ?? '').trim();
+        if (did.isEmpty) continue;
+        debtIds.add(did);
+        if (sid.isNotEmpty) {
+          debtIdToSaleId[did] = sid;
+        }
+        debtAmountById[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
       }
-      final debtPaidCashBySaleId = <String, double>{};
-      final debtPaidBankBySaleId = <String, double>{};
-      final debtPaidUnsetBySaleId = <String, double>{};
-      final debtPaidTotalBySaleId = <String, double>{};
-      final debtRemainBySaleId = <String, double>{};
-      if (saleIdsInRangeForDebt.isNotEmpty) {
-        final placeholders = List.filled(saleIdsInRangeForDebt.length, '?').join(',');
-        final debtRows = await db.query(
-          'debts',
-          columns: ['id', 'amount', 'sourceId'],
-          where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
-          whereArgs: saleIdsInRangeForDebt,
+      final paidTotalByDebtId = <String, double>{};
+      if (debtIds.isNotEmpty) {
+        final dph = List.filled(debtIds.length, '?').join(',');
+        final payAgg = await db.rawQuery(
+          '''
+          SELECT debtId as debtId, SUM(amount) as total
+          FROM debt_payments
+          WHERE debtId IN ($dph)
+          GROUP BY debtId
+          ''',
+          debtIds,
         );
-        final debtIdToSaleId = <String, String>{};
-        final debtIds = <String>[];
-        final debtAmountById = <String, double>{};
-        for (final d in debtRows) {
-          final did = (d['id']?.toString() ?? '').trim();
-          final sid = (d['sourceId']?.toString() ?? '').trim();
+        for (final r in payAgg) {
+          final did = (r['debtId']?.toString() ?? '').trim();
           if (did.isEmpty) continue;
-          debtIds.add(did);
-          if (sid.isNotEmpty) {
-            debtIdToSaleId[did] = sid;
-          }
-          debtAmountById[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
-        }
-        if (debtIds.isNotEmpty) {
-          final dph = List.filled(debtIds.length, '?').join(',');
-          final payAgg = await db.rawQuery(
-            '''
-            SELECT
-              debtId as debtId,
-              SUM(CASE WHEN paymentType = 'cash' THEN amount ELSE 0 END) as paidCash,
-              SUM(CASE WHEN paymentType = 'bank' THEN amount ELSE 0 END) as paidBank,
-              SUM(CASE WHEN paymentType IS NULL OR TRIM(paymentType) = '' THEN amount ELSE 0 END) as paidUnset,
-              SUM(amount) as paidTotal
-            FROM debt_payments
-            WHERE debtId IN ($dph)
-            GROUP BY debtId
-            ''',
-            debtIds,
-          );
-          for (final r in payAgg) {
-            final did = (r['debtId']?.toString() ?? '').trim();
-            final sid = debtIdToSaleId[did];
-            if (sid == null || sid.isEmpty) continue;
-            final paidCash = (r['paidCash'] as num?)?.toDouble() ?? 0.0;
-            final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
-            final paidUnset = (r['paidUnset'] as num?)?.toDouble() ?? 0.0;
-            final paidTotal = (r['paidTotal'] as num?)?.toDouble() ?? 0.0;
-            debtPaidCashBySaleId[sid] = (debtPaidCashBySaleId[sid] ?? 0) + paidCash;
-            debtPaidBankBySaleId[sid] = (debtPaidBankBySaleId[sid] ?? 0) + paidBank;
-            debtPaidUnsetBySaleId[sid] = (debtPaidUnsetBySaleId[sid] ?? 0) + paidUnset;
-            debtPaidTotalBySaleId[sid] = (debtPaidTotalBySaleId[sid] ?? 0) + paidTotal;
-          }
+          paidTotalByDebtId[did] = (r['total'] as num?)?.toDouble() ?? 0.0;
         }
       }
       for (final s in sales) {
-        final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
-        if (createdAt == null) continue;
-        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
-        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
         final saleId = (s['id']?.toString() ?? '').trim();
         if (saleId.isEmpty) continue;
+        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
         final subtotal = saleSubtotalById[saleId] ?? 0.0;
         final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
-
-        final salePaidAmount = (s['paidAmount'] as num?)?.toDouble() ?? 0.0;
-        final salePaymentType = (s['paymentType']?.toString() ?? '').trim().toLowerCase();
-        final salePaidCash = salePaymentType == 'cash' ? salePaidAmount : 0.0;
-        final salePaidBank = salePaymentType == 'bank' ? salePaidAmount : 0.0;
-        final salePaidUnset = (salePaymentType.isEmpty || (salePaymentType != 'cash' && salePaymentType != 'bank'))
-            ? salePaidAmount
-            : 0.0;
-
-        final debtPaidCash = debtPaidCashBySaleId[saleId] ?? 0.0;
-        final debtPaidBank = debtPaidBankBySaleId[saleId] ?? 0.0;
-        final debtPaidUnset = debtPaidUnsetBySaleId[saleId] ?? 0.0;
-        final debtPaidTotal = debtPaidTotalBySaleId[saleId] ?? 0.0;
-        final debtNotPaid = debtRemainBySaleId[saleId] ?? 0.0;
-
-        final totalPaidCash = salePaidCash + debtPaidCash;
-        final totalPaidBank = salePaidBank + debtPaidBank;
-        final totalPaidUnset = salePaidUnset + debtPaidUnset;
-        final totalPaid = totalPaidCash + totalPaidBank + totalPaidUnset;
-        listOrdersSheet.appendRow([
+        final paid = (s['paidAmount'] as num?)?.toDouble() ?? 0.0;
+        String? saleDebtId;
+        double saleDebtAmount = 0.0;
+        double saleDebtPaidTotal = 0.0;
+        double saleDebtRemain = 0.0;
+        for (final e in debtIdToSaleId.entries) {
+          if (e.value == saleId) {
+            saleDebtId = e.key;
+            break;
+          }
+        }
+        if (saleDebtId != null) {
+          saleDebtAmount = debtAmountById[saleDebtId] ?? 0.0;
+          saleDebtPaidTotal = paidTotalByDebtId[saleDebtId] ?? 0.0;
+          saleDebtRemain = (saleDebtAmount - saleDebtPaidTotal);
+        }
+        salesSheet.appendRow([
           _cv(saleId),
           _cv(s['createdAt']),
           _cv(s['customerId']),
-          _cv(s['customerName']),
+          _cv(_customerOrRetail(s['customerName'])),
           _cv(s['employeeId']),
           _cv(s['employeeName']),
           _cv(discount),
-          _cv(salePaidAmount),
-          _cv(salePaidCash),
-          _cv(salePaidBank),
-          _cv(salePaidUnset),
-          _cv(salePaymentType),
-          _cv(s['totalCost']),
-          _cv(s['note']),
+          _cv(subtotal),
           _cv(total),
-          _cv(debtPaidCash),
-          _cv(debtPaidBank),
-          _cv(debtPaidUnset),
-          _cv(debtPaidTotal),
-          _cv(debtNotPaid),
-          _cv(totalPaidCash),
-          _cv(totalPaidBank),
-          _cv(totalPaidUnset),
-          _cv(totalPaid),
+          _cv(paid),
+          _cv(s['paymentType']),
+          _cv(saleDebtId),
+          _cv(saleDebtAmount),
+          _cv(saleDebtPaidTotal),
+          _cv(saleDebtRemain),
         ]);
       }
-      final tripleBackdataSheet = excel['backdata_triple_kpi'];
-      tripleBackdataSheet.appendRow([
+
+      final saleInRangeSheet = excel['list đơn hàng trong kỳ'];
+      saleInRangeSheet.appendRow([
+        _cv('saleId'),
+        _cv('saleCreatedAt'),
+        _cv('customerId'),
+        _cv('customerName'),
+        _cv('employeeId'),
+        _cv('employeeName'),
+        _cv('saleDiscount'),
+        _cv('saleSubtotal'),
+        _cv('saleTotal'),
+      ]);
+      for (final s in sales) {
+        final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
+        if (createdAt == null) continue;
+        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+        final saleId = (s['id']?.toString() ?? '').trim();
+        if (saleId.isEmpty) continue;
+        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
+        final subtotal = saleSubtotalById[saleId] ?? 0.0;
+        final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+        saleInRangeSheet.appendRow([
+          _cv(saleId),
+          _cv(s['createdAt']),
+          _cv(s['customerId']),
+          _cv(_customerOrRetail(s['customerName'])),
+          _cv(s['employeeId']),
+          _cv(s['employeeName']),
+          _cv(discount),
+          _cv(subtotal),
+          _cv(total),
+        ]);
+      }
+
+      final topRevenueSheet = excel['top doanh thu'];
+      topRevenueSheet.appendRow([
         _cv('saleId'),
         _cv('saleCreatedAt'),
         _cv('employeeId'),
@@ -766,199 +637,28 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('subtotal'),
         _cv('discount'),
         _cv('total'),
-        _cv('paidAmount'),
-        _cv('paymentType'),
-        _cv('saleTotalCost'),
       ]);
       for (final s in sales) {
+        final saleId = (s['id']?.toString() ?? '').trim();
+        if (saleId.isEmpty) continue;
         final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
         if (createdAt == null) continue;
         if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
         final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
-        final saleId = (s['id']?.toString() ?? '').trim();
-        if (saleId.isEmpty) continue;
         final subtotal = saleSubtotalById[saleId] ?? 0.0;
         final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
-        tripleBackdataSheet.appendRow([
+        topRevenueSheet.appendRow([
           _cv(saleId),
           _cv(s['createdAt']),
           _cv(s['employeeId']),
           _cv(s['employeeName']),
-          _cv(s['customerName']),
+          _cv(_customerOrRetail(s['customerName'])),
           _cv(subtotal),
           _cv(discount),
           _cv(total),
-          _cv(s['paidAmount']),
-          _cv(s['paymentType']),
-          _cv(s['totalCost']),
         ]);
       }
-      final paymentPaidSheet = excel['backdata_payment_paid_amount'];
-      paymentPaidSheet.appendRow([
-        _cv('saleId'),
-        _cv('saleCreatedAt'),
-        _cv('employeeId'),
-        _cv('employeeName'),
-        _cv('paidAmount'),
-        _cv('paymentType'),
-      ]);
-      final paymentDebtPaidSheet = excel['backdata_payment_debt_paid'];
-      paymentDebtPaidSheet.appendRow([
-        _cv('saleId'),
-        _cv('employeeId'),
-        _cv('employeeName'),
-        _cv('debtId'),
-        _cv('paidCash'),
-        _cv('paidBank'),
-        _cv('paidUnset'),
-        _cv('paidTotal'),
-      ]);
-      final paymentOutstandingSheet = excel['backdata_payment_outstanding_sale_debt'];
-      paymentOutstandingSheet.appendRow([
-        _cv('saleId'),
-        _cv('employeeId'),
-        _cv('employeeName'),
-        _cv('debtId'),
-        _cv('remain'),
-      ]);
-      final paymentOutstandingSaSheet = excel['backdata_payment_outstanding_sa'];
-      paymentOutstandingSaSheet.appendRow([
-        _cv('saleId'),
-        _cv('employeeId'),
-        _cv('employeeName'),
-        _cv('debtId'),
-        _cv('remain'),
-      ]);
-      final saleRowsInRange = await db.query(
-        'sales',
-        columns: ['id', 'createdAt', 'paidAmount', 'paymentType', 'employeeId', 'employeeName'],
-        where: 'createdAt >= ? AND createdAt <= ?',
-        whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
-      );
-      final empBySaleId = <String, Map<String, Object?>>{};
-      final saleIdsInRange = <String>[];
-      for (final r in saleRowsInRange) {
-        final sid = (r['id']?.toString() ?? '').trim();
-        if (sid.isNotEmpty) saleIdsInRange.add(sid);
-        empBySaleId[sid] = {
-          'employeeId': r['employeeId'],
-          'employeeName': r['employeeName'],
-        };
-        final paid = (r['paidAmount'] as num?)?.toDouble() ?? 0.0;
-        paymentPaidSheet.appendRow([
-          _cv(sid),
-          _cv(r['createdAt']),
-          _cv(r['employeeId']),
-          _cv(r['employeeName']),
-          _cv(paid),
-          _cv(r['paymentType']),
-        ]);
-      }
-      if (saleIdsInRange.isNotEmpty) {
-        final placeholders = List.filled(saleIdsInRange.length, '?').join(',');
-        final debtsForSales = await db.query(
-          'debts',
-          columns: ['id', 'amount', 'sourceId'],
-          where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
-          whereArgs: saleIdsInRange,
-        );
-        final debtIds = <String>[];
-        final debtAmountById = <String, double>{};
-        for (final d in debtsForSales) {
-          final did = (d['id']?.toString() ?? '').trim();
-          if (did.isEmpty) continue;
-          debtIds.add(did);
-          debtAmountById[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
-        }
-        if (debtIds.isNotEmpty) {
-          final dph = List.filled(debtIds.length, '?').join(',');
-          final payAgg = await db.rawQuery(
-            '''
-            SELECT
-              d.id as debtId,
-              d.sourceId as saleId,
-              SUM(CASE WHEN dp.paymentType = 'cash' THEN dp.amount ELSE 0 END) as paidCash,
-              SUM(CASE WHEN dp.paymentType = 'bank' THEN dp.amount ELSE 0 END) as paidBank,
-              SUM(CASE WHEN dp.paymentType IS NULL OR TRIM(dp.paymentType) = '' THEN dp.amount ELSE 0 END) as paidUnset,
-              SUM(dp.amount) as paidTotal
-            FROM debts d
-            LEFT JOIN debt_payments dp ON dp.debtId = d.id
-            WHERE d.id IN ($dph)
-            GROUP BY d.id, d.sourceId
-            ''',
-            debtIds,
-          );
-          for (final r in payAgg) {
-            final did = (r['debtId']?.toString() ?? '').trim();
-            final sid = (r['saleId']?.toString() ?? '').trim();
-            if (did.isEmpty || sid.isEmpty) continue;
-            final paidCash = (r['paidCash'] as num?)?.toDouble() ?? 0.0;
-            final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
-            final paidUnset = (r['paidUnset'] as num?)?.toDouble() ?? 0.0;
-            final paidTotal = (r['paidTotal'] as num?)?.toDouble() ?? 0.0;
-            final emp = empBySaleId[sid];
-            paymentDebtPaidSheet.appendRow([
-              _cv(sid),
-              _cv(emp?['employeeId']),
-              _cv(emp?['employeeName']),
-              _cv(did),
-              _cv(paidCash),
-              _cv(paidBank),
-              _cv(paidUnset),
-              _cv(paidTotal),
-            ]);
-          }
-          // Outstanding (align with widget 'Nợ' formula in _loadPayStats):
-          // remain = debts.amount - SUM(debt_payments.amount) (no date filter)
-          final payAggByDebt = await db.rawQuery(
-            '''
-            SELECT debtId as debtId, SUM(amount) as total
-            FROM debt_payments
-            WHERE debtId IN ($dph)
-            GROUP BY debtId
-            ''',
-            debtIds,
-          );
-          final paidByDebtId = <String, double>{};
-          for (final r in payAggByDebt) {
-            final did = (r['debtId']?.toString() ?? '').trim();
-            if (did.isEmpty) continue;
-            paidByDebtId[did] = (r['total'] as num?)?.toDouble() ?? 0.0;
-          }
-          final saleIdByDebtId = <String, String>{};
-          final amountByDebtId = <String, double>{};
-          for (final d in debtsForSales) {
-            final did = (d['id']?.toString() ?? '').trim();
-            final sid = (d['sourceId']?.toString() ?? '').trim();
-            if (did.isEmpty || sid.isEmpty) continue;
-            saleIdByDebtId[did] = sid;
-            amountByDebtId[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
-          }
-          for (final did in debtIds) {
-            final sid = saleIdByDebtId[did];
-            if (sid == null || sid.isEmpty) continue;
-            final initial = amountByDebtId[did] ?? 0.0;
-            final paid = paidByDebtId[did] ?? 0.0;
-            final remain = (initial - paid);
-            if (remain <= 0) continue;
-            final emp = empBySaleId[sid];
-            paymentOutstandingSheet.appendRow([
-              _cv(sid),
-              _cv(emp?['employeeId']),
-              _cv(emp?['employeeName']),
-              _cv(did),
-              _cv(remain),
-            ]);
-            paymentOutstandingSaSheet.appendRow([
-              _cv(sid),
-              _cv(emp?['employeeId']),
-              _cv(emp?['employeeName']),
-              _cv(did),
-              _cv(remain),
-            ]);
-          }
-        }
-      }
+
       final openingSheet = excel['list tồn đầu kỳ'];
       openingSheet.appendRow([
         _cv('year'),
@@ -968,6 +668,8 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('productUnit'),
         _cv('openingStock'),
         _cv('updatedAt'),
+        _cv('deviceId'),
+        _cv('isSynced'),
       ]);
       for (final r in openingRows) {
         final pid = r['productId'] as String;
@@ -980,8 +682,11 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(prod?['unit']),
           _cv(r['openingStock']),
           _cv(r['updatedAt']),
+          _cv(r['deviceId']),
+          _cv(r['isSynced']),
         ]);
       }
+
       final endingSheet = excel['list tồn cuối kỳ'];
       endingSheet.appendRow([
         _cv('year'),
@@ -1033,6 +738,7 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(endingQty * price),
         ]);
       }
+
       final bytes = excel.encode();
       if (bytes == null) {
         throw Exception('Không thể tạo file Excel');
@@ -1043,7 +749,660 @@ class _ReportScreenState extends State<ReportScreen> {
         bytes: bytes,
         fileName: fileName,
       );
-      if (filePath == null) {
+      if (filePath == null || filePath.trim().isEmpty) {
+        throw Exception('Không thể lưu file vào Downloads');
+      }
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        await Share.shareXFiles([
+          XFile(filePath),
+        ], text: 'Báo cáo tổng hợp (${DateFormat('dd/MM/yyyy').format(_dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(_dateRange.end)})');
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Đã tạo: $fileName'),
+            action: SnackBarAction(
+              label: 'Mở',
+              onPressed: () {
+                OpenFilex.open(filePath);
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        messenger.showSnackBar(
+          SnackBar(content: Text('Lỗi tạo Excel: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportAllSheetsExcel(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const AlertDialog(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Expanded(child: Text('Đang xuất Excel...')),
+            ],
+          ),
+        ),
+      );
+
+      final monthYear = DateTime(_dateRange.start.year, _dateRange.start.month);
+      final monthStart = DateTime(monthYear.year, monthYear.month, 1);
+      final monthEnd = DateTime(monthYear.year, monthYear.month + 1, 0, 23, 59, 59, 999);
+      final db = DatabaseService.instance.db;
+      final customers = await DatabaseService.instance.getCustomersForSync();
+      final productsRows = await db.query(
+        'products',
+        where: 'isActive = 1',
+        orderBy: 'name ASC',
+      );
+      final productsById = <String, Map<String, dynamic>>{
+        for (final p in productsRows) (p['id'] as String): p,
+      };
+      final debts = await DatabaseService.instance.getDebtsForSync();
+      final debtById = <String, Map<String, dynamic>>{
+        for (final d in debts) (d['id']?.toString() ?? ''): d,
+      };
+      final debtPayments = await DatabaseService.instance.getDebtPaymentsForSync(range: _dateRange);
+      final purchases = await db.query(
+        'purchase_history',
+        orderBy: 'createdAt DESC',
+      );
+      final rangeStart = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
+      final rangeEnd = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
+      final purchasesInRange = await DatabaseService.instance.getPurchaseHistory(
+        range: DateTimeRange(start: rangeStart, end: rangeEnd),
+      );
+      final saleItemsInRange = await db.rawQuery(
+        '''
+        SELECT
+          s.id as saleId,
+          s.createdAt as saleCreatedAt,
+          s.customerName as customerName,
+          s.employeeId as employeeId,
+          s.employeeName as employeeName,
+          si.productId as productId,
+          si.name as name,
+          si.unit as unit,
+          si.unitPrice as unitPrice,
+          si.quantity as quantity,
+          si.unitCost as unitCost,
+          si.itemType as itemType,
+          si.mixItemsJson as mixItemsJson
+        FROM sale_items si
+        JOIN sales s ON s.id = si.saleId
+        WHERE s.createdAt >= ? AND s.createdAt <= ?
+        ORDER BY s.createdAt DESC
+        ''',
+        [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+      );
+      final saleSubtotalRowsInRange = await db.rawQuery(
+        '''
+        SELECT
+          s.id as saleId,
+          SUM(si.unitPrice * si.quantity) as subtotal
+        FROM sales s
+        JOIN sale_items si ON si.saleId = s.id
+        WHERE s.createdAt >= ? AND s.createdAt <= ?
+        GROUP BY s.id
+        ''',
+        [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+      );
+      final saleSubtotalById = <String, double>{};
+      for (final r in saleSubtotalRowsInRange) {
+        final sid = (r['saleId']?.toString() ?? '').trim();
+        if (sid.isEmpty) continue;
+        saleSubtotalById[sid] = (r['subtotal'] as num?)?.toDouble() ?? 0.0;
+      }
+      final expenses = await db.query(
+        'expenses',
+        where: 'occurredAt >= ? AND occurredAt <= ?',
+        whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
+        orderBy: 'occurredAt DESC',
+      );
+      final sales = await DatabaseService.instance.getSalesForSync();
+      final saleItems = await db.query('sale_items');
+      final saleById = <String, Map<String, dynamic>>{
+        for (final s in sales) (s['id'] as String): s,
+      };
+      final openingRows = await db.query(
+        'product_opening_stocks',
+        where: 'year = ? AND month = ?',
+        whereArgs: [monthYear.year, monthYear.month],
+      );
+      final openingByProductId = <String, double>{
+        for (final r in openingRows)
+          (r['productId'] as String): (r['openingStock'] as num?)?.toDouble() ?? 0,
+      };
+      final importQtyByProductId = <String, double>{};
+      final exportQtyByProductId = <String, double>{};
+      for (final pr in purchases) {
+        final createdAt = DateTime.tryParse(pr['createdAt'] as String? ?? '');
+        if (createdAt == null) continue;
+        if (createdAt.isBefore(monthStart) || createdAt.isAfter(monthEnd)) continue;
+        final pid = pr['productId'] as String;
+        final qty = (pr['quantity'] as num?)?.toDouble() ?? 0;
+        importQtyByProductId[pid] = (importQtyByProductId[pid] ?? 0) + qty;
+      }
+      for (final it in saleItems) {
+        final saleId = it['saleId'] as String?;
+        if (saleId == null) continue;
+        final sale = saleById[saleId];
+        if (sale == null) continue;
+        final createdAt = DateTime.tryParse(sale['createdAt'] as String? ?? '');
+        if (createdAt == null) continue;
+        if (createdAt.isBefore(monthStart) || createdAt.isAfter(monthEnd)) continue;
+        final pid = it['productId'] as String?;
+        if (pid == null) continue;
+        final qty = (it['quantity'] as num?)?.toDouble() ?? 0;
+        exportQtyByProductId[pid] = (exportQtyByProductId[pid] ?? 0) + qty;
+      }
+      final excel = ex.Excel.createExcel();
+      excel.delete('Sheet1');
+      final customersSheet = excel['list khách hàng'];
+      customersSheet.appendRow([
+        _cv('id'),
+        _cv('name'),
+        _cv('phone'),
+        _cv('note'),
+        _cv('isSupplier'),
+        _cv('updatedAt'),
+        _cv('deviceId'),
+        _cv('isSynced'),
+      ]);
+      for (final c in customers) {
+        customersSheet.appendRow([
+          _cv(c['id']),
+          _cv(c['name']),
+          _cv(c['phone']),
+          _cv(c['note']),
+          _cv(c['isSupplier']),
+          _cv(c['updatedAt']),
+          _cv(c['deviceId']),
+          _cv(c['isSynced']),
+        ]);
+      }
+      final productsSheet = excel['list sản phẩm'];
+      productsSheet.appendRow([
+        _cv('id'),
+        _cv('name'),
+        _cv('unit'),
+        _cv('barcode'),
+        _cv('price'),
+        _cv('costPrice'),
+        _cv('currentStock'),
+        _cv('isActive'),
+        _cv('updatedAt'),
+        _cv('deviceId'),
+        _cv('isSynced'),
+      ]);
+      for (final p in productsRows) {
+        productsSheet.appendRow([
+          _cv(p['id']),
+          _cv(p['name']),
+          _cv(p['unit']),
+          _cv(p['barcode']),
+          _cv(p['price']),
+          _cv(p['costPrice']),
+          _cv(p['currentStock']),
+          _cv(p['isActive']),
+          _cv(p['updatedAt']),
+          _cv(p['deviceId']),
+          _cv(p['isSynced']),
+        ]);
+      }
+      final debtsSheet = excel['list công nợ'];
+      debtsSheet.appendRow([
+        _cv('id'),
+        _cv('customerId'),
+        _cv('customerName'),
+        _cv('amount'),
+        _cv('createdAt'),
+        _cv('dueDate'),
+        _cv('note'),
+        _cv('isPaid'),
+        _cv('paidAt'),
+        _cv('updatedAt'),
+        _cv('sourceType'),
+        _cv('sourceId'),
+      ]);
+      for (final d in debts) {
+        debtsSheet.appendRow([
+          _cv(d['id']),
+          _cv(d['partyId'] ?? d['customerId']),
+          _cv(_customerOrRetail(d['partyName'] ?? d['customerName'])),
+          _cv(d['amount']),
+          _cv(d['createdAt']),
+          _cv(d['dueDate']),
+          _cv(d['note']),
+          _cv(d['isPaid']),
+          _cv(d['paidAt']),
+          _cv(d['updatedAt']),
+          _cv(d['sourceType']),
+          _cv(d['sourceId']),
+        ]);
+      }
+      final debtPaymentsSheet = excel['lịch sử trả nợ'];
+      debtPaymentsSheet.appendRow([
+        _cv('paymentId'),
+        _cv('debtId'),
+        _cv('debtType'),
+        _cv('partyId'),
+        _cv('partyName'),
+        _cv('amount'),
+        _cv('paymentType'),
+        _cv('note'),
+        _cv('createdAt'),
+        _cv('isSynced'),
+        _cv('sourceType'),
+        _cv('sourceId'),
+      ]);
+      for (final p in debtPayments) {
+        final did = (p['debtId']?.toString() ?? '').trim();
+        final debt = debtById[did];
+        debtPaymentsSheet.appendRow([
+          _cv(p['paymentId']),
+          _cv(p['debtId']),
+          _cv(p['debtType']),
+          _cv(p['partyId']),
+          _cv(_customerOrRetail(p['partyName'])),
+          _cv(p['amount']),
+          _cv(p['paymentType']),
+          _cv(p['note']),
+          _cv(p['createdAt']),
+          _cv(p['isSynced']),
+          _cv(debt?['sourceType']),
+          _cv(debt?['sourceId']),
+        ]);
+      }
+      final expensesSheet = excel['list chi phí'];
+      expensesSheet.appendRow([
+        _cv('id'),
+        _cv('occurredAt'),
+        _cv('amount'),
+        _cv('category'),
+        _cv('note'),
+        _cv('expenseDocUploaded'),
+        _cv('expenseDocFileId'),
+        _cv('expenseDocUpdatedAt'),
+        _cv('updatedAt'),
+      ]);
+      for (final e in expenses) {
+        expensesSheet.appendRow([
+          _cv(e['id']),
+          _cv(e['occurredAt']),
+          _cv(e['amount']),
+          _cv(e['category']),
+          _cv(e['note']),
+          _cv(e['expenseDocUploaded']),
+          _cv(e['expenseDocFileId']),
+          _cv(e['expenseDocUpdatedAt']),
+          _cv(e['updatedAt']),
+        ]);
+      }
+      final purchaseHistorySheet = excel['lịch sử nhập kho'];
+      purchaseHistorySheet.appendRow([
+        _cv('id'),
+        _cv('createdAt'),
+        _cv('productId'),
+        _cv('productName'),
+        _cv('unit'),
+        _cv('quantity'),
+        _cv('unitCost'),
+        _cv('totalCost'),
+        _cv('supplierName'),
+        _cv('supplierPhone'),
+        _cv('note'),
+      ]);
+      for (final ph in purchasesInRange) {
+        final pid = ph['productId'] as String;
+        final prod = productsById[pid];
+        purchaseHistorySheet.appendRow([
+          _cv(ph['id']),
+          _cv(ph['createdAt']),
+          _cv(pid),
+          _cv(ph['productName']),
+          _cv(prod?['unit']),
+          _cv(ph['quantity']),
+          _cv(ph['unitCost']),
+          _cv(ph['totalCost']),
+          _cv(ph['supplierName']),
+          _cv(ph['supplierPhone']),
+          _cv(ph['note']),
+        ]);
+      }
+      final exportHistorySheet = excel['lịch sử xuất kho'];
+      exportHistorySheet.appendRow([
+        _cv('saleId'),
+        _cv('saleCreatedAt'),
+        _cv('customerName'),
+        _cv('employeeId'),
+        _cv('employeeName'),
+        _cv('productId'),
+        _cv('productName'),
+        _cv('unit'),
+        _cv('quantity'),
+        _cv('unitPriceSnap'),
+        _cv('lineTotalSnap'),
+        _cv('unitCostSnap'),
+        _cv('lineCostTotalSnap'),
+        _cv('source'),
+      ]);
+      for (final r in saleItemsInRange) {
+        final itemType = (r['itemType']?.toString() ?? '').toUpperCase().trim();
+        if (itemType == 'MIX') {
+          final mix = (r['mixItemsJson']?.toString() ?? '').trim();
+          final decoded = (mix.isEmpty) ? null : jsonDecode(mix);
+          final List items = (decoded is List) ? decoded : const [];
+          for (final raw in items) {
+            if (raw is! Map) continue;
+            final rid = (raw['productId']?.toString() ?? '').trim();
+            if (rid.isEmpty) continue;
+            final name = (raw['name']?.toString() ?? '').trim();
+            final unit = (raw['unit']?.toString() ?? '').trim();
+            final qty = (raw['quantity'] as num?)?.toDouble() ?? 0.0;
+            final unitPrice = (raw['unitPrice'] as num?)?.toDouble() ?? 0.0;
+            final unitCost = (raw['unitCost'] as num?)?.toDouble() ?? 0.0;
+            exportHistorySheet.appendRow([
+              _cv(r['saleId']),
+              _cv(r['saleCreatedAt']),
+              _cv(_customerOrRetail(r['customerName'])),
+              _cv(r['employeeId']),
+              _cv(r['employeeName']),
+              _cv(rid),
+              _cv(name),
+              _cv(unit),
+              _cv(qty),
+              _cv(unitPrice),
+              _cv(unitPrice * qty),
+              _cv(unitCost),
+              _cv(unitCost * qty),
+              _cv('mix'),
+            ]);
+          }
+          continue;
+        }
+
+        final pid = (r['productId']?.toString() ?? '').trim();
+        exportHistorySheet.appendRow([
+          _cv(r['saleId']),
+          _cv(r['saleCreatedAt']),
+          _cv(_customerOrRetail(r['customerName'])),
+          _cv(r['employeeId']),
+          _cv(r['employeeName']),
+          _cv(pid),
+          _cv(r['name']),
+          _cv(r['unit']),
+          _cv(r['quantity']),
+          _cv(r['unitPrice']),
+          _cv(((r['unitPrice'] as num?)?.toDouble() ?? 0.0) * ((r['quantity'] as num?)?.toDouble() ?? 0.0)),
+          _cv(r['unitCost']),
+          _cv(((r['unitCost'] as num?)?.toDouble() ?? 0.0) * ((r['quantity'] as num?)?.toDouble() ?? 0.0)),
+          _cv('normal'),
+        ]);
+      }
+
+      final salesSheet = excel['list đơn hàng'];
+      salesSheet.appendRow([
+        _cv('saleId'),
+        _cv('saleCreatedAt'),
+        _cv('customerId'),
+        _cv('customerName'),
+        _cv('employeeId'),
+        _cv('employeeName'),
+        _cv('saleDiscount'),
+        _cv('saleSubtotal'),
+        _cv('saleTotal'),
+        _cv('salePaid'),
+        _cv('salePaymentType'),
+        _cv('saleDebtId'),
+        _cv('saleDebtAmount'),
+        _cv('saleDebtPaidTotal'),
+        _cv('saleDebtRemain'),
+      ]);
+      final debtIdToSaleId = <String, String>{};
+      final debtIds = <String>[];
+      final debtAmountById = <String, double>{};
+      for (final d in debts) {
+        final did = (d['id']?.toString() ?? '').trim();
+        final sid = (d['sourceId']?.toString() ?? '').trim();
+        if (did.isEmpty) continue;
+        debtIds.add(did);
+        if (sid.isNotEmpty) {
+          debtIdToSaleId[did] = sid;
+        }
+        debtAmountById[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
+      }
+      final paidTotalByDebtId = <String, double>{};
+      if (debtIds.isNotEmpty) {
+        final dph = List.filled(debtIds.length, '?').join(',');
+        final payAgg = await db.rawQuery(
+          '''
+          SELECT debtId as debtId, SUM(amount) as total
+          FROM debt_payments
+          WHERE debtId IN ($dph)
+          GROUP BY debtId
+          ''',
+          debtIds,
+        );
+        for (final r in payAgg) {
+          final did = (r['debtId']?.toString() ?? '').trim();
+          if (did.isEmpty) continue;
+          paidTotalByDebtId[did] = (r['total'] as num?)?.toDouble() ?? 0.0;
+        }
+      }
+      for (final s in sales) {
+        final saleId = (s['id']?.toString() ?? '').trim();
+        if (saleId.isEmpty) continue;
+        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
+        final subtotal = saleSubtotalById[saleId] ?? 0.0;
+        final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+        final paid = (s['paidAmount'] as num?)?.toDouble() ?? 0.0;
+        String? saleDebtId;
+        double saleDebtAmount = 0.0;
+        double saleDebtPaidTotal = 0.0;
+        double saleDebtRemain = 0.0;
+        for (final e in debtIdToSaleId.entries) {
+          if (e.value == saleId) {
+            saleDebtId = e.key;
+            break;
+          }
+        }
+        if (saleDebtId != null) {
+          saleDebtAmount = debtAmountById[saleDebtId] ?? 0.0;
+          saleDebtPaidTotal = paidTotalByDebtId[saleDebtId] ?? 0.0;
+          saleDebtRemain = (saleDebtAmount - saleDebtPaidTotal);
+        }
+        salesSheet.appendRow([
+          _cv(saleId),
+          _cv(s['createdAt']),
+          _cv(s['customerId']),
+          _cv(_customerOrRetail(s['customerName'])),
+          _cv(s['employeeId']),
+          _cv(s['employeeName']),
+          _cv(discount),
+          _cv(subtotal),
+          _cv(total),
+          _cv(paid),
+          _cv(s['paymentType']),
+          _cv(saleDebtId),
+          _cv(saleDebtAmount),
+          _cv(saleDebtPaidTotal),
+          _cv(saleDebtRemain),
+        ]);
+      }
+
+      final saleInRangeSheet = excel['list đơn hàng trong kỳ'];
+      saleInRangeSheet.appendRow([
+        _cv('saleId'),
+        _cv('saleCreatedAt'),
+        _cv('customerId'),
+        _cv('customerName'),
+        _cv('employeeId'),
+        _cv('employeeName'),
+        _cv('saleDiscount'),
+        _cv('saleSubtotal'),
+        _cv('saleTotal'),
+      ]);
+      for (final s in sales) {
+        final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
+        if (createdAt == null) continue;
+        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+        final saleId = (s['id']?.toString() ?? '').trim();
+        if (saleId.isEmpty) continue;
+        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
+        final subtotal = saleSubtotalById[saleId] ?? 0.0;
+        final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+        saleInRangeSheet.appendRow([
+          _cv(saleId),
+          _cv(s['createdAt']),
+          _cv(s['customerId']),
+          _cv(_customerOrRetail(s['customerName'])),
+          _cv(s['employeeId']),
+          _cv(s['employeeName']),
+          _cv(discount),
+          _cv(subtotal),
+          _cv(total),
+        ]);
+      }
+
+      final topRevenueSheet = excel['top doanh thu'];
+      topRevenueSheet.appendRow([
+        _cv('saleId'),
+        _cv('saleCreatedAt'),
+        _cv('employeeId'),
+        _cv('employeeName'),
+        _cv('customerName'),
+        _cv('subtotal'),
+        _cv('discount'),
+        _cv('total'),
+      ]);
+      for (final s in sales) {
+        final saleId = (s['id']?.toString() ?? '').trim();
+        if (saleId.isEmpty) continue;
+        final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
+        if (createdAt == null) continue;
+        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+        final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
+        final subtotal = saleSubtotalById[saleId] ?? 0.0;
+        final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+        topRevenueSheet.appendRow([
+          _cv(saleId),
+          _cv(s['createdAt']),
+          _cv(s['employeeId']),
+          _cv(s['employeeName']),
+          _cv(_customerOrRetail(s['customerName'])),
+          _cv(subtotal),
+          _cv(discount),
+          _cv(total),
+        ]);
+      }
+
+      final openingSheet = excel['list tồn đầu kỳ'];
+      openingSheet.appendRow([
+        _cv('year'),
+        _cv('month'),
+        _cv('productId'),
+        _cv('productName'),
+        _cv('productUnit'),
+        _cv('openingStock'),
+        _cv('updatedAt'),
+        _cv('deviceId'),
+        _cv('isSynced'),
+      ]);
+      for (final r in openingRows) {
+        final pid = r['productId'] as String;
+        final prod = productsById[pid];
+        openingSheet.appendRow([
+          _cv(r['year']),
+          _cv(r['month']),
+          _cv(pid),
+          _cv(prod?['name']),
+          _cv(prod?['unit']),
+          _cv(r['openingStock']),
+          _cv(r['updatedAt']),
+          _cv(r['deviceId']),
+          _cv(r['isSynced']),
+        ]);
+      }
+
+      final endingSheet = excel['list tồn cuối kỳ'];
+      endingSheet.appendRow([
+        _cv('year'),
+        _cv('month'),
+        _cv('productId'),
+        _cv('productName'),
+        _cv('productUnit'),
+        _cv('openingStock'),
+        _cv('importQty'),
+        _cv('exportQty'),
+        _cv('endingQty'),
+        _cv('costPrice'),
+        _cv('endingAmountCost'),
+        _cv('price'),
+        _cv('endingAmountSell'),
+      ]);
+      final productIds = <String>{
+        ...productsById.keys,
+        ...openingByProductId.keys,
+        ...importQtyByProductId.keys,
+        ...exportQtyByProductId.keys,
+      }.toList();
+      productIds.sort((a, b) {
+        final an = (productsById[a]?['name'] as String?) ?? '';
+        final bn = (productsById[b]?['name'] as String?) ?? '';
+        return an.compareTo(bn);
+      });
+      for (final pid in productIds) {
+        final prod = productsById[pid];
+        final opening = openingByProductId[pid] ?? 0;
+        final importQty = importQtyByProductId[pid] ?? 0;
+        final exportQty = exportQtyByProductId[pid] ?? 0;
+        final endingQty = opening + importQty - exportQty;
+        final costPrice = (prod?['costPrice'] as num?)?.toDouble() ?? 0;
+        final price = (prod?['price'] as num?)?.toDouble() ?? 0;
+        endingSheet.appendRow([
+          _cv(monthYear.year),
+          _cv(monthYear.month),
+          _cv(pid),
+          _cv(prod?['name']),
+          _cv(prod?['unit']),
+          _cv(opening),
+          _cv(importQty),
+          _cv(exportQty),
+          _cv(endingQty),
+          _cv(costPrice),
+          _cv(endingQty * costPrice),
+          _cv(price),
+          _cv(endingQty * price),
+        ]);
+      }
+
+      final bytes = excel.encode();
+      if (bytes == null) {
+        throw Exception('Không thể tạo file Excel');
+      }
+      final ts = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final fileName = 'bao_cao_tong_hop_$ts.xlsx';
+      final filePath = await FileHelper.saveBytesToDownloads(
+        bytes: bytes,
+        fileName: fileName,
+      );
+      if (filePath == null || filePath.trim().isEmpty) {
         throw Exception('Không thể lưu file vào Downloads');
       }
       if (context.mounted) {
@@ -1453,6 +1812,8 @@ class _ReportScreenState extends State<ReportScreen> {
             onSelected: (v) {
               if (v == 'export_excel') {
                 _exportAllSheetsExcel(context);
+              } else if (v == 'share_excel') {
+                _shareAllSheetsExcel(context);
               } else if (v == 'sales_history') {
                 Navigator.of(context).pushNamed('/sales_history');
               } else if (v == 'debts_history') {
@@ -1463,6 +1824,10 @@ class _ReportScreenState extends State<ReportScreen> {
               PopupMenuItem(
                 value: 'export_excel',
                 child: Text('Xuất Excel'),
+              ),
+              PopupMenuItem(
+                value: 'share_excel',
+                child: Text('Share Excel'),
               ),
               PopupMenuItem(
                 value: 'sales_history',
@@ -1867,111 +2232,115 @@ class _ReportScreenState extends State<ReportScreen> {
                             ),
                             const SizedBox(height: 12),
                             const SizedBox(height: 14),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 1),
-                    child: _buildTopProductsCard(
-                      currency: currency,
-                      dateRange: _dateRange,
-                      rows: topProductsLimited,
-                    ),
-                  ),
-                            Card(
-                              elevation: 2,
-                              shadowColor: Colors.black.withAlpha(35),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(color: Colors.black.withAlpha(8)),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: _buildTopProductsCard(
+                                currency: currency,
+                                dateRange: _dateRange,
+                                rows: topProductsLimited,
                               ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Tỉ trọng chi phí',
-                                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      '(${DateFormat('dd/MM').format(_dateRange.start)} - ${DateFormat('dd/MM').format(_dateRange.end)})',
-                                      style: const TextStyle(fontWeight: FontWeight.w700),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    if (pieEntries.isEmpty || pieTotal <= 0)
-                                      const SizedBox(
-                                        height: 160,
-                                        child: Center(child: Text('Chưa có dữ liệu')),
-                                      )
-                                    else
-                                      Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          SizedBox(
-                                            width: 180,
-                                            height: 180,
-                                            child: PieChart(
-                                              PieChartData(
-                                                sectionsSpace: 2,
-                                                centerSpaceRadius: 44,
-                                                sections: List.generate(pieEntries.length, (i) {
-                                                  final e = pieEntries[i];
-                                                  final percent = (e.value / pieTotal) * 100;
-                                                  return PieChartSectionData(
-                                                    value: e.value,
-                                                    color: pieColors[i % pieColors.length],
-                                                    radius: 54,
-                                                    title: percent >= 12 ? '${percent.toStringAsFixed(0)}%' : '',
-                                                    titleStyle: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontWeight: FontWeight.w900,
-                                                      fontSize: 12,
-                                                    ),
-                                                  );
-                                                }),
+                            ),
+                            const SizedBox(height: 12),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: Card(
+                                elevation: 2,
+                                shadowColor: Colors.black.withAlpha(35),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(color: Colors.black.withAlpha(8)),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Tỉ trọng chi phí',
+                                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '(${DateFormat('dd/MM').format(_dateRange.start)} - ${DateFormat('dd/MM').format(_dateRange.end)})',
+                                        style: const TextStyle(fontWeight: FontWeight.w700),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      if (pieEntries.isEmpty || pieTotal <= 0)
+                                        const SizedBox(
+                                          height: 160,
+                                          child: Center(child: Text('Chưa có dữ liệu')),
+                                        )
+                                      else
+                                        Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            SizedBox(
+                                              width: 180,
+                                              height: 180,
+                                              child: PieChart(
+                                                PieChartData(
+                                                  sectionsSpace: 2,
+                                                  centerSpaceRadius: 44,
+                                                  sections: List.generate(pieEntries.length, (i) {
+                                                    final e = pieEntries[i];
+                                                    final percent = (e.value / pieTotal) * 100;
+                                                    return PieChartSectionData(
+                                                      value: e.value,
+                                                      color: pieColors[i % pieColors.length],
+                                                      radius: 54,
+                                                      title: percent >= 12 ? '${percent.toStringAsFixed(0)}%' : '',
+                                                      titleStyle: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontWeight: FontWeight.w900,
+                                                        fontSize: 12,
+                                                      ),
+                                                    );
+                                                  }),
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                for (var i = 0; i < pieEntries.length; i++)
-                                                  Padding(
-                                                    padding: const EdgeInsets.only(bottom: 8),
-                                                    child: Row(
-                                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                                      children: [
-                                                        Container(
-                                                          width: 12,
-                                                          height: 12,
-                                                          margin: const EdgeInsets.only(top: 3),
-                                                          decoration: BoxDecoration(
-                                                            color: pieColors[i % pieColors.length],
-                                                            borderRadius: BorderRadius.circular(3),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  for (var i = 0; i < pieEntries.length; i++)
+                                                    Padding(
+                                                      padding: const EdgeInsets.only(bottom: 8),
+                                                      child: Row(
+                                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                                        children: [
+                                                          Container(
+                                                            width: 12,
+                                                            height: 12,
+                                                            margin: const EdgeInsets.only(top: 3),
+                                                            decoration: BoxDecoration(
+                                                              color: pieColors[i % pieColors.length],
+                                                              borderRadius: BorderRadius.circular(3),
+                                                            ),
                                                           ),
-                                                        ),
-                                                        const SizedBox(width: 8),
-                                                        Expanded(
-                                                          child: Text(
-                                                            pieEntries[i].key,
-                                                            style: const TextStyle(fontWeight: FontWeight.w700),
+                                                          const SizedBox(width: 8),
+                                                          Expanded(
+                                                            child: Text(
+                                                              pieEntries[i].key,
+                                                              style: const TextStyle(fontWeight: FontWeight.w700),
+                                                            ),
                                                           ),
-                                                        ),
-                                                        const SizedBox(width: 8),
-                                                        Text(
-                                                          currency.format(pieEntries[i].value),
-                                                          style: const TextStyle(fontWeight: FontWeight.w800),
-                                                        ),
-                                                      ],
+                                                          const SizedBox(width: 8),
+                                                          Text(
+                                                            currency.format(pieEntries[i].value),
+                                                            style: const TextStyle(fontWeight: FontWeight.w800),
+                                                          ),
+                                                        ],
+                                                      ),
                                                     ),
-                                                  ),
-                                              ],
+                                                ],
+                                              ),
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                  ],
+                                          ],
+                                        ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -1980,7 +2349,6 @@ class _ReportScreenState extends State<ReportScreen> {
                       },
                     ),
                   ),
-                  
                   const SizedBox(height: 16),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12),
