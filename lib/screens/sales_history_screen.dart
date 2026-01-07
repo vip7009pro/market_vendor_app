@@ -1006,7 +1006,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
             child: Row(
               children: [
                 Expanded(
@@ -1014,18 +1014,24 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     decoration: const InputDecoration(
                       hintText: 'Tìm theo khách hàng / mặt hàng',
                       isDense: true,
-                      prefixIcon: Icon(Icons.search),
+                      prefixIcon: Icon(Icons.search, size: 18),
                     ),
                     onChanged: (v) => setState(() => _query = v.trim()),
                   ),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
-                  icon: const Icon(Icons.date_range),
+                  icon: const Icon(Icons.date_range, size: 18),
                   label: Text(
                     _range == null
                         ? 'Khoảng ngày'
                         : '${DateFormat('dd/MM').format(_range!.start)} - ${DateFormat('dd/MM').format(_range!.end)}',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    minimumSize: const Size(0, 36),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
                   ),
                   onPressed: () async {
                     final now = DateTime.now();
@@ -1042,7 +1048,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   const SizedBox(width: 6),
                   IconButton(
                     tooltip: 'Xoá lọc ngày',
-                    icon: const Icon(Icons.clear),
+                    icon: const Icon(Icons.clear, size: 18),
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                     onPressed: () => setState(() => _range = null),
                   ),
                 ],
@@ -1050,18 +1058,21 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
             child: Row(
               children: [
                 FilterChip(
                   label: const Text('Nợ lỗi'),
                   selected: _onlyDebtIssues,
+                  labelStyle: const TextStyle(fontSize: 12),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   onSelected: (v) => setState(() => _onlyDebtIssues = v),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           const Divider(height: 1),
           Expanded(
             child: _isTableView

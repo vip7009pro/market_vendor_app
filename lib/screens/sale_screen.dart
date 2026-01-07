@@ -689,6 +689,101 @@ class _SaleScreenState extends State<SaleScreen> {
     _productCtrl.text = product.name;
   }
 
+  Future<Customer?> _showCustomerPicker({required List<Customer> customers}) async {
+    return await showModalBottomSheet<Customer>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        final TextEditingController searchController = TextEditingController();
+        List<Customer> baseCustomers = List.from(customers);
+        List<Customer> filteredCustomers = List.from(customers);
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            void applyFilter(String value) {
+              if (value.trim().isEmpty) {
+                setState(() {
+                  filteredCustomers = List.from(baseCustomers);
+                });
+                return;
+              }
+              final query = value.toLowerCase();
+              setState(() {
+                filteredCustomers = baseCustomers.where((customer) {
+                  final nameMatch = customer.name.toLowerCase().contains(query);
+                  final phoneMatch = customer.phone?.toLowerCase().contains(query) ?? false;
+                  return nameMatch || phoneMatch;
+                }).toList();
+              });
+            }
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              height: MediaQuery.of(context).size.height * 0.8,
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: searchController,
+                          decoration: InputDecoration(
+                            labelText: 'Tìm kiếm khách hàng',
+                            isDense: true,
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                searchController.clear();
+                                applyFilter('');
+                              },
+                            ),
+                          ),
+                          onChanged: applyFilter,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Thêm khách hàng mới',
+                        icon: const Icon(Icons.person_add_alt),
+                        onPressed: () async {
+                          await _addQuickCustomerDialog();
+                          if (!context.mounted) return;
+                          await context.read<CustomerProvider>().load();
+                          if (!context.mounted) return;
+                          setState(() {
+                            baseCustomers = List.from(context.read<CustomerProvider>().customers);
+                            applyFilter(searchController.text);
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: filteredCustomers.isEmpty
+                        ? const Center(child: Text('Không tìm thấy khách hàng nào'))
+                        : ListView.builder(
+                            itemCount: filteredCustomers.length,
+                            itemBuilder: (context, index) {
+                              final customer = filteredCustomers[index];
+                              return ListTile(
+                                leading: const CircleAvatar(child: Icon(Icons.person)),
+                                title: Text(customer.name),
+                                subtitle: Text(customer.phone ?? 'Không có SĐT'),
+                                onTap: () => Navigator.of(context).pop(customer),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<Product?> _showRawPicker({String? requiredUnit}) async {
     final products = await DatabaseService.instance.getProductsForSale();
     final raws = products.where((p) => p.itemType == ProductItemType.raw).toList();
@@ -703,43 +798,69 @@ class _SaleScreenState extends State<SaleScreen> {
 
         return StatefulBuilder(
           builder: (context, setState) {
+            void applyFilter(String value) {
+              if (value.trim().isEmpty) {
+                setState(() {
+                  filteredProducts = List.from(filtered);
+                });
+                return;
+              }
+              final query = value.toLowerCase();
+              setState(() {
+                filteredProducts = filtered.where((product) {
+                  final nameMatch = product.name.toLowerCase().contains(query);
+                  final barcodeMatch = product.barcode?.toLowerCase().contains(query) ?? false;
+                  return nameMatch || barcodeMatch;
+                }).toList();
+              });
+            }
+
             return Container(
               padding: const EdgeInsets.all(16),
               height: MediaQuery.of(context).size.height * 0.8,
               child: Column(
                 children: [
-                  TextField(
-                    controller: searchController,
-                    decoration: InputDecoration(
-                      labelText: requiredUnit == null ? 'Chọn nguyên liệu (RAW)' : 'Chọn nguyên liệu ($requiredUnit)',
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          searchController.clear();
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: searchController,
+                          decoration: InputDecoration(
+                            labelText: requiredUnit == null ? 'Chọn nguyên liệu (RAW)' : 'Chọn nguyên liệu ($requiredUnit)',
+                            isDense: true,
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                searchController.clear();
+                                applyFilter('');
+                              },
+                            ),
+                          ),
+                          onChanged: applyFilter,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Thêm sản phẩm mới',
+                        icon: const Icon(Icons.add),
+                        onPressed: () async {
+                          await _addQuickProductDialog(
+                            prefillName: searchController.text.trim().isEmpty ? null : searchController.text.trim(),
+                          );
+                          if (!context.mounted) return;
+                          final products = await DatabaseService.instance.getProductsForSale();
+                          final raws = products.where((p) => p.itemType == ProductItemType.raw).toList();
                           setState(() {
-                            filteredProducts = List.from(filtered);
+                            filteredProducts = requiredUnit == null
+                                ? List<Product>.from(raws)
+                                : raws.where((p) => p.unit == requiredUnit).toList();
+                            applyFilter(searchController.text);
                           });
                         },
                       ),
-                    ),
-                    onChanged: (value) {
-                      if (value.isEmpty) {
-                        setState(() {
-                          filteredProducts = List.from(filtered);
-                        });
-                      } else {
-                        final query = value.toLowerCase();
-                        setState(() {
-                          filteredProducts = filtered.where((product) {
-                            final nameMatch = product.name.toLowerCase().contains(query);
-                            final barcodeMatch = product.barcode?.toLowerCase().contains(query) ?? false;
-                            return nameMatch || barcodeMatch;
-                          }).toList();
-                        });
-                      }
-                    },
+                    ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   Expanded(
                     child: filteredProducts.isEmpty
                         ? const Center(child: Text('Không tìm thấy nguyên liệu nào'))
@@ -1286,7 +1407,7 @@ class _SaleScreenState extends State<SaleScreen> {
 
   Future<Product?> _showProductPicker() async {
     final products = await DatabaseService.instance.getProductsForSale();
-    final baseProducts = products.toList();
+    List<Product> baseProducts = products.toList();
     return await showModalBottomSheet<Product>(
       context: context,
       isScrollControlled: true,
@@ -1666,149 +1787,46 @@ class _SaleScreenState extends State<SaleScreen> {
             controller: _scrollCtrl,
             children: [
               // Customer selection
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _customerCtrl,
-                      readOnly: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Chọn khách hàng (tuỳ chọn)',
+              InkWell(
+                onTap: () async {
+                  final customer = await _showCustomerPicker(customers: customers);
+                  if (customer != null) {
+                    setState(() {
+                      _customerId = customer.id;
+                      _customerName = customer.name;
+                      _customerCtrl.text = customer.name;
+                    });
+                    await _saveRecentCustomer(customer);
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(12),
+                    color: Theme.of(context).colorScheme.surface,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.person_outline, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          (_customerName ?? '').trim().isNotEmpty ? (_customerName ?? '').trim() : 'Chọn khách hàng',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
                       ),
-                      onTap: () async {
-                        final customer = await showModalBottomSheet<Customer>(
-                          context: context,
-                          isScrollControlled: true,
-                          builder: (context) {
-                            final TextEditingController searchController =
-                                TextEditingController();
-                            List<Customer> filteredCustomers = List.from(
-                              customers,
-                            );
-
-                            return StatefulBuilder(
-                              builder: (context, setState) {
-                                return Container(
-                                  padding: const EdgeInsets.all(16),
-                                  height:
-                                      MediaQuery.of(context).size.height * 0.8,
-                                  child: Column(
-                                    children: [
-                                      TextField(
-                                        controller: searchController,
-                                        decoration: InputDecoration(
-                                          labelText: 'Tìm kiếm khách hàng',
-                                          suffixIcon: IconButton(
-                                            icon: const Icon(Icons.clear),
-                                            onPressed: () {
-                                              searchController.clear();
-                                              setState(() {
-                                                filteredCustomers = List.from(
-                                                  customers,
-                                                );
-                                              });
-                                            },
-                                          ),
-                                        ),
-                                        onChanged: (value) {
-                                          if (value.isEmpty) {
-                                            setState(() {
-                                              filteredCustomers = List.from(
-                                                customers,
-                                              );
-                                            });
-                                          } else {
-                                            final query = value.toLowerCase();
-                                            setState(() {
-                                              filteredCustomers =
-                                                  customers.where((customer) {
-                                                    final nameMatch = customer
-                                                        .name
-                                                        .toLowerCase()
-                                                        .contains(query);
-                                                    final phoneMatch =
-                                                        customer.phone
-                                                            ?.toLowerCase()
-                                                            .contains(query) ??
-                                                        false;
-                                                    return nameMatch ||
-                                                        phoneMatch;
-                                                  }).toList();
-                                            });
-                                          }
-                                        },
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Expanded(
-                                        child:
-                                            filteredCustomers.isEmpty
-                                                ? const Center(
-                                                  child: Text(
-                                                    'Không tìm thấy khách hàng nào',
-                                                  ),
-                                                )
-                                                : ListView.builder(
-                                                  itemCount:
-                                                      filteredCustomers.length,
-                                                  itemBuilder: (
-                                                    context,
-                                                    index,
-                                                  ) {
-                                                    final customer =
-                                                        filteredCustomers[index];
-                                                    return ListTile(
-                                                      leading:
-                                                          const CircleAvatar(
-                                                            child: Icon(
-                                                              Icons.person,
-                                                            ),
-                                                          ),
-                                                      title: Text(
-                                                        customer.name,
-                                                      ),
-                                                      subtitle: Text(
-                                                        customer.phone ??
-                                                            'Không có SĐT',
-                                                      ),
-                                                      onTap: () {
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(customer);
-                                                      },
-                                                    );
-                                                  },
-                                                ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            );
-                          },
-                        );
-
-                        if (customer != null) {
-                          setState(() {
-                            _customerId = customer.id;
-                            _customerName = customer.name;
-                            _customerCtrl.text = customer.name;
-                          });
-                          await _saveRecentCustomer(customer);
-                        }
-                      },
-                    ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.expand_more, size: 18),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    height: 56,
-                    width: 48,
-                    child: IconButton(
-                      icon: const Icon(Icons.person_add_alt),
-                      onPressed: _addQuickCustomerDialog,
-                      tooltip: 'Thêm khách hàng mới',
-                    ),
-                  ),
-                ],
+                ),
               ),
              /*  const SizedBox(height: 8),
               Align(
@@ -1827,135 +1845,123 @@ class _SaleScreenState extends State<SaleScreen> {
                 ),
               ), */
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ..._recentCustomers.map(
-                    (c) => ActionChip(
-                      backgroundColor: Colors.blue.withValues(alpha: 0.10),
-                      side: BorderSide(
-                        color: Colors.blue.withValues(alpha: 0.35),
-                      ),
-                      label: Text(c.name),
-                      labelStyle: const TextStyle(color: Colors.blue),
-                      onPressed: () async {
-                        setState(() {
-                          _customerId = c.id;
-                          _customerName = c.name;
-                          _customerCtrl.text = c.name;
-                        });
-                        await _saveRecentCustomer(c);
-                      },
-                    ),
-                  ),
-                ],
-              ),
+              // Wrap(
+              //   spacing: 8,
+              //   children: [
+              //     ..._recentCustomers.map(
+              //       (c) => ActionChip(
+              //         backgroundColor: Colors.blue.withValues(alpha: 0.10),
+              //         side: BorderSide(
+              //           color: Colors.blue.withValues(alpha: 0.35),
+              //         ),
+              //         label: Text(c.name),
+              //         labelStyle: const TextStyle(color: Colors.blue),
+              //         onPressed: () async {
+              //           setState(() {
+              //             _customerId = c.id;
+              //             _customerName = c.name;
+              //             _customerCtrl.text = c.name;
+              //           });
+              //           await _saveRecentCustomer(c);
+              //         },
+              //       ),
+              //     ),
+              //   ],
+              // ),
               const SizedBox(height: 12),
               // Product selection
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      readOnly: true,
-                      controller: _productCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Chọn sản phẩm',
+              InkWell(
+                onTap: () async {
+                  final product = await _showProductPicker();
+                  if (product != null) {
+                    setState(() {
+                      _addSelectedProductToSale(product);
+                    });
+                    if (product.itemType != ProductItemType.mix) {
+                      await _applyLastUnitTo(
+                        _items.lastWhere(
+                          (item) => item.productId == product.id,
+                        ),
+                      );
+                    }
+                    await _saveRecentProduct(product);
+                    if (!_paidEdited) {
+                      final subtotal2 = _items.fold(
+                        0.0,
+                        (p, e) => p + e.total,
+                      );
+                      final total2 =
+                          (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                      setState(() => _paid = total2);
+                    }
+                    _clearProductField?.call();
+                    _unfocusProductField?.call();
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(12),
+                    color: Theme.of(context).colorScheme.surface,
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.add_shopping_cart_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Thêm sản phẩm',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
                       ),
-                      onTap: () async {
-                        final product = await _showProductPicker();
-                        if (product != null) {
-                          setState(() {
-                            _addSelectedProductToSale(product);
-                          });
-                          if (product.itemType != ProductItemType.mix) {
-                            await _applyLastUnitTo(
-                              _items.lastWhere(
-                                (item) => item.productId == product.id,
-                              ),
-                            );
-                          }
-                          await _saveRecentProduct(product);
-                          if (!_paidEdited) {
-                            final subtotal2 = _items.fold(
-                              0.0,
-                              (p, e) => p + e.total,
-                            );
-                            final total2 =
-                                (subtotal2 - _discount)
-                                    .clamp(0, double.infinity)
-                                    .toDouble();
-                            setState(() => _paid = total2);
-                          }
-                          _clearProductField?.call();
-                          _unfocusProductField?.call();
-                        }
-                      },
-                    ),
+                      Icon(Icons.expand_more, size: 18),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    height: 56,
-                    width: 48,
-                    child: Builder(
-                      builder:
-                          (ctx) => IconButton(
-                            icon: const Icon(Icons.add),
-                            onPressed: () async {
-                              await _addQuickProductDialog(
-                                prefillName:
-                                    _productCtrl.text.trim().isEmpty
-                                        ? null
-                                        : _productCtrl.text.trim(),
-                              );
-                              _productCtrl.clear();
-                              _unfocusProductField?.call();
-                            },
-                            tooltip: 'Thêm sản phẩm mới',
-                          ),
-                    ),
-                  ),
-                ],
+                ),
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ..._recentProducts.map(
-                    (p) => ActionChip(
-                      backgroundColor: Colors.green.withValues(alpha: 0.10),
-                      side: BorderSide(
-                        color: Colors.green.withValues(alpha: 0.35),
-                      ),
-                      label: Text(p.name),
-                      labelStyle: const TextStyle(color: Colors.green),
-                      onPressed: () async {
-                        setState(() {
-                          _addSelectedProductToSale(p);
-                        });
-                        if (p.itemType != ProductItemType.mix) {
-                          await _applyLastUnitTo(
-                            _items.lastWhere((item) => item.productId == p.id),
-                          );
-                        }
-                        await _saveRecentProduct(p);
-                        if (!_paidEdited) {
-                          final subtotal2 = _items.fold(
-                            0.0,
-                            (p, e) => p + e.total,
-                          );
-                          final total2 =
-                              (subtotal2 - _discount)
-                                  .clamp(0, double.infinity)
-                                  .toDouble();
-                          setState(() => _paid = total2);
-                        }
-                        _clearProductField?.call();
-                        _unfocusProductField?.call();
-                      },
-                    ),
-                  ),
-                ],
-              ),
+              // Wrap(
+              //   spacing: 8,
+              //   children: [
+              //     ..._recentProducts.map(
+              //       (p) => ActionChip(
+              //         backgroundColor: Colors.green.withValues(alpha: 0.10),
+              //         side: BorderSide(
+              //           color: Colors.green.withValues(alpha: 0.35),
+              //         ),
+              //         label: Text(p.name),
+              //         labelStyle: const TextStyle(color: Colors.green),
+              //         onPressed: () async {
+              //           setState(() {
+              //             _addSelectedProductToSale(p);
+              //           });
+              //           if (p.itemType != ProductItemType.mix) {
+              //             await _applyLastUnitTo(
+              //               _items.lastWhere((item) => item.productId == p.id),
+              //             );
+              //           }
+              //           await _saveRecentProduct(p);
+              //           if (!_paidEdited) {
+              //             final subtotal2 = _items.fold(
+              //               0.0,
+              //               (p, e) => p + e.total,
+              //             );
+              //             final total2 =
+              //                 (subtotal2 - _discount)
+              //                     .clamp(0, double.infinity)
+              //                     .toDouble();
+              //             setState(() => _paid = total2);
+              //           }
+              //           _clearProductField?.call();
+              //           _unfocusProductField?.call();
+              //         },
+              //       ),
+              //     ),
+              //   ],
+              // ),
               const SizedBox(height: 12),
               const Divider(height: 1),
               const SizedBox(height: 8),
