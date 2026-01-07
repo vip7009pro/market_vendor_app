@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
-enum ThermalPrinterType { lan }
+enum ThermalPrinterType { lan, bluetooth }
 
 enum ThermalPaperSize { mm80, mm57 }
 
@@ -12,6 +12,7 @@ class ThermalPrinterConfig {
   final String name;
   final String ip;
   final int port;
+  final String macAddress;
   final ThermalPaperSize paperSize;
 
   ThermalPrinterConfig({
@@ -20,6 +21,7 @@ class ThermalPrinterConfig {
     required this.name,
     required this.ip,
     this.port = 9100,
+    this.macAddress = '',
     this.paperSize = ThermalPaperSize.mm80,
   }) : id = id ?? const Uuid().v4();
 
@@ -27,6 +29,9 @@ class ThermalPrinterConfig {
     final s = (v?.toString() ?? '').toLowerCase().trim();
     switch (s) {
       case 'lan':
+        return ThermalPrinterType.lan;
+      case 'bluetooth':
+        return ThermalPrinterType.bluetooth;
       default:
         return ThermalPrinterType.lan;
     }
@@ -49,6 +54,7 @@ class ThermalPrinterConfig {
         'name': name,
         'ip': ip,
         'port': port,
+        'macAddress': macAddress,
         'paperSize': paperSize.name,
       };
 
@@ -59,6 +65,7 @@ class ThermalPrinterConfig {
       name: (map['name']?.toString() ?? '').trim(),
       ip: (map['ip']?.toString() ?? '').trim(),
       port: int.tryParse(map['port']?.toString() ?? '') ?? 9100,
+      macAddress: (map['macAddress']?.toString() ?? '').trim(),
       paperSize: _parsePaper(map['paperSize']),
     );
   }
