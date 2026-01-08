@@ -193,8 +193,7 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
   Future<void> _editDebtCreatedAt() async {
     DateTime createdAt = _debt.createdAt;
     final paid = _payments.fold<double>(0, (p, e) => p + ((e['amount'] as num).toDouble()));
-    final initialNow = paid + _debt.amount;
-    final initialCtrl = TextEditingController(text: initialNow.toStringAsFixed(0));
+    final initialCtrl = TextEditingController(text: _debt.initialAmount.toStringAsFixed(0));
     Future<void> pickDateTime(StateSetter setStateDialog) async {
       final d = await showDatePicker(
         context: context,

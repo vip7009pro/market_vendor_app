@@ -160,6 +160,31 @@ class _ReportScreenState extends State<ReportScreen> {
         for (final p in productsRows) (p['id'] as String): p,
       };
       final debts = await DatabaseService.instance.getDebtsForSync();
+      final debtPaidById = <String, double>{};
+      if (debts.isNotEmpty) {
+        final ids = debts
+            .map((e) => (e['id']?.toString() ?? '').trim())
+            .where((e) => e.isNotEmpty)
+            .toSet()
+            .toList();
+        if (ids.isNotEmpty) {
+          final placeholders = List.filled(ids.length, '?').join(',');
+          final rows = await db.rawQuery(
+            '''
+            SELECT debtId as debtId, SUM(amount) as paidTotal
+            FROM debt_payments
+            WHERE debtId IN ($placeholders)
+            GROUP BY debtId
+            ''',
+            ids,
+          );
+          for (final r in rows) {
+            final did = (r['debtId']?.toString() ?? '').trim();
+            if (did.isEmpty) continue;
+            debtPaidById[did] = (r['paidTotal'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
+      }
       final debtPayments = await DatabaseService.instance.getDebtPaymentsForSync(range: _dateRange);
       final debtIdsForPayment = debtPayments
           .map((e) => (e['debtId']?.toString() ?? '').trim())
@@ -336,7 +361,9 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('id'),
         _cv('customerId'),
         _cv('customerName'),
-        _cv('amount'),
+        _cv('initialAmount'),
+        _cv('paidTotal'),
+        _cv('remain'),
         _cv('createdAt'),
         _cv('dueDate'),
         _cv('note'),
@@ -346,14 +373,28 @@ class _ReportScreenState extends State<ReportScreen> {
         _cv('sourceType'),
         _cv('sourceId'),
       ]);
+
+      double sumInitialDebt = 0.0;
+      double sumPaidDebt = 0.0;
+      double sumRemainDebt = 0.0;
       for (final d in debts) {
         final customerIdRaw = (d['customerId'] ?? d['partyId'] ?? '').toString();
         final customerNameRaw = (d['customerName'] ?? d['partyName'] ?? '').toString();
+        final did = (d['id']?.toString() ?? '').trim();
+        final initial = (d['initialAmount'] as num?)?.toDouble() ?? (d['amount'] as num?)?.toDouble() ?? 0.0;
+        final paid = debtPaidById[did] ?? 0.0;
+        final remain = (d['amount'] as num?)?.toDouble() ?? 0.0;
+
+        sumInitialDebt += initial;
+        sumPaidDebt += paid;
+        sumRemainDebt += remain;
         debtsSheet.appendRow([
-          _cv(d['id']),
+          _cv(did),
           _cv(_customerLabel(customerIdRaw)),
           _cv(_customerLabel(customerNameRaw)),
-          _cv(d['amount']),
+          _cv(initial),
+          _cv(paid),
+          _cv(remain),
           _cv(d['createdAt']),
           _cv(d['dueDate']),
           _cv(d['note']),
@@ -364,6 +405,23 @@ class _ReportScreenState extends State<ReportScreen> {
           _cv(d['sourceId']),
         ]);
       }
+
+      debtsSheet.appendRow([
+        _cv(''),
+        _cv(''),
+        _cv('TỔNG'),
+        _cv(sumInitialDebt),
+        _cv(sumPaidDebt),
+        _cv(sumRemainDebt),
+        _cv(''),
+        _cv(''),
+        _cv(''),
+        _cv(''),
+        _cv(''),
+        _cv(''),
+        _cv(''),
+        _cv(''),
+      ]);
       final debtPaymentsSheet = excel['lịch sử trả nợ'];
       debtPaymentsSheet.appendRow([
         _cv('paymentId'),

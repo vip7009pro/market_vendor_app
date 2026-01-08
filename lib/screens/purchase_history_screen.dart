@@ -856,6 +856,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
         type: DebtType.oweOthers,
         partyId: existingDebt.partyId,
         partyName: existingDebt.partyName,
+        initialAmount: debtInitialAmount,
         amount: newRemain,
         description:
             'Nhập hàng: ${selected.name}, SL ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)} ${selected.unit}, Giá nhập ${unitCost.toStringAsFixed(0)}, Thành tiền ${totalCost.toStringAsFixed(0)}, Đã trả ${paidAmount.toStringAsFixed(0)}',

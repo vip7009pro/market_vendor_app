@@ -1309,7 +1309,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                                 }
                                                 final paid = paidSnap.data ?? 0;
                                                 final remain = d.amount;
-                                                final initialDebt = (remain + paid).clamp(0.0, double.infinity).toDouble();
+                                                final initialDebt = d.initialAmount;
                                                 final mismatch = (initialDebt - s.debt).abs() > 0.5;
                                                 if (mismatch) {
                                                   return Container(

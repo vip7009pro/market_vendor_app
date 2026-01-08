@@ -397,6 +397,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
         type: DebtType.othersOweMe,
         partyId: existingDebt.partyId,
         partyName: existingDebt.partyName,
+        initialAmount: newDebtInitialAmount,
         amount: newRemain,
         description:
             'Bán hàng: ${(newSale.customerName?.trim().isNotEmpty == true) ? newSale.customerName!.trim() : 'Khách lẻ'}, Tổng ${newSale.total.toStringAsFixed(0)}, Đã trả ${newSale.paidAmount.toStringAsFixed(0)}',

@@ -211,7 +211,6 @@ class _DebtGroup extends StatelessWidget {
                   builder: (context, snap) {
                     final paid = snap.data ?? 0.0;
                     final remain = d.amount;
-                    final initial = paid + remain;
                     return ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
@@ -238,7 +237,8 @@ class _DebtGroup extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Nợ ban đầu: ${currency.format(initial)}'),
+                            Text('Nợ ban đầu: ${currency.format(d.initialAmount)}'),
+                            Text('Đã trả: ${currency.format(paid)}'),
                             Text('Còn lại: ${currency.format(remain)}'),
                           ],
                         ),

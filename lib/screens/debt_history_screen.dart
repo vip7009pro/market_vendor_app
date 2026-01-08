@@ -306,8 +306,8 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                                         );
                                       }
                                       final paid = snap.data ?? 0;
-                                      final initial = paid + d.amount;
-                                      final paidPercentage = (paid / initial * 100).toInt();
+                                      final initial = d.initialAmount;
+                                      final paidPercentage = initial <= 0 ? 0 : (paid / initial * 100).toInt();
                                       
                                       return Row(
                                         mainAxisSize: MainAxisSize.min,

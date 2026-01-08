@@ -1966,24 +1966,14 @@ class DebtList extends StatelessWidget {
 
                       const SizedBox(height: 2),
 
-                      FutureBuilder<double>(
-                        future: DatabaseService.instance.getTotalPaidForDebt(d.id),
-                        builder: (context, snap) {
-                          if (snap.connectionState == ConnectionState.waiting) {
-                            return const SizedBox.shrink();
-                          }
-                          final paid = snap.data ?? 0;
-                          final initial = paid + d.amount;
-                          return Text(
-                            'Nợ ban đầu: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(initial)}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black87,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          );
-                        },
+                      Text(
+                        'Nợ ban đầu: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(d.initialAmount)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       
                       // Description (if exists)
