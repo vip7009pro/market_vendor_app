@@ -37,6 +37,8 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
   final PageController _iOweChartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _iOweChartPageIndex = ValueNotifier<int>(0);
 
+  bool _didBackfillInitialDebt = false;
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +46,18 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
     _tabController.addListener(() {
       if (!mounted) return;
       setState(() {});
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_didBackfillInitialDebt) return;
+      _didBackfillInitialDebt = true;
+      try {
+        await DatabaseService.instance.backfillDebtInitialAmounts();
+      } catch (_) {
+        // ignore
+      }
+      if (!mounted) return;
+      await context.read<DebtProvider>().load();
     });
   }
 
@@ -1695,14 +1709,7 @@ class DebtList extends StatelessWidget {
                                 alignment: Alignment.centerRight,
                               ),
                               _tableCell(
-                                FutureBuilder<double>(
-                                  future: DatabaseService.instance.getTotalPaidForDebt(d.id),
-                                  builder: (context, snap) {
-                                    final paid = snap.data ?? 0;
-                                    final initial = paid + d.amount;
-                                    return Text(currency.format(initial));
-                                  },
-                                ),
+                                Text(currency.format(d.initialAmount)),
                                 width: wInitial,
                                 alignment: Alignment.centerRight,
                               ),

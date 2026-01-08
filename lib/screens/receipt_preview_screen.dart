@@ -709,8 +709,14 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
           Row(
             children: [
               Expanded(flex: 7, child: t1('Đơn giá', size: small, w: FontWeight.w900)),
-              Expanded(flex: 2, child: t1('SL', size: small, w: FontWeight.w900, align: TextAlign.right)),
-              Expanded(flex: 3, child: t1('T.tiền', size: small, w: FontWeight.w900, align: TextAlign.right)),
+              Expanded(flex: 2, child: t1('SL', size: small, w: FontWeight.w900, align: TextAlign.center)),
+              Expanded(
+                flex: 3,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 2),
+                  child: t1('T.tiền', size: small, w: FontWeight.w900, align: TextAlign.right),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -733,11 +739,14 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                         ),
                         Expanded(
                           flex: 2,
-                          child: t1('x$qtyStr', size: base, align: TextAlign.right, c: Colors.black87),
+                          child: t1('x$qtyStr', size: base, align: TextAlign.center, c: Colors.black87),
                         ),
                         Expanded(
                           flex: 3,
-                          child: t1(currency.format(total), size: base, align: TextAlign.right, w: FontWeight.w700),
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 2),
+                            child: t1(currency.format(total), size: base, align: TextAlign.right, w: FontWeight.w700),
+                          ),
                         ),
                       ],
                     ),

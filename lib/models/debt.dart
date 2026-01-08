@@ -11,6 +11,7 @@ class Debt {
   DebtType type;
   String partyId; // customer or supplier id
   String partyName;
+  double initialAmount;
   double amount;
   String? description;
   DateTime? dueDate;
@@ -24,6 +25,7 @@ class Debt {
     required this.type,
     required this.partyId,
     required this.partyName,
+    double? initialAmount,
     required this.amount,
     this.description,
     this.dueDate,
@@ -31,5 +33,6 @@ class Debt {
     this.sourceType,
     this.sourceId,
   })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+        createdAt = createdAt ?? DateTime.now(),
+        initialAmount = initialAmount ?? amount;
 }

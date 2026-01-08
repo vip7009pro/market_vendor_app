@@ -252,6 +252,99 @@ class DatabaseService {
     await batch.commit(noResult: true);
   }
 
+  Future<double> getTotalPaidForDebt(String debtId) async {
+    final id = debtId.trim();
+    if (id.isEmpty) return 0.0;
+    final rows = await db.rawQuery(
+      'SELECT COALESCE(SUM(amount), 0) as total FROM debt_payments WHERE debtId = ?',
+      [id],
+    );
+    return (rows.isNotEmpty ? rows.first['total'] as num? : null)?.toDouble() ?? 0.0;
+  }
+
+  Future<Map<String, double>?> getSaleTotals(String saleId) async {
+    final id = saleId.trim();
+    if (id.isEmpty) return null;
+
+    final saleRows = await db.query(
+      'sales',
+      columns: ['id', 'discount', 'paidAmount'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (saleRows.isEmpty) return null;
+    final sale = saleRows.first;
+    final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
+    final paidAmount = (sale['paidAmount'] as num?)?.toDouble() ?? 0.0;
+
+    final rows = await db.rawQuery(
+      'SELECT COALESCE(SUM(unitPrice * quantity), 0) as subtotal FROM sale_items WHERE saleId = ?',
+      [id],
+    );
+    final subtotal = (rows.isNotEmpty ? rows.first['subtotal'] as num? : null)?.toDouble() ?? 0.0;
+    final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
+    return {
+      'subtotal': subtotal,
+      'discount': discount,
+      'total': total,
+      'paidAmount': paidAmount,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> getSalesForSync() async {
+    return db.query('sales', orderBy: 'createdAt DESC');
+  }
+
+  Future<List<Map<String, dynamic>>> getCustomersForSync() async {
+    return db.query('customers', orderBy: 'name COLLATE NOCASE ASC');
+  }
+
+  Future<List<Map<String, dynamic>>> getDebtsForSync() async {
+    return db.query('debts', orderBy: 'createdAt DESC');
+  }
+
+  Future<void> backfillSaleItemsUnitCostFromProducts() async {
+    try {
+      await db.rawUpdate(
+        '''
+        UPDATE sale_items
+        SET unitCost = (
+          SELECT COALESCE(p.costPrice, 0)
+          FROM products p
+          WHERE p.id = sale_items.productId
+        )
+        WHERE (unitCost IS NULL OR unitCost <= 0)
+          AND productId IS NOT NULL
+          AND TRIM(productId) != ''
+          AND (itemType IS NULL OR UPPER(TRIM(itemType)) != 'MIX')
+        ''',
+      );
+    } catch (e) {
+      developer.log('Error backfilling sale_items.unitCost:', error: e);
+      rethrow;
+    }
+  }
+
+  Future<void> backfillDebtInitialAmounts() async {
+    try {
+      await db.rawUpdate(
+        '''
+        UPDATE debts
+        SET initialAmount = amount + (
+          SELECT COALESCE(SUM(dp.amount), 0)
+          FROM debt_payments dp
+          WHERE dp.debtId = debts.id
+        )
+        WHERE (initialAmount IS NULL OR initialAmount <= 0)
+        ''',
+      );
+    } catch (e) {
+      developer.log('Error backfilling debts.initialAmount:', error: e);
+      rethrow;
+    }
+  }
+
   Future<String> insertPurchaseHistory({
     required String productId,
     required String productName,
@@ -1620,6 +1713,15 @@ class DatabaseService {
         print('Lỗi khi thêm cột employeeName vào sales: $e');
       }
     }
+
+    // Migration lên version 26: Thêm cột initialAmount vào debts
+    if (oldVersion < 26) {
+      try {
+        await safeAddColumn(db, 'debts', 'initialAmount', 'REAL NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm cột initialAmount vào debts: $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -1628,7 +1730,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 25, // Tăng version để áp dụng migration
+      version: 26, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -1707,6 +1809,7 @@ class DatabaseService {
             type INTEGER NOT NULL,
             partyId TEXT NOT NULL,
             partyName TEXT NOT NULL,
+            initialAmount REAL NOT NULL DEFAULT 0,
             amount REAL NOT NULL,
             description TEXT,
             dueDate TEXT,
@@ -2169,14 +2272,14 @@ class DatabaseService {
     final start = DateTime(year, month, 1);
     final end = (month == 12) ? DateTime(year + 1, 1, 1) : DateTime(year, month + 1, 1);
 
-    final saleIds = await db.rawQuery(
+    final saleIdRows = await db.rawQuery(
       '''
         SELECT id FROM sales WHERE createdAt >= ? AND createdAt < ?
       ''',
       [start.toIso8601String(), end.toIso8601String()],
     );
-    if (saleIds.isEmpty) return 0.0;
-    final ids = saleIds.map((e) => e['id'] as String).toList();
+    if (saleIdRows.isEmpty) return 0.0;
+    final ids = saleIdRows.map((e) => e['id'] as String).toList();
     final placeholders = List.filled(ids.length, '?').join(',');
     final items = await db.rawQuery(
       '''
@@ -2346,36 +2449,6 @@ class DatabaseService {
       developer.log('Đã cập nhật/thêm khách hàng: ${c.name} (ID: ${c.id})');
     } catch (e) {
       developer.log('Lỗi khi cập nhật/thêm khách hàng:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<int> backfillSaleItemsUnitCostFromProducts() async {
-    // Backfill legacy data where sale_items.unitCost was missing (0)
-    // by using current products.costPrice.
-    // Only applies to RAW / non-MIX items.
-    try {
-      final rows = await db.rawUpdate(
-        '''
-        UPDATE sale_items
-        SET unitCost = (
-          SELECT p.costPrice
-          FROM products p
-          WHERE p.id = sale_items.productId
-        )
-        WHERE (unitCost IS NULL OR unitCost = 0)
-          AND productId IS NOT NULL
-          AND TRIM(COALESCE(itemType, '')) != 'MIX'
-          AND (
-            SELECT COALESCE(p.costPrice, 0)
-            FROM products p
-            WHERE p.id = sale_items.productId
-          ) > 0
-        ''',
-      );
-      return rows;
-    } catch (e) {
-      developer.log('Error backfilling sale_items.unitCost:', error: e);
       rethrow;
     }
   }
@@ -2782,6 +2855,7 @@ class DatabaseService {
         'type': d.type == DebtType.oweOthers ? 0 : 1,
         'partyId': d.partyId,
         'partyName': d.partyName,
+        'initialAmount': d.initialAmount,
         'amount': d.amount,
         'description': encryptedDescription,
         'dueDate': d.dueDate?.toIso8601String(),
@@ -2818,6 +2892,7 @@ class DatabaseService {
           'type': d.type == DebtType.oweOthers ? 0 : 1,
           'partyId': d.partyId,
           'partyName': d.partyName,
+          'initialAmount': d.initialAmount,
           'amount': d.amount,
           'description': encryptedDescription,
           'dueDate': d.dueDate?.toIso8601String(),
@@ -2858,6 +2933,7 @@ class DatabaseService {
           'type': d.type == DebtType.oweOthers ? 0 : 1,
           'partyId': d.partyId,
           'partyName': d.partyName,
+          'initialAmount': d.initialAmount,
           'amount': d.amount,
           'description': encryptedDescription,
           'dueDate': d.dueDate?.toIso8601String(),
@@ -2892,6 +2968,7 @@ class DatabaseService {
         'type': d.type.index,
         'partyId': d.partyId,
         'partyName': d.partyName,
+        'initialAmount': d.initialAmount,
         'amount': d.amount,
         'description': encryptedDescription,
         'dueDate': d.dueDate?.toIso8601String(),
@@ -2926,6 +3003,9 @@ class DatabaseService {
           type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
           partyId: m['partyId'] as String,
           partyName: m['partyName'] as String,
+          initialAmount: ((m['initialAmount'] as num?)?.toDouble() ?? 0.0) > 0
+              ? (m['initialAmount'] as num).toDouble()
+              : (m['amount'] as num).toDouble(),
           amount: (m['amount'] as num).toDouble(),
           description: decryptedDescription,
           dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
@@ -2938,137 +3018,6 @@ class DatabaseService {
       developer.log('Error getting debts:', error: e);
       rethrow;
     }
-  }
-
-  // Sync helpers
-  Future<Map<String, DateTime>> getUpdatedAtMap(String table) async {
-    final rows = await db.query(table, columns: ['id', 'updatedAt']);
-    final map = <String, DateTime>{};
-    for (final r in rows) {
-      final id = r['id'] as String;
-      final ua = r['updatedAt'] as String?;
-      if (ua != null) map[id] = DateTime.parse(ua);
-    }
-    return map;
-  }
-
-  Future<List<Map<String, dynamic>>> getProductsForSync() async {
-    final rows = await db.query('products');
-    return rows;
-  }
-
-  Future<List<Map<String, dynamic>>> getCustomersForSync() async {
-    try {
-      // Initialize encryption service
-      await EncryptionService.instance.init();
-      
-      final rows = await db.query('customers');
-      
-      // Process rows asynchronously
-      return await Future.wait(rows.map((m) async {
-        final phone = m['phone'] as String?;
-        final note = m['note'] as String?;
-        
-        // Decrypt fields in parallel
-        final decrypted = await Future.wait([
-          phone != null ? EncryptionService.instance.decrypt(phone) : Future.value(null),
-          note != null ? EncryptionService.instance.decrypt(note) : Future.value(null),
-        ]);
-        
-        return {
-          ...m,
-          'phone': decrypted[0],
-          'note': decrypted[1],
-        };
-      }));
-    } catch (e) {
-      developer.log('Error getting customers for sync:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getDebtsForSync() async {
-    try {
-      // Initialize encryption service
-      await EncryptionService.instance.init();
-      
-      final rows = await db.query('debts');
-      
-      // Process rows asynchronously
-      return await Future.wait(rows.map((m) async {
-        final description = m['description'] as String?;
-        final decryptedDescription = description != null 
-            ? await EncryptionService.instance.decrypt(description)
-            : null;
-            
-        return {
-          ...m,
-          'description': decryptedDescription,
-        };
-      }));
-    } catch (e) {
-      developer.log('Error getting debts for sync:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getSalesForSync() async {
-    try {
-      // Initialize encryption service
-      await EncryptionService.instance.init();
-      
-      final rows = await db.query('sales');
-      
-      // Process rows asynchronously
-      return await Future.wait(rows.map((m) async {
-        final note = m['note'] as String?;
-        final decryptedNote = note != null 
-            ? await EncryptionService.instance.decrypt(note)
-            : null;
-            
-        return {
-          ...m,
-          'note': decryptedNote,
-        };
-      }));
-    } catch (e) {
-      developer.log('Error getting sales for sync:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getSaleItems(String saleId) async {
-    return await db.query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
-  }
-
-  Future<Map<String, double>?> getSaleTotals(String saleId) async {
-    final rows = await db.query(
-      'sales',
-      columns: ['totalCost', 'discount', 'paidAmount'],
-      where: 'id = ?',
-      whereArgs: [saleId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    final m = rows.first;
-    final totalCost = (m['totalCost'] as num?)?.toDouble() ?? 0.0;
-    final discount = (m['discount'] as num?)?.toDouble() ?? 0.0;
-    final paidAmount = (m['paidAmount'] as num?)?.toDouble() ?? 0.0;
-    final total = (totalCost - discount).clamp(0.0, double.infinity).toDouble();
-    return {
-      'total': total,
-      'paidAmount': paidAmount,
-    };
-  }
-
-  // Sum of payments for a debt
-  Future<double> getTotalPaidForDebt(String debtId) async {
-    final rows = await db.rawQuery(
-      'SELECT SUM(amount) as total FROM debt_payments WHERE debtId = ?',
-      [debtId],
-    );
-    final val = rows.isNotEmpty ? rows.first['total'] as num? : null;
-    return (val ?? 0).toDouble();
   }
 
   Future<Debt?> getDebtBySource({required String sourceType, required String sourceId}) async {
@@ -3092,6 +3041,9 @@ class DatabaseService {
       type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
       partyId: m['partyId'] as String,
       partyName: m['partyName'] as String,
+      initialAmount: ((m['initialAmount'] as num?)?.toDouble() ?? 0.0) > 0
+          ? (m['initialAmount'] as num).toDouble()
+          : (m['amount'] as num).toDouble(),
       amount: (m['amount'] as num).toDouble(),
       description: decryptedDescription,
       dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
@@ -3120,6 +3072,9 @@ class DatabaseService {
         type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
         partyId: m['partyId'] as String,
         partyName: m['partyName'] as String,
+        initialAmount: ((m['initialAmount'] as num?)?.toDouble() ?? 0.0) > 0
+            ? (m['initialAmount'] as num).toDouble()
+            : (m['amount'] as num).toDouble(),
         amount: (m['amount'] as num).toDouble(),
         description: decryptedDescription,
         dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
@@ -3205,6 +3160,9 @@ class DatabaseService {
           type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
           partyId: m['partyId'] as String,
           partyName: m['partyName'] as String,
+          initialAmount: ((m['initialAmount'] as num?)?.toDouble() ?? 0.0) > 0
+              ? (m['initialAmount'] as num).toDouble()
+              : (m['amount'] as num).toDouble(),
           amount: (m['amount'] as num).toDouble(),
           description: decryptedDescription,
           dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,

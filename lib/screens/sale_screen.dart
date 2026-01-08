@@ -1761,7 +1761,7 @@ class _SaleScreenState extends State<SaleScreen> {
                 ),
           ),
           // Nút lịch sử bán
-          Builder(
+          /* Builder(
             builder:
                 (context) => IconButton(
                   tooltip: 'Lịch sử bán',
@@ -1769,7 +1769,7 @@ class _SaleScreenState extends State<SaleScreen> {
                   onPressed:
                       () => Navigator.of(context).pushNamed('/sales_history'),
                 ),
-          ),
+          ), */
           // Popup menu thiết lập bước số lượng
           PopupMenuButton<String>(
             onSelected: (val) async {
