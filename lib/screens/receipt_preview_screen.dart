@@ -846,6 +846,7 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
     final receiptContent = _buildReceiptContent(widget.sale, widget.currency, columnWidth);
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Xem trước Hóa đơn POS'),
         actions: [
@@ -876,19 +877,39 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
           Expanded(
             child: Screenshot(
               controller: _screenshotController,
-              child: _selectedSize == 'A4 (Màu)'
-                  ? Center(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(12),
-                        child: _buildA4ColorPreview(),
+              child: Container(
+                color: Colors.white,
+                child: _selectedSize == 'A4 (Màu)'
+                    ? Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(12),
+                          child: _buildA4ColorPreview(),
+                        ),
+                      )
+                    : Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(12),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final is58 = _selectedSize == '58mm';
+                              final baseWidth = is58 ? 250.0 : 300.0;
+                              return Center(
+                                child: ClipRect(
+                                  child: FittedBox(
+                                    fit: BoxFit.fitWidth,
+                                    alignment: Alignment.topCenter,
+                                    child: SizedBox(
+                                      width: baseWidth,
+                                      child: _buildThermalReceiptPreview(is58mm: is58),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                       ),
-                    )
-                  : Center(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(12),
-                        child: _buildThermalReceiptPreview(is58mm: _selectedSize == '58mm'),
-                      ),
-                    ),
+              ),
             ),
           ),
           // Actions ở dưới body thay vì actions của dialog
