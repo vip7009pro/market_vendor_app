@@ -17,6 +17,7 @@ import 'theme_selection_screen.dart';
 import 'tax_declaration_form_screen.dart';
 import 'vietqr_bank_accounts_screen.dart';
 import 'employee_management_screen.dart';
+import 'online_sync_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -433,6 +434,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               children: [
                 ListTile(
+                  leading: Icon(Icons.cloud_sync_outlined, color: theme.colorScheme.primary),
+                  title: const Text('Đồng bộ Online (Backend)'),
+                  subtitle: const Text('Cấu hình URL + Sync now + trạng thái'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const OnlineSyncSettingsScreen()),
+                    );
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
                   leading: Icon(Icons.cloud_outlined, color: theme.colorScheme.primary),
                   title: const Text('Quản lý backup Google Drive'),
                   subtitle: const Text('Xem danh sách / xóa / backup ngay'),
@@ -693,7 +707,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
         ]),
           ),
-          
+
           // Premium Status Card
           if (purchaseProvider.isStoreAvailable)
             Padding(

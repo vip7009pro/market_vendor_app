@@ -5,6 +5,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 
+import '../services/online_sync_service.dart';
+
 class AuthProvider extends ChangeNotifier {
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   static const String _driveFileScope = 'https://www.googleapis.com/auth/drive.file';
@@ -32,6 +34,11 @@ class AuthProvider extends ChangeNotifier {
     // Lắng nghe trạng thái auth từ Firebase
     _firebaseAuth.authStateChanges().listen((user) {
       _firebaseUser = user;
+      if (user == null) {
+        OnlineSyncService.stopAutoSync();
+      } else {
+        OnlineSyncService.startAutoSync(auth: this);
+      }
       notifyListeners();
     });
   }
@@ -61,6 +68,14 @@ class AuthProvider extends ChangeNotifier {
 
       final userCredential = await _firebaseAuth.signInWithCredential(credential);
       _firebaseUser = userCredential.user;
+
+      if (_firebaseUser != null) {
+        try {
+          await OnlineSyncService.startAutoSync(auth: this);
+        } catch (_) {
+          // ignore
+        }
+      }
 
       notifyListeners();
     } catch (e) {
@@ -111,6 +126,18 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<String?> getIdToken() async {
+    try {
+      final currentGoogleUser = await _googleSignIn.signInSilently();
+      if (currentGoogleUser == null) return null;
+      final auth = await currentGoogleUser.authentication;
+      return auth.idToken;
+    } catch (e) {
+      debugPrint('Get id token error: $e');
+      return null;
+    }
+  }
+
   // Lấy DriveApi client
   Future<drive.DriveApi?> getDriveApi() async {
     final token = await getAccessToken();
@@ -125,6 +152,7 @@ class AuthProvider extends ChangeNotifier {
     // IMPORTANT: disconnect() revokes scopes and will trigger consent again next login.
     await _googleSignIn.signOut();
     _firebaseUser = null;
+    OnlineSyncService.stopAutoSync();
     notifyListeners();
   }
 

@@ -6,6 +6,8 @@ import 'providers/product_provider.dart';
 import 'providers/customer_provider.dart';
 import 'providers/sale_provider.dart';
 import 'providers/debt_provider.dart';
+import 'providers/auth_provider.dart';
+import 'services/online_sync_service.dart';
 
 class AppInit extends StatefulWidget {
   final Widget child;
@@ -24,6 +26,12 @@ class _AppInitState extends State<AppInit> {
     _bootstrap();
   }
 
+  @override
+  void dispose() {
+    OnlineSyncService.stopAutoSync();
+    super.dispose();
+  }
+
   Future<void> _bootstrap() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -35,6 +43,21 @@ class _AppInitState extends State<AppInit> {
         context.read<DebtProvider>().load(),
         context.read<ThemeProvider>().setTheme(savedTheme),
       ]);
+
+      final auth = context.read<AuthProvider>();
+      if (auth.isSignedIn) {
+        try {
+          await OnlineSyncService.syncNow(auth: auth);
+        } catch (_) {
+          // ignore
+        }
+
+        try {
+          await OnlineSyncService.startAutoSync(auth: auth);
+        } catch (_) {
+          // ignore
+        }
+      }
     } catch (_) {
       // Optionally log error
     } finally {

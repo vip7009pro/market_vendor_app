@@ -1,16 +1,28 @@
 # market_vendor_app
 
-A new Flutter project.
+This repository is evolving into a **monorepo** to support **mobile (Flutter)** + **web (React)** with an **online backend (Node.js)** and **PostgreSQL** database.
 
-## Getting Started
+## Monorepo Structure
 
-This project is a starting point for a Flutter application.
+- `lib/`, `android/`, `ios/` (Flutter mobile app)
+- `backend-node/` (Node.js API for auth + sync)
+- `db/` (PostgreSQL schema + migrations + docker compose)
+- `web-react/` (React web app - planned)
+- `docs/` (architecture + implementation notes)
 
-A few resources to get you started if this is your first Flutter project:
+## Key Docs
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- `MONOREPO_PLAN.md`
+- `docs/sync/SYNC_ARCHITECTURE.md`
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Backend / DB / Web
+
+- Backend: `backend-node/README.md`
+- Database: `db/README.md`
+- Web: `web-react/README.md`
+
+## Flutter
+
+Flutter code remains in the root as a standard Flutter project.
+
+- Flutter docs: https://docs.flutter.dev/
