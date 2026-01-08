@@ -84,7 +84,7 @@ class OnlineSyncService {
     final prefs = await SharedPreferences.getInstance();
     final raw = (prefs.getString(_prefsKeyBaseUrl) ?? '').trim();
     if (raw.isNotEmpty) return raw;
-    return 'http://localhost:3006';
+    return 'http://10.0.2.2:3006';
   }
 
   static Future<String> getBaseUrl() async {
@@ -290,11 +290,11 @@ class OnlineSyncService {
       'customers',
       'sales',
       'debts',
-      'purchase_orders',
-      'purchase_history',
-      'expenses',
-      'employees',
-      'vietqr_bank_accounts',
+      'purchase_orders', // Đã có isSynced từ migration 29
+      'purchase_history', // Đã có isSynced từ migration 30
+      'expenses', // Đã có isSynced từ migration 30
+      'employees', // Đã có isSynced từ migration 30
+      'vietqr_bank_accounts', // Đã có isSynced từ migration 30
     ];
 
     for (final t in tables) {
@@ -432,6 +432,36 @@ class OnlineSyncService {
 
     await batch.commit(noResult: true);
     _log('push: committed outbox ids=${ids.length}');
+  }
+
+  // Cast numeric fields from backend (PostgreSQL returns numbers as strings)
+  static void _castNumericFields(Map<String, dynamic> data, String entity) {
+    // Common numeric fields across entities
+    final numericFields = {
+      'products': ['price', 'costPrice', 'currentStock', 'isActive', 'isStocked'],
+      'customers': ['isSupplier'],
+      'sales': ['discount', 'paidAmount', 'totalCost'],
+      'debts': ['type', 'initialAmount', 'amount', 'settled'],
+      'debt_payments': ['amount'],
+      'expenses': ['amount', 'expenseDocUploaded'],
+      'purchase_orders': ['discountValue', 'paidAmount', 'purchaseDocUploaded'],
+      'purchase_history': ['quantity', 'unitCost', 'totalCost', 'paidAmount', 'purchaseDocUploaded'],
+      'vietqr_bank_accounts': ['bankApiId', 'transferSupported', 'lookupSupported', 'support', 'isTransfer', 'isDefault'],
+    };
+    
+    final fields = numericFields[entity] ?? [];
+    for (final field in fields) {
+      if (data.containsKey(field)) {
+        final value = data[field];
+        if (value is String) {
+          if (value.contains('.')) {
+            data[field] = double.tryParse(value) ?? value;
+          } else {
+            data[field] = int.tryParse(value) ?? value;
+          }
+        }
+      }
+    }
   }
 
   static Future<void> _pullAndApply({required String jwt}) async {
@@ -647,9 +677,14 @@ class OnlineSyncService {
           continue;
         }
 
+        // Cast numeric fields from backend (PostgreSQL returns numbers as strings)
         final toInsert = Map<String, dynamic>.from(p);
         toInsert['id'] = entityId;
         toInsert['isSynced'] = 1;
+        
+        // Cast common numeric fields
+        _castNumericFields(toInsert, entity);
+        
         await db.insert(entity, toInsert, conflictAlgorithm: ConflictAlgorithm.replace);
 
         if (eventUuid.isNotEmpty) {

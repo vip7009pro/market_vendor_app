@@ -25,6 +25,10 @@ class _OnlineSyncSettingsScreenState extends State<OnlineSyncSettingsScreen> {
   void initState() {
     super.initState();
     _load();
+    // Set default URL for Android emulator
+    if (_urlCtrl.text.isEmpty || _urlCtrl.text == 'http://localhost:3006') {
+      _urlCtrl.text = 'http://10.0.2.2:3006';
+    }
   }
 
   Future<void> _testBackend() async {
@@ -36,7 +40,9 @@ class _OnlineSyncSettingsScreenState extends State<OnlineSyncSettingsScreen> {
     try {
       await _save();
       final baseUrl = _urlCtrl.text.trim();
+      print(baseUrl);
       final uri = Uri.parse('$baseUrl/health');
+      print(uri);
       final resp = await http.get(uri);
 
       final ok = resp.statusCode >= 200 && resp.statusCode < 300;

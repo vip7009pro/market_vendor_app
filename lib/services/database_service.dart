@@ -1829,6 +1829,75 @@ class DatabaseService {
         print('Lỗi khi tạo bảng applied_sync_events: $e');
       }
     }
+
+    // Migration lên version 29: Thêm isSynced vào purchase_orders để sync online
+    if (oldVersion < 29) {
+      try {
+        await safeAddColumn(db, 'purchase_orders', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào purchase_orders: $e');
+      }
+    }
+
+    // Migration lên version 30: Thêm isSynced vào các bảng còn thiếu để sync online
+    if (oldVersion < 30) {
+      try {
+        await safeAddColumn(db, 'purchase_history', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào purchase_history: $e');
+      }
+      
+      try {
+        await safeAddColumn(db, 'expenses', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào expenses: $e');
+      }
+      
+      try {
+        await safeAddColumn(db, 'vietqr_bank_accounts', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào vietqr_bank_accounts: $e');
+      }
+      
+      try {
+        await safeAddColumn(db, 'employees', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào employees: $e');
+      }
+    }
+
+    // Migration lên version 31: Đảm bảo tất cả các bảng có isSynced trong onCreate
+    if (oldVersion < 31) {
+      try {
+        await safeAddColumn(db, 'purchase_history', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào purchase_history (v31): $e');
+      }
+      
+      try {
+        await safeAddColumn(db, 'purchase_orders', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào purchase_orders (v31): $e');
+      }
+      
+      try {
+        await safeAddColumn(db, 'expenses', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào expenses (v31): $e');
+      }
+      
+      try {
+        await safeAddColumn(db, 'vietqr_bank_accounts', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào vietqr_bank_accounts (v31): $e');
+      }
+      
+      try {
+        await safeAddColumn(db, 'employees', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        print('Lỗi khi thêm isSynced vào employees (v31): $e');
+      }
+    }
   }
 
   Future<void> init() async {
@@ -1837,7 +1906,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 28, // Tăng version để áp dụng migration
+      version: 31, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''

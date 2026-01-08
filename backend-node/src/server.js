@@ -1,11 +1,15 @@
 import express from 'express';
+import cors from 'cors';
 import { Pool } from 'pg';
-import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
+import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import { v4 as uuidv4 } from 'uuid';
+
 dotenv.config();
 
 const app = express();
+app.use(cors());
 app.use(express.json({ limit: '12mb' }));
 
 //console.log('process.env', process.env);
@@ -77,10 +81,11 @@ async function upsertLww({
   updatedAt,
   columns,
   columnCasts,
+  primaryKey = 'id', // Allow custom primary key
 }) {
   // columns: { db_col: value }
   const keys = Object.keys(columns);
-  const colNames = ['user_id', 'id', ...keys, 'updated_at'];
+  const colNames = ['user_id', primaryKey, ...keys, 'updated_at'];
   const values = [userId, id, ...keys.map((k) => columns[k]), updatedAt];
 
   const casts = columnCasts || {};
@@ -95,13 +100,13 @@ async function upsertLww({
       })
       .join(', ');
 
-  // Build SET clause and LWW WHERE condition
+  // Build SET clause and LWW WHERE condition - all tables support soft delete now
   const setPairs = [...keys.map((k) => `${k} = EXCLUDED.${k}`), 'updated_at = EXCLUDED.updated_at', 'deleted_at = NULL'];
 
   const sql = `
     INSERT INTO ${table} (${colNames.join(', ')})
     VALUES (${placeholders})
-    ON CONFLICT (user_id, id)
+    ON CONFLICT (user_id, ${primaryKey})
     DO UPDATE SET ${setPairs.join(', ')}
     WHERE ${table}.updated_at IS NULL OR EXCLUDED.updated_at > ${table}.updated_at
   `;
@@ -109,6 +114,7 @@ async function upsertLww({
 }
 
 async function deleteLww({ client, table, userId, id, deletedAt }) {
+  // All tables support soft delete now
   const sql = `
     UPDATE ${table}
     SET deleted_at = $3
@@ -116,6 +122,44 @@ async function deleteLww({ client, table, userId, id, deletedAt }) {
       AND (updated_at IS NULL OR $3 > updated_at)
   `;
   await client.query(sql, [userId, id, deletedAt]);
+}
+
+async function upsertDebtPaymentLww({ client, userId, uuid, updatedAt, columns }) {
+  const sql = `
+    INSERT INTO debt_payments (
+      user_id,
+      uuid,
+      debt_id,
+      amount,
+      note,
+      payment_type,
+      created_at,
+      updated_at,
+      deleted_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
+    ON CONFLICT (user_id, uuid)
+    DO UPDATE SET
+      debt_id = EXCLUDED.debt_id,
+      amount = EXCLUDED.amount,
+      note = EXCLUDED.note,
+      payment_type = EXCLUDED.payment_type,
+      created_at = EXCLUDED.created_at,
+      updated_at = EXCLUDED.updated_at,
+      deleted_at = NULL
+    WHERE debt_payments.updated_at IS NULL OR EXCLUDED.updated_at > debt_payments.updated_at
+  `;
+
+  await client.query(sql, [
+    userId,
+    uuid,
+    columns.debt_id,
+    columns.amount,
+    columns.note,
+    columns.payment_type,
+    columns.created_at,
+    updatedAt,
+  ]);
 }
 
 async function applyEvent({ client, userId, ev }) {
@@ -163,10 +207,14 @@ async function applyEvent({ client, userId, ev }) {
           current_stock: p.currentStock ?? 0,
           unit: p.unit ?? '',
           barcode: p.barcode ?? null,
-          is_active: (p.isActive ?? 1) == 1,
+          is_active: (p.isActive ?? 1) == 1 ? 1 : 0,
           item_type: p.itemType ?? 'RAW',
-          is_stocked: (p.isStocked ?? 1) == 1,
+          is_stocked: (p.isStocked ?? 1) == 1 ? 1 : 0,
           image_path: p.imagePath ?? null,
+        },
+        columnCasts: {
+          is_active: 'INTEGER',
+          is_stocked: 'INTEGER',
         },
       });
 
@@ -181,7 +229,10 @@ async function applyEvent({ client, userId, ev }) {
           name: p.name ?? '',
           phone: p.phone ?? null,
           note: p.note ?? null,
-          is_supplier: (p.isSupplier ?? 0) == 1,
+          is_supplier: (p.isSupplier ?? 0) == 1 ? 1 : 0,
+        },
+        columnCasts: {
+          is_supplier: 'INTEGER',
         },
       });
 
@@ -209,9 +260,12 @@ async function applyEvent({ client, userId, ev }) {
           amount: p.amount ?? 0,
           category: p.category ?? '',
           note: p.note ?? null,
-          expense_doc_uploaded: (p.expenseDocUploaded ?? 0) == 1,
+          expense_doc_uploaded: (p.expenseDocUploaded ?? 0) == 1 ? 1 : 0,
           expense_doc_file_id: p.expenseDocFileId ?? null,
           expense_doc_updated_at: parseIsoOrNull(p.expenseDocUpdatedAt),
+        },
+        columnCasts: {
+          expense_doc_uploaded: 'INTEGER',
         },
       });
 
@@ -230,9 +284,12 @@ async function applyEvent({ client, userId, ev }) {
           discount_value: p.discountValue ?? 0,
           paid_amount: p.paidAmount ?? 0,
           note: p.note ?? null,
-          purchase_doc_uploaded: (p.purchaseDocUploaded ?? 0) == 1,
+          purchase_doc_uploaded: (p.purchaseDocUploaded ?? 0) == 1 ? 1 : 0,
           purchase_doc_file_id: p.purchaseDocFileId ?? null,
           purchase_doc_updated_at: parseIsoOrNull(p.purchaseDocUpdatedAt),
+        },
+        columnCasts: {
+          purchase_doc_uploaded: 'INTEGER',
         },
       });
 
@@ -245,7 +302,7 @@ async function applyEvent({ client, userId, ev }) {
         updatedAt,
         columns: {
           created_at: parseIsoOrNull(p.createdAt) || updatedAt,
-          product_id: p.productId,
+          product_id: p.productId ?? '',
           product_name: p.productName ?? '',
           quantity: p.quantity ?? 0,
           unit_cost: p.unitCost ?? 0,
@@ -254,10 +311,13 @@ async function applyEvent({ client, userId, ev }) {
           supplier_name: p.supplierName ?? null,
           supplier_phone: p.supplierPhone ?? null,
           note: p.note ?? null,
-          purchase_doc_uploaded: (p.purchaseDocUploaded ?? 0) == 1,
+          purchase_doc_uploaded: (p.purchaseDocUploaded ?? 0) == 1 ? 1 : 0,
           purchase_doc_file_id: p.purchaseDocFileId ?? null,
           purchase_doc_updated_at: parseIsoOrNull(p.purchaseDocUpdatedAt),
           purchase_order_id: p.purchaseOrderId ?? null,
+        },
+        columnCasts: {
+          purchase_doc_uploaded: 'INTEGER',
         },
       });
 
@@ -277,18 +337,20 @@ async function applyEvent({ client, userId, ev }) {
           amount: p.amount ?? 0,
           description: p.description ?? null,
           due_date: parseIsoOrNull(p.dueDate),
-          settled: (p.settled ?? 0) == 1,
+          settled: (p.settled ?? 0) == 1 ? 1 : 0,
           source_type: p.sourceType ?? null,
           source_id: p.sourceId ?? null,
+        },
+        columnCasts: {
+          settled: 'INTEGER',
         },
       });
 
     case 'debt_payments':
-      return upsertLww({
+      return upsertDebtPaymentLww({
         client,
-        table: 'debt_payments',
         userId,
-        id: entityId,
+        uuid: entityId,
         updatedAt,
         columns: {
           debt_id: p.debtId,
@@ -300,15 +362,6 @@ async function applyEvent({ client, userId, ev }) {
       });
 
     case 'sales':
-      {
-      let items = [];
-      if (Array.isArray(p.items)) items = p.items;
-      else if (typeof p.items === 'string') {
-        try {
-          const decoded = JSON.parse(p.items);
-          if (Array.isArray(decoded)) items = decoded;
-        } catch (_) {}
-      }
       return upsertLww({
         client,
         table: 'sales',
@@ -326,13 +379,8 @@ async function applyEvent({ client, userId, ev }) {
           payment_type: p.paymentType ?? null,
           total_cost: p.totalCost ?? 0,
           note: p.note ?? null,
-          items,
-        },
-        columnCasts: {
-          items: 'jsonb',
         },
       });
-      }
 
     case 'vietqr_bank_accounts':
       return upsertLww({
@@ -348,14 +396,20 @@ async function applyEvent({ client, userId, ev }) {
           bin: p.bin ?? null,
           short_name: p.shortName ?? p.short_name ?? null,
           logo: p.logo ?? null,
-          transfer_supported: p.transferSupported == null ? null : (p.transferSupported == 1),
-          lookup_supported: p.lookupSupported == null ? null : (p.lookupSupported == 1),
+          transfer_supported: p.transferSupported == null ? null : (p.transferSupported == 1 ? 1 : 0),
+          lookup_supported: p.lookupSupported == null ? null : (p.lookupSupported == 1 ? 1 : 0),
           support: p.support ?? null,
-          is_transfer: p.isTransfer == null ? null : (p.isTransfer == 1),
+          is_transfer: p.isTransfer == null ? null : (p.isTransfer == 1 ? 1 : 0),
           swift_code: p.swift_code ?? p.swiftCode ?? null,
           account_no: p.accountNo ?? '',
           account_name: p.accountName ?? '',
-          is_default: (p.isDefault ?? 0) == 1,
+          is_default: (p.isDefault ?? 0) == 1 ? 1 : 0,
+        },
+        columnCasts: {
+          transfer_supported: 'INTEGER',
+          lookup_supported: 'INTEGER',
+          is_transfer: 'INTEGER',
+          is_default: 'INTEGER',
         },
       });
 
@@ -433,6 +487,8 @@ app.post('/auth/google', async (req, res) => {
 app.post('/sync/push', authMiddleware, async (req, res) => {
   // MVP: apply events to entity tables using LWW, and append to sync_events for pull.
   const { deviceId, events } = req.body || {};
+  console.log('Push request:', { deviceId, eventCount: events?.length });
+  
   if (!deviceId || typeof deviceId !== 'string') {
     return res.status(400).json({ error: 'missing_deviceId' });
   }
@@ -447,7 +503,12 @@ app.post('/sync/push', authMiddleware, async (req, res) => {
     const accepted = [];
     for (const ev of events) {
       const { entity, entityId, op, payload, clientUpdatedAt, eventUuid } = ev || {};
-      if (!entity || !entityId || !op || !clientUpdatedAt) continue;
+      console.log('Processing event:', { entity, entityId, op, eventUuid });
+      
+      if (!entity || !entityId || !op || !clientUpdatedAt) {
+        console.log('Skipping invalid event:', { entity, entityId, op, clientUpdatedAt });
+        continue;
+      }
 
       // Idempotency: if eventUuid provided and already exists, skip.
       if (eventUuid) {
@@ -455,10 +516,19 @@ app.post('/sync/push', authMiddleware, async (req, res) => {
           'SELECT 1 FROM sync_events WHERE user_id = $1 AND event_uuid = $2 LIMIT 1',
           [userId, eventUuid],
         );
-        if (exist.rowCount > 0) continue;
+        if (exist.rowCount > 0) {
+          console.log('Event already exists, skipping:', eventUuid);
+          continue;
+        }
       }
 
-      await applyEvent({ client, userId, ev: { entity, entityId, op, payload, clientUpdatedAt } });
+      try {
+        await applyEvent({ client, userId, ev: { entity, entityId, op, payload, clientUpdatedAt } });
+        console.log('Event applied successfully:', { entity, entityId });
+      } catch (applyError) {
+        console.error('Error applying event:', { entity, entityId, error: applyError.message });
+        throw applyError;
+      }
 
       const r = await client.query(
         `
@@ -471,10 +541,12 @@ app.post('/sync/push', authMiddleware, async (req, res) => {
       accepted.push(r.rows[0].event_id);
     }
     await client.query('COMMIT');
+    console.log('Push completed:', { acceptedCount: accepted.length });
     return res.json({ ok: true, acceptedEventIds: accepted });
   } catch (e) {
     await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'push_failed' });
+    console.error('Push failed:', { error: e.message, stack: e.stack });
+    return res.status(500).json({ error: 'push_failed', details: e.message });
   } finally {
     client.release();
   }
