@@ -408,7 +408,11 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       final db = DatabaseService.instance.db;
 
       if (sourceType == 'sale') {
-        final items = await db.query('sale_items', where: 'saleId = ?', whereArgs: [sourceId]);
+        final items = await db.query(
+          'sale_items',
+          where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [sourceId],
+        );
         if (!mounted) return;
         setState(() {
           _sourceItems = items;
@@ -418,7 +422,12 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
       }
 
       if (sourceType == 'purchase') {
-        final purchaseRows = await db.query('purchase_history', where: 'id = ?', whereArgs: [sourceId], limit: 1);
+        final purchaseRows = await db.query(
+          'purchase_history',
+          where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [sourceId],
+          limit: 1,
+        );
         final header = purchaseRows.isEmpty ? null : purchaseRows.first;
         if (!mounted) return;
         setState(() {

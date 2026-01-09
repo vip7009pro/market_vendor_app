@@ -153,7 +153,7 @@ class _ReportScreenState extends State<ReportScreen> {
       final customers = await DatabaseService.instance.getCustomersForSync();
       final productsRows = await db.query(
         'products',
-        where: 'isActive = 1',
+        where: "isActive = 1 AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
         orderBy: 'name ASC',
       );
       final productsById = <String, Map<String, dynamic>>{
@@ -174,10 +174,12 @@ class _ReportScreenState extends State<ReportScreen> {
             SELECT debtId as debtId, SUM(amount) as paidTotal
             FROM debt_payments
             WHERE debtId IN ($placeholders)
+              AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
             GROUP BY debtId
             ''',
             ids,
           );
+
           for (final r in rows) {
             final did = (r['debtId']?.toString() ?? '').trim();
             if (did.isEmpty) continue;
@@ -185,21 +187,29 @@ class _ReportScreenState extends State<ReportScreen> {
           }
         }
       }
-      final debtPayments = await DatabaseService.instance.getDebtPaymentsForSync(range: _dateRange);
+      // Report needs payments for all debts in range; fetch per debt to respect new API + soft delete
+      final debtPayments = <Map<String, dynamic>>[];
+      for (final d in debts) {
+        final did = (d['id']?.toString() ?? '').trim();
+        if (did.isEmpty) continue;
+        debtPayments.addAll(await DatabaseService.instance.getDebtPaymentsForSync(debtId: did, range: _dateRange));
+      }
       final debtIdsForPayment = debtPayments
           .map((e) => (e['debtId']?.toString() ?? '').trim())
           .where((e) => e.isNotEmpty)
           .toSet()
           .toList();
+
       final debtSourceById = <String, Map<String, String?>>{};
       if (debtIdsForPayment.isNotEmpty) {
         final placeholders = List.filled(debtIdsForPayment.length, '?').join(',');
         final debtMetaRows = await db.query(
           'debts',
           columns: ['id', 'sourceType', 'sourceId'],
-          where: 'id IN ($placeholders)',
+          where: 'id IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
           whereArgs: debtIdsForPayment,
         );
+
         for (final r in debtMetaRows) {
           final did = (r['id']?.toString() ?? '').trim();
           if (did.isEmpty) continue;
@@ -211,8 +221,10 @@ class _ReportScreenState extends State<ReportScreen> {
       }
       final purchases = await db.query(
         'purchase_history',
+        where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
         orderBy: 'createdAt DESC',
       );
+
       final rangeStart = DateTime(_dateRange.start.year, _dateRange.start.month, _dateRange.start.day);
       final rangeEnd = DateTime(_dateRange.end.year, _dateRange.end.month, _dateRange.end.day, 23, 59, 59, 999);
       final purchasesInRange = await DatabaseService.instance.getPurchaseHistory(
@@ -237,6 +249,8 @@ class _ReportScreenState extends State<ReportScreen> {
         FROM sale_items si
         JOIN sales s ON s.id = si.saleId
         WHERE s.createdAt >= ? AND s.createdAt <= ?
+          AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
+          AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')
         ORDER BY s.createdAt DESC
         ''',
         [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
@@ -249,6 +263,8 @@ class _ReportScreenState extends State<ReportScreen> {
         FROM sales s
         JOIN sale_items si ON si.saleId = s.id
         WHERE s.createdAt >= ? AND s.createdAt <= ?
+          AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
+          AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')
         GROUP BY s.id
         ''',
         [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
@@ -261,15 +277,16 @@ class _ReportScreenState extends State<ReportScreen> {
       }
       final expenses = await db.query(
         'expenses',
-        where: 'occurredAt >= ? AND occurredAt <= ?',
+        where: "occurredAt >= ? AND occurredAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
         whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
         orderBy: 'occurredAt DESC',
       );
       final sales = await DatabaseService.instance.getSalesForSync();
-      final saleItems = await db.query('sale_items');
+      final saleItems = await db.query('sale_items', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')");
       final saleById = <String, Map<String, dynamic>>{
         for (final s in sales) (s['id'] as String): s,
       };
+
       final openingRows = await db.query(
         'product_opening_stocks',
         where: 'year = ? AND month = ?',
@@ -747,16 +764,22 @@ class _ReportScreenState extends State<ReportScreen> {
         final debtsForSales = await db.query(
           'debts',
           columns: ['id', 'amount', 'sourceId'],
-          where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+          where: "sourceType = 'sale' AND sourceId IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
           whereArgs: saleIdsInRangeForDebt,
         );
         final debtIds = <String>[];
         final debtAmountById = <String, double>{};
+        final debtIdToSaleId = <String, String>{};
         for (final d in debtsForSales) {
           final did = (d['id']?.toString() ?? '').trim();
+          final sid = (d['sourceId']?.toString() ?? '').trim();
           if (did.isEmpty) continue;
           debtIds.add(did);
           debtAmountById[did] = (d['amount'] as num?)?.toDouble() ?? 0.0;
+          if (sid.isNotEmpty) {
+            debtIdToSaleId[did] = sid;
+            debtRemainBySaleId[sid] = (debtRemainBySaleId[sid] ?? 0) + ((d['amount'] as num?)?.toDouble() ?? 0.0);
+          }
         }
         if (debtIds.isNotEmpty) {
           final dph = List.filled(debtIds.length, '?').join(',');
@@ -770,13 +793,14 @@ class _ReportScreenState extends State<ReportScreen> {
               SUM(amount) as paidTotal
             FROM debt_payments
             WHERE debtId IN ($dph)
+              AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
             GROUP BY debtId
             ''',
             debtIds,
           );
           for (final r in payAgg) {
             final did = (r['debtId']?.toString() ?? '').trim();
-            final sid = (r['sourceId']?.toString() ?? '').trim();
+            final sid = (debtIdToSaleId[did] ?? '').trim();
             if (did.isEmpty || sid.isEmpty) continue;
             final paidCash = (r['paidCash'] as num?)?.toDouble() ?? 0.0;
             final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
@@ -920,11 +944,12 @@ class _ReportScreenState extends State<ReportScreen> {
       final saleRowsInRange = await db.query(
         'sales',
         columns: ['id', 'createdAt', 'paidAmount', 'paymentType', 'employeeId', 'employeeName'],
-        where: 'createdAt >= ? AND createdAt <= ?',
+        where: """createdAt >= ? AND createdAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')""",
         whereArgs: [rangeStart.toIso8601String(), rangeEnd.toIso8601String()],
       );
       final empBySaleId = <String, Map<String, Object?>>{};
       final saleIdsInRange = <String>[];
+
       for (final r in saleRowsInRange) {
         final sid = (r['id']?.toString() ?? '').trim();
         if (sid.isNotEmpty) saleIdsInRange.add(sid);
@@ -947,7 +972,7 @@ class _ReportScreenState extends State<ReportScreen> {
         final debtsForSales = await db.query(
           'debts',
           columns: ['id', 'amount', 'sourceId'],
-          where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+          where: "sourceType = 'sale' AND sourceId IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
           whereArgs: saleIdsInRange,
         );
         final debtIds = <String>[];
@@ -972,6 +997,8 @@ class _ReportScreenState extends State<ReportScreen> {
             FROM debts d
             LEFT JOIN debt_payments dp ON dp.debtId = d.id
             WHERE d.id IN ($dph)
+              AND (d.deletedAt IS NULL OR TRIM(d.deletedAt) = '')
+              AND (dp.deletedAt IS NULL OR TRIM(dp.deletedAt) = '' OR dp.deletedAt IS NULL)
             GROUP BY d.id, d.sourceId
             ''',
             debtIds,
@@ -1003,6 +1030,7 @@ class _ReportScreenState extends State<ReportScreen> {
             SELECT debtId as debtId, SUM(amount) as total
             FROM debt_payments
             WHERE debtId IN ($dph)
+              AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
             GROUP BY debtId
             ''',
             debtIds,
@@ -1219,7 +1247,7 @@ class _ReportScreenState extends State<ReportScreen> {
     final db = DatabaseService.instance.db;
     String? where;
     final whereArgs = <Object?>[];
-    where = 'createdAt >= ? AND createdAt <= ?';
+    where = "createdAt >= ? AND createdAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')";
     whereArgs.addAll([start.toIso8601String(), end.toIso8601String()]);
     final eid = (employeeId ?? '').trim();
     if (eid.isNotEmpty) {
@@ -1255,7 +1283,7 @@ class _ReportScreenState extends State<ReportScreen> {
     final debtsForSales = await db.query(
       'debts',
       columns: ['id', 'amount', 'sourceId'],
-      where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+      where: "sourceType = 'sale' AND sourceId IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: saleIds,
     );
     final debtIds = <String>[];
@@ -1277,6 +1305,7 @@ class _ReportScreenState extends State<ReportScreen> {
         SELECT paymentType as paymentType, SUM(amount) as total
         FROM debt_payments
         WHERE debtId IN ($dph)
+          AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
         GROUP BY paymentType
         ''',
         debtIds,
@@ -1298,6 +1327,7 @@ class _ReportScreenState extends State<ReportScreen> {
         SELECT debtId as debtId, SUM(amount) as total
         FROM debt_payments
         WHERE debtId IN ($dph)
+          AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
         GROUP BY debtId
         ''',
         debtIds,
@@ -1327,7 +1357,7 @@ class _ReportScreenState extends State<ReportScreen> {
     double cash = 0.0;
     double bank = 0.0;
 
-    String? saleWhere = 'createdAt >= ? AND createdAt <= ?';
+    String? saleWhere = "createdAt >= ? AND createdAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')";
     final saleWhereArgs = <Object?>[start.toIso8601String(), end.toIso8601String()];
     if (eid.isNotEmpty) {
       saleWhere = '$saleWhere AND employeeId = ?';
@@ -1360,6 +1390,9 @@ class _ReportScreenState extends State<ReportScreen> {
       JOIN sales s ON s.id = d.sourceId
       WHERE d.sourceType = 'sale'
         AND p.createdAt >= ? AND p.createdAt <= ?
+        AND (p.deletedAt IS NULL OR TRIM(p.deletedAt) = '')
+        AND (d.deletedAt IS NULL OR TRIM(d.deletedAt) = '')
+        AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
         ${eid.isEmpty ? '' : 'AND s.employeeId = ?'}
       GROUP BY p.paymentType
       ''',
@@ -1654,7 +1687,7 @@ class _ReportScreenState extends State<ReportScreen> {
                         DatabaseService.instance.db.query(
                           'expenses',
                           columns: ['amount', 'category', 'occurredAt'],
-                          where: 'occurredAt >= ? AND occurredAt <= ?',
+                          where: "occurredAt >= ? AND occurredAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
                           whereArgs: [start.toIso8601String(), end.toIso8601String()],
                         ),
                         _loadPayStats(
@@ -1673,6 +1706,19 @@ class _ReportScreenState extends State<ReportScreen> {
                           return const SizedBox(
                             height: 120,
                             child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+
+                        if (snap.hasError) {
+                          return SizedBox(
+                            height: 120,
+                            child: Center(
+                              child: Text(
+                                'Lỗi tải báo cáo: ${snap.error}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
                           );
                         }
 

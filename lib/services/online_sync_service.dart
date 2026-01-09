@@ -306,7 +306,11 @@ class OnlineSyncService {
         if (updatedAt.isEmpty) continue;
 
         if (t == 'sales') {
-          final items = await db.query('sale_items', where: 'saleId = ?', whereArgs: [id]);
+          final items = await db.query(
+            'sale_items',
+            where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+            whereArgs: [id],
+          );
           final payload = {
             ...r,
             'items': items,
@@ -547,11 +551,29 @@ class OnlineSyncService {
         // mirror deletion locally
         try {
           if (entity == 'debt_payments') {
-            await db.delete('debt_payments', where: 'uuid = ?', whereArgs: [entityId]);
+            await db.update(
+              'debt_payments',
+              {
+                'deletedAt': clientUpdatedAt.isEmpty ? DateTime.now().toIso8601String() : clientUpdatedAt,
+                'updatedAt': clientUpdatedAt.isEmpty ? DateTime.now().toIso8601String() : clientUpdatedAt,
+                'isSynced': 1,
+              },
+              where: 'uuid = ?',
+              whereArgs: [entityId],
+            );
           } else if (entity == 'sale_items') {
             // ignore (embedded)
           } else {
-            await db.delete(entity, where: 'id = ?', whereArgs: [entityId]);
+            await db.update(
+              entity,
+              {
+                'deletedAt': clientUpdatedAt.isEmpty ? DateTime.now().toIso8601String() : clientUpdatedAt,
+                'updatedAt': clientUpdatedAt.isEmpty ? DateTime.now().toIso8601String() : clientUpdatedAt,
+                'isSynced': 1,
+              },
+              where: 'id = ?',
+              whereArgs: [entityId],
+            );
           }
         } catch (_) {
           // ignore
@@ -621,12 +643,19 @@ class OnlineSyncService {
           // apply items
           final items = (p['items'] is List) ? (p['items'] as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList() : <Map<String, dynamic>>[];
           await db.transaction((txn) async {
-            await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [entityId]);
+            final now = DateTime.now().toIso8601String();
+            await txn.update(
+              'sale_items',
+              {'deletedAt': now, 'updatedAt': now, 'isSynced': 1},
+              where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+              whereArgs: [entityId],
+            );
             for (final it in items) {
               final toInsert = Map<String, dynamic>.from(it);
               toInsert.remove('id');
               toInsert['saleId'] = entityId;
               toInsert['isSynced'] = 1;
+              toInsert['deletedAt'] = null;
               await txn.insert('sale_items', toInsert);
             }
           });

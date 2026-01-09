@@ -74,7 +74,7 @@ class DatabaseService {
 
     for (final t in tables) {
       try {
-        final r = await db.rawQuery('SELECT COUNT(1) as c FROM $t');
+        final r = await db.rawQuery('SELECT COUNT(1) as c FROM $t WHERE (deletedAt IS NULL OR TRIM(deletedAt) = \'\')');
         final c = (r.isNotEmpty ? r.first['c'] : 0) as int?;
         if ((c ?? 0) > 0) return true;
       } catch (_) {
@@ -100,6 +100,13 @@ class DatabaseService {
   Future<int> countRowsInTable(String table) async {
     final t = table.trim();
     if (t.isEmpty) return 0;
+    final rows = await db.rawQuery('SELECT COUNT(1) as c FROM $t WHERE (deletedAt IS NULL OR TRIM(deletedAt) = \'\')');
+    return (rows.isNotEmpty ? (rows.first['c'] as int?) : 0) ?? 0;
+  }
+
+  Future<int> countTotalRowsInTable(String table) async {
+    final t = table.trim();
+    if (t.isEmpty) return 0;
     final rows = await db.rawQuery('SELECT COUNT(1) as c FROM $t');
     return (rows.isNotEmpty ? (rows.first['c'] as int?) : 0) ?? 0;
   }
@@ -109,6 +116,18 @@ class DatabaseService {
     for (final t in tables) {
       try {
         out[t] = await countRowsInTable(t);
+      } catch (_) {
+        out[t] = 0;
+      }
+    }
+    return out;
+  }
+
+  Future<Map<String, int>> countTotalRowsByTable(List<String> tables) async {
+    final out = <String, int>{};
+    for (final t in tables) {
+      try {
+        out[t] = await countTotalRowsInTable(t);
       } catch (_) {
         out[t] = 0;
       }
@@ -215,17 +234,17 @@ class DatabaseService {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
-  
+
   // Lấy thởi gian đồng bộ cuối cùng
   Future<DateTime?> getLastSyncTime(String table) async {
     final result = await db.rawQuery(
-      'SELECT MAX(updatedAt) as lastSync FROM $table WHERE isSynced = 1'
+      'SELECT MAX(updatedAt) as lastSync FROM $table WHERE isSynced = 1 AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
     );
-    
+
     final lastSync = result.first['lastSync'] as String?;
     return lastSync != null ? DateTime.parse(lastSync) : null;
   }
-  
+
   // Đánh dấu các bản ghi đã đồng bộ
   Future<void> markAsSynced(String table, List<String> ids) async {
     if (ids.isEmpty) return;
@@ -237,16 +256,16 @@ class DatabaseService {
       whereArgs: ids,
     );
   }
-  
+
   // Lấy các bản ghi chưa đồng bộ
   Future<List<Map<String, dynamic>>> getUnsyncedRecords(String table) async {
     return await db.query(
       table,
-      where: 'isSynced = ?',
+      where: 'isSynced = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
       whereArgs: [0], // 0 = false
     );
   }
-  
+
   // Lấy danh sách các bản ghi đã bị xóa chưa đồng bộ
   Future<List<Map<String, dynamic>>> getUnsyncedDeletions() async {
     try {
@@ -261,13 +280,13 @@ class DatabaseService {
       return [];
     }
   }
-  
+
   // Đánh dấu các bản ghi đã xóa là đã đồng bộ
   Future<void> markDeletionsAsSynced(List<Map<String, dynamic>> deletions) async {
     if (deletions.isEmpty) return;
-    
+
     final batch = db.batch();
-    
+
     for (final deletion in deletions) {
       batch.update(
         'deleted_entities',
@@ -276,7 +295,7 @@ class DatabaseService {
         whereArgs: [deletion['entityType'], deletion['entityId']],
       );
     }
-    
+
     await batch.commit(noResult: true);
   }
 
@@ -284,7 +303,7 @@ class DatabaseService {
     final id = debtId.trim();
     if (id.isEmpty) return 0.0;
     final rows = await db.rawQuery(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM debt_payments WHERE debtId = ?',
+      'SELECT COALESCE(SUM(amount), 0) as total FROM debt_payments WHERE debtId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
       [id],
     );
     return (rows.isNotEmpty ? rows.first['total'] as num? : null)?.toDouble() ?? 0.0;
@@ -297,19 +316,21 @@ class DatabaseService {
     final saleRows = await db.query(
       'sales',
       columns: ['id', 'discount', 'paidAmount'],
-      where: 'id = ?',
+      where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: [id],
       limit: 1,
     );
+
     if (saleRows.isEmpty) return null;
     final sale = saleRows.first;
     final discount = (sale['discount'] as num?)?.toDouble() ?? 0.0;
     final paidAmount = (sale['paidAmount'] as num?)?.toDouble() ?? 0.0;
 
     final rows = await db.rawQuery(
-      'SELECT COALESCE(SUM(unitPrice * quantity), 0) as subtotal FROM sale_items WHERE saleId = ?',
+      "SELECT COALESCE(SUM(unitPrice * quantity), 0) as subtotal FROM sale_items WHERE saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       [id],
     );
+
     final subtotal = (rows.isNotEmpty ? rows.first['subtotal'] as num? : null)?.toDouble() ?? 0.0;
     final total = (subtotal - discount).clamp(0.0, double.infinity).toDouble();
     return {
@@ -321,15 +342,397 @@ class DatabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getSalesForSync() async {
-    return db.query('sales', orderBy: 'createdAt DESC');
+    return db.query('sales', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')", orderBy: 'createdAt DESC');
   }
 
   Future<List<Map<String, dynamic>>> getCustomersForSync() async {
-    return db.query('customers', orderBy: 'name COLLATE NOCASE ASC');
+    return db.query('customers', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')", orderBy: 'name COLLATE NOCASE ASC');
   }
 
   Future<List<Map<String, dynamic>>> getDebtsForSync() async {
-    return db.query('debts', orderBy: 'createdAt DESC');
+    return db.query('debts', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')", orderBy: 'createdAt DESC');
+  }
+
+  Future<void> _markEntityAsDeletedTxn(Transaction txn, String table, String id) async {
+    final devId = await deviceId;
+    await txn.insert(
+      'deleted_entities',
+      {
+        'entityType': table,
+        'entityId': id,
+        'deletedAt': DateTime.now().toIso8601String(),
+        'deviceId': devId,
+        'isSynced': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Debt?> getDebtBySource({required String sourceType, required String sourceId}) async {
+    final st = sourceType.trim();
+    final sid = sourceId.trim();
+    if (st.isEmpty || sid.isEmpty) return null;
+    await EncryptionService.instance.init();
+    final rows = await db.query(
+      'debts',
+      where: "sourceType = ? AND sourceId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      whereArgs: [st, sid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final m = rows.first;
+    final encryptedDesc = m['description'] as String?;
+    final decryptedDesc = encryptedDesc != null ? await EncryptionService.instance.decrypt(encryptedDesc) : null;
+    final t = (m['type'] as int?) ?? 0;
+    final debtType = (t == 0) ? DebtType.oweOthers : DebtType.othersOweMe;
+    return Debt(
+      id: m['id'] as String,
+      createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+      type: debtType,
+      partyId: m['partyId'] as String,
+      partyName: m['partyName'] as String,
+      initialAmount: (m['initialAmount'] as num?)?.toDouble(),
+      amount: (m['amount'] as num?)?.toDouble() ?? 0.0,
+      description: decryptedDesc,
+      dueDate: m['dueDate'] != null ? DateTime.tryParse(m['dueDate'] as String) : null,
+      settled: ((m['settled'] as int?) ?? 0) == 1,
+      sourceType: m['sourceType'] as String?,
+      sourceId: m['sourceId'] as String?,
+    );
+  }
+
+  Future<void> insertDebt(Debt d) async {
+    await EncryptionService.instance.init();
+    final now = DateTime.now().toIso8601String();
+    final encryptedDescription = d.description != null ? await EncryptionService.instance.encrypt(d.description!) : null;
+
+    await db.insert(
+      'debts',
+      {
+        'id': d.id,
+        'createdAt': d.createdAt.toIso8601String(),
+        'type': d.type == DebtType.oweOthers ? 0 : 1,
+        'partyId': d.partyId,
+        'partyName': d.partyName,
+        'initialAmount': d.initialAmount,
+        'amount': d.amount,
+        'description': encryptedDescription,
+        'dueDate': d.dueDate?.toIso8601String(),
+        'settled': d.settled ? 1 : 0,
+        'sourceType': d.sourceType,
+        'sourceId': d.sourceId,
+        'updatedAt': now,
+        'deletedAt': null,
+        'isSynced': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> updateDebt(Debt d) async {
+    await EncryptionService.instance.init();
+    final now = DateTime.now().toIso8601String();
+    final encryptedDescription = d.description != null ? await EncryptionService.instance.encrypt(d.description!) : null;
+    await db.update(
+      'debts',
+      {
+        'type': d.type == DebtType.oweOthers ? 0 : 1,
+        'partyId': d.partyId,
+        'partyName': d.partyName,
+        'initialAmount': d.initialAmount,
+        'amount': d.amount,
+        'description': encryptedDescription,
+        'dueDate': d.dueDate?.toIso8601String(),
+        'settled': d.settled ? 1 : 0,
+        'sourceType': d.sourceType,
+        'sourceId': d.sourceId,
+        'updatedAt': now,
+        'isSynced': 0,
+      },
+      where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      whereArgs: [d.id],
+    );
+  }
+
+  Future<void> updateDebtWithCreatedAt(Debt d) async {
+    await EncryptionService.instance.init();
+    final now = DateTime.now().toIso8601String();
+    final encryptedDescription = d.description != null ? await EncryptionService.instance.encrypt(d.description!) : null;
+    await db.update(
+      'debts',
+      {
+        'createdAt': d.createdAt.toIso8601String(),
+        'type': d.type == DebtType.oweOthers ? 0 : 1,
+        'partyId': d.partyId,
+        'partyName': d.partyName,
+        'initialAmount': d.initialAmount,
+        'amount': d.amount,
+        'description': encryptedDescription,
+        'dueDate': d.dueDate?.toIso8601String(),
+        'settled': d.settled ? 1 : 0,
+        'sourceType': d.sourceType,
+        'sourceId': d.sourceId,
+        'updatedAt': now,
+        'isSynced': 0,
+      },
+      where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      whereArgs: [d.id],
+    );
+  }
+
+  Future<Debt?> getDebtById(String debtId) async {
+    final id = debtId.trim();
+    if (id.isEmpty) return null;
+    await EncryptionService.instance.init();
+    final rows = await db.query(
+      'debts',
+      where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final m = rows.first;
+    final encryptedDesc = m['description'] as String?;
+    final decryptedDesc = encryptedDesc != null ? await EncryptionService.instance.decrypt(encryptedDesc) : null;
+    final t = (m['type'] as int?) ?? 0;
+    final debtType = (t == 0) ? DebtType.oweOthers : DebtType.othersOweMe;
+    return Debt(
+      id: m['id'] as String,
+      createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+      type: debtType,
+      partyId: m['partyId'] as String,
+      partyName: m['partyName'] as String,
+      initialAmount: (m['initialAmount'] as num?)?.toDouble(),
+      amount: (m['amount'] as num?)?.toDouble() ?? 0.0,
+      description: decryptedDesc,
+      dueDate: m['dueDate'] != null ? DateTime.tryParse(m['dueDate'] as String) : null,
+      settled: ((m['settled'] as int?) ?? 0) == 1,
+      sourceType: m['sourceType'] as String?,
+      sourceId: m['sourceId'] as String?,
+    );
+  }
+
+  Future<List<Debt>> getDebts() async {
+    await EncryptionService.instance.init();
+    final rows = await db.query(
+      'debts',
+      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      orderBy: 'createdAt DESC',
+    );
+    final out = <Debt>[];
+    for (final m in rows) {
+      final encryptedDesc = m['description'] as String?;
+      final decryptedDesc = encryptedDesc != null ? await EncryptionService.instance.decrypt(encryptedDesc) : null;
+      final t = (m['type'] as int?) ?? 0;
+      final debtType = (t == 0) ? DebtType.oweOthers : DebtType.othersOweMe;
+      out.add(
+        Debt(
+          id: m['id'] as String,
+          createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+          type: debtType,
+          partyId: m['partyId'] as String,
+          partyName: m['partyName'] as String,
+          initialAmount: (m['initialAmount'] as num?)?.toDouble(),
+          amount: (m['amount'] as num?)?.toDouble() ?? 0.0,
+          description: decryptedDesc,
+          dueDate: m['dueDate'] != null ? DateTime.tryParse(m['dueDate'] as String) : null,
+          settled: ((m['settled'] as int?) ?? 0) == 1,
+          sourceType: m['sourceType'] as String?,
+          sourceId: m['sourceId'] as String?,
+        ),
+      );
+    }
+    return out;
+  }
+
+  Future<List<Sale>> getSales() async {
+    await EncryptionService.instance.init();
+    final salesRows = await db.query(
+      'sales',
+      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      orderBy: 'createdAt DESC',
+    );
+    final sales = <Sale>[];
+
+    for (final row in salesRows) {
+      try {
+        final sid = (row['id']?.toString() ?? '').trim();
+        if (sid.isEmpty) continue;
+        final items = await db.query(
+          'sale_items',
+          where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [sid],
+        );
+        final saleItems = items
+            .map((m) => SaleItem.fromMap({
+                  'productId': m['productId'],
+                  'name': m['name'],
+                  'unitPrice': m['unitPrice'],
+                  'unitCost': m['unitCost'],
+                  'quantity': m['quantity'],
+                  'unit': m['unit'],
+                  'itemType': m['itemType'],
+                  'displayName': m['displayName'],
+                  'mixItemsJson': m['mixItemsJson'],
+                }))
+            .toList();
+
+        final note = row['note'] as String?;
+        final decryptedNote = note != null ? await EncryptionService.instance.decrypt(note) : null;
+        final totalCost = (row['totalCost'] as num?)?.toDouble() ?? 0.0;
+        sales.add(
+          Sale(
+            id: row['id'] as String,
+            createdAt: DateTime.tryParse(row['createdAt'] as String? ?? '') ?? DateTime.now(),
+            customerId: row['customerId'] as String?,
+            customerName: row['customerName'] as String?,
+            employeeId: row['employeeId'] as String?,
+            employeeName: row['employeeName'] as String?,
+            items: saleItems,
+            discount: (row['discount'] as num?)?.toDouble() ?? 0.0,
+            paidAmount: (row['paidAmount'] as num?)?.toDouble() ?? 0.0,
+            paymentType: row['paymentType'] as String?,
+            note: decryptedNote,
+            totalCost: totalCost,
+          ),
+        );
+      } catch (e) {
+        developer.log('Error processing sale ${row['id']}: $e', error: e);
+      }
+    }
+
+    return sales;
+  }
+
+  Future<List<Debt>> getDebtsToRemind() async {
+    await EncryptionService.instance.init();
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+    final sevenDaysAgo = now.subtract(const Duration(days: 7));
+
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        d.id as id,
+        d.createdAt as createdAt,
+        d.type as type,
+        d.partyId as partyId,
+        d.partyName as partyName,
+        d.initialAmount as initialAmount,
+        d.amount as amount,
+        d.description as description,
+        d.dueDate as dueDate,
+        d.settled as settled,
+        d.sourceType as sourceType,
+        d.sourceId as sourceId,
+        s.muted as muted,
+        s.lastNotifiedAt as lastNotifiedAt
+      FROM debts d
+      LEFT JOIN debt_reminder_settings s ON s.debtId = d.id
+      WHERE (d.deletedAt IS NULL OR TRIM(d.deletedAt) = '')
+        AND COALESCE(d.settled, 0) = 0
+        AND COALESCE(d.amount, 0) > 0
+        AND (COALESCE(s.muted, 0) = 0)
+        AND (
+          (d.dueDate IS NOT NULL AND d.dueDate <= ?)
+          OR
+          (d.dueDate IS NULL AND d.createdAt <= ?)
+        )
+        AND (
+          s.lastNotifiedAt IS NULL
+          OR TRIM(s.lastNotifiedAt) = ''
+          OR s.lastNotifiedAt < ?
+        )
+      ORDER BY COALESCE(d.dueDate, d.createdAt) ASC
+      ''',
+      [todayEnd.toIso8601String(), sevenDaysAgo.toIso8601String(), todayStart.toIso8601String()],
+    );
+
+    final out = <Debt>[];
+    for (final m in rows) {
+      final encryptedDesc = m['description'] as String?;
+      final decryptedDesc = encryptedDesc != null ? await EncryptionService.instance.decrypt(encryptedDesc) : null;
+      final t = (m['type'] as int?) ?? 0;
+      final debtType = (t == 0) ? DebtType.oweOthers : DebtType.othersOweMe;
+      out.add(
+        Debt(
+          id: (m['id']?.toString() ?? '').trim(),
+          createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+          type: debtType,
+          partyId: (m['partyId']?.toString() ?? '').trim(),
+          partyName: (m['partyName']?.toString() ?? '').trim(),
+          initialAmount: (m['initialAmount'] as num?)?.toDouble(),
+          amount: (m['amount'] as num?)?.toDouble() ?? 0.0,
+          description: decryptedDesc,
+          dueDate: m['dueDate'] != null ? DateTime.tryParse(m['dueDate'] as String) : null,
+          settled: ((m['settled'] as int?) ?? 0) == 1,
+          sourceType: m['sourceType'] as String?,
+          sourceId: m['sourceId'] as String?,
+        ),
+      );
+    }
+    return out;
+  }
+
+  Future<void> markDebtNotifiedToday(String debtId) async {
+    final id = debtId.trim();
+    if (id.isEmpty) return;
+    final now = DateTime.now().toIso8601String();
+    await db.insert(
+      'debt_reminder_settings',
+      {
+        'debtId': id,
+        'muted': 0,
+        'lastNotifiedAt': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> muteDebtReminder(String debtId) async {
+    final id = debtId.trim();
+    if (id.isEmpty) return;
+    final now = DateTime.now().toIso8601String();
+    await db.insert(
+      'debt_reminder_settings',
+      {
+        'debtId': id,
+        'muted': 1,
+        'lastNotifiedAt': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Map<String, double> _saleStockOutByProductId(Sale s) {
+    final qtyByProductId = <String, double>{};
+    for (final it in s.items) {
+      final t = (it.itemType ?? '').toUpperCase().trim();
+      if (t == 'MIX') {
+        final raw = (it.mixItemsJson ?? '').trim();
+        if (raw.isEmpty) continue;
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            for (final e in decoded) {
+              if (e is Map) {
+                final rid = e['rawProductId']?.toString();
+                if (rid == null || rid.isEmpty) continue;
+                final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
+                qtyByProductId[rid] = (qtyByProductId[rid] ?? 0) + rq;
+              }
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      } else {
+        final pid = it.productId;
+        qtyByProductId[pid] = (qtyByProductId[pid] ?? 0) + it.quantity;
+      }
+    }
+    return qtyByProductId;
   }
 
   Future<void> backfillSaleItemsUnitCostFromProducts() async {
@@ -343,6 +746,7 @@ class DatabaseService {
           WHERE p.id = sale_items.productId
         )
         WHERE (unitCost IS NULL OR unitCost <= 0)
+          AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
           AND productId IS NOT NULL
           AND TRIM(productId) != ''
           AND (itemType IS NULL OR UPPER(TRIM(itemType)) != 'MIX')
@@ -363,8 +767,10 @@ class DatabaseService {
           SELECT COALESCE(SUM(dp.amount), 0)
           FROM debt_payments dp
           WHERE dp.debtId = debts.id
+            AND (dp.deletedAt IS NULL OR TRIM(dp.deletedAt) = '')
         )
         WHERE (initialAmount IS NULL OR initialAmount <= 0)
+          AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
         ''',
       );
     } catch (e) {
@@ -410,6 +816,8 @@ class DatabaseService {
           'purchaseDocUpdatedAt': null,
           'purchaseOrderId': purchaseOrderId,
           'updatedAt': now.toIso8601String(),
+          'deletedAt': null,
+          'isSynced': 0,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -482,6 +890,8 @@ class DatabaseService {
           'note': note,
           'purchaseOrderId': purchaseOrderId,
           'updatedAt': now.toIso8601String(),
+          'deletedAt': null,
+          'isSynced': 0,
         },
         where: 'id = ?',
         whereArgs: [id],
@@ -510,7 +920,15 @@ class DatabaseService {
         );
       }
 
-      await txn.delete('purchase_history', where: 'id = ?', whereArgs: [id]);
+      await txn.update(
+        'purchase_history',
+        {
+          'deletedAt': now.toIso8601String(),
+          'isSynced': 0,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
     });
   }
 
@@ -536,6 +954,12 @@ class DatabaseService {
         where = '$where AND (productName LIKE ? OR note LIKE ? OR supplierName LIKE ? OR supplierPhone LIKE ?)';
       }
       whereArgs.addAll([q, q, q, q]);
+    }
+
+    if (where == null) {
+      where = "(deletedAt IS NULL OR TRIM(deletedAt) = '')";
+    } else {
+      where = "$where AND (deletedAt IS NULL OR TRIM(deletedAt) = '')";
     }
 
     return await db.query(
@@ -611,6 +1035,8 @@ class DatabaseService {
         'purchaseDocFileId': purchaseDocFileId,
         'purchaseDocUpdatedAt': purchaseDocUpdatedAt,
         'updatedAt': now.toIso8601String(),
+        'deletedAt': null,
+        'isSynced': 0,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -640,6 +1066,8 @@ class DatabaseService {
         'paidAmount': paidAmount,
         'note': note,
         'updatedAt': now.toIso8601String(),
+        'deletedAt': null,
+        'isSynced': 0,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -682,7 +1110,7 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getPurchaseOrderById(String purchaseOrderId) async {
     final rows = await db.query(
       'purchase_orders',
-      where: 'id = ?',
+      where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: [purchaseOrderId],
       limit: 1,
     );
@@ -714,6 +1142,12 @@ class DatabaseService {
       whereArgs.addAll([q, q, q]);
     }
 
+    if (where == null) {
+      where = "(deletedAt IS NULL OR TRIM(deletedAt) = '')";
+    } else {
+      where = "$where AND (deletedAt IS NULL OR TRIM(deletedAt) = '')";
+    }
+
     return db.query(
       'purchase_orders',
       where: where,
@@ -725,7 +1159,7 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getPurchaseHistoryByOrderId(String purchaseOrderId) async {
     return db.query(
       'purchase_history',
-      where: 'purchaseOrderId = ?',
+      where: "purchaseOrderId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: [purchaseOrderId],
       orderBy: 'createdAt DESC',
     );
@@ -736,9 +1170,10 @@ class DatabaseService {
     if (order == null) return null;
 
     final rows = await db.rawQuery(
-      'SELECT SUM(totalCost) as subtotal FROM purchase_history WHERE purchaseOrderId = ?',
+      "SELECT SUM(totalCost) as subtotal FROM purchase_history WHERE purchaseOrderId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       [purchaseOrderId],
     );
+
     final subtotal = (rows.isNotEmpty ? rows.first['subtotal'] as num? : null)?.toDouble() ?? 0.0;
 
     final dtType = (order['discountType'] as String?)?.toUpperCase().trim() ?? 'AMOUNT';
@@ -900,6 +1335,8 @@ class DatabaseService {
           'purchaseDocFileId': ph['purchaseDocFileId'],
           'purchaseDocUpdatedAt': ph['purchaseDocUpdatedAt'],
           'updatedAt': now.toIso8601String(),
+          'deletedAt': null,
+          'isSynced': 0,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -992,6 +1429,8 @@ class DatabaseService {
             'purchaseDocFileId': first['purchaseDocFileId'],
             'purchaseDocUpdatedAt': first['purchaseDocUpdatedAt'],
             'updatedAt': now.toIso8601String(),
+            'deletedAt': null,
+            'isSynced': 0,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
@@ -1037,8 +1476,41 @@ class DatabaseService {
       for (final d in debtRows) {
         final debtId = d['id'] as String?;
         if (debtId == null) continue;
-        await txn.delete('debt_payments', where: 'debtId = ?', whereArgs: [debtId]);
-        await txn.delete('debts', where: 'id = ?', whereArgs: [debtId]);
+
+        final payments = await txn.query(
+          'debt_payments',
+          columns: ['id', 'uuid'],
+          where: "debtId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [debtId],
+        );
+        for (final p in payments) {
+          final pid = p['id'];
+          final uuid = (p['uuid'] as String?)?.trim();
+          if (pid == null) continue;
+          await _markEntityAsDeletedTxn(txn, 'debt_payments', (uuid == null || uuid.isEmpty) ? pid.toString() : uuid);
+          await txn.update(
+            'debt_payments',
+            {
+              'deletedAt': now.toIso8601String(),
+              'updatedAt': now.toIso8601String(),
+              'isSynced': 0,
+            },
+            where: 'id = ?',
+            whereArgs: [pid],
+          );
+        }
+
+        await _markEntityAsDeletedTxn(txn, 'debts', debtId);
+        await txn.update(
+          'debts',
+          {
+            'deletedAt': now.toIso8601String(),
+            'updatedAt': now.toIso8601String(),
+            'isSynced': 0,
+          },
+          where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [debtId],
+        );
       }
 
       // Delete all purchase_history rows belonging to this order and revert stock
@@ -1061,11 +1533,27 @@ class DatabaseService {
           );
         }
         if (lineId != null) {
-          await txn.delete('purchase_history', where: 'id = ?', whereArgs: [lineId]);
+          await txn.update(
+            'purchase_history',
+            {
+              'deletedAt': now.toIso8601String(),
+              'isSynced': 0,
+            },
+            where: 'id = ?',
+            whereArgs: [lineId],
+          );
         }
       }
 
-      await txn.delete('purchase_orders', where: 'id = ?', whereArgs: [purchaseOrderId]);
+      await txn.update(
+        'purchase_orders',
+        {
+          'deletedAt': now.toIso8601String(),
+          'isSynced': 0,
+        },
+        where: 'id = ?',
+        whereArgs: [purchaseOrderId],
+      );
     });
   }
 
@@ -1089,6 +1577,8 @@ class DatabaseService {
         'expenseDocFileId': null,
         'expenseDocUpdatedAt': null,
         'updatedAt': now.toIso8601String(),
+        'deletedAt': null,
+        'isSynced': 0,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -1111,6 +1601,8 @@ class DatabaseService {
         'category': category,
         'note': note,
         'updatedAt': now.toIso8601String(),
+        'deletedAt': null,
+        'isSynced': 0,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -1118,7 +1610,16 @@ class DatabaseService {
   }
 
   Future<void> deleteExpense(String id) async {
-    await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
+    final now = DateTime.now();
+    await db.update(
+      'expenses',
+      {
+        'deletedAt': now.toIso8601String(),
+        'isSynced': 0,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<List<Map<String, dynamic>>> getExpenses({
@@ -1153,6 +1654,12 @@ class DatabaseService {
         where = '$where AND (note LIKE ?)';
       }
       whereArgs.add(q);
+    }
+
+    if (where == null) {
+      where = "(deletedAt IS NULL OR TRIM(deletedAt) = '')";
+    } else {
+      where = "$where AND (deletedAt IS NULL OR TRIM(deletedAt) = '')";
     }
 
     return await db.query(
@@ -1200,7 +1707,7 @@ class DatabaseService {
     final start = DateTime(range.start.year, range.start.month, range.start.day);
     final end = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
     final rows = await db.rawQuery(
-      'SELECT SUM(amount) as total FROM expenses WHERE occurredAt >= ? AND occurredAt <= ?',
+      "SELECT SUM(amount) as total FROM expenses WHERE occurredAt >= ? AND occurredAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       [start.toIso8601String(), end.toIso8601String()],
     );
     final total = rows.isNotEmpty ? rows.first['total'] : null;
@@ -1284,9 +1791,21 @@ class DatabaseService {
       await _logSyncAction('delete', table, id, devId, now.toIso8601String());
     }
 
-    // Thực hiện xóa
-    return await db.delete(
+    // Soft delete: set deletedAt instead of deleting row
+    final updateData = <String, Object?>{
+      'deletedAt': now.toIso8601String(),
+      'isSynced': 0,
+    };
+    try {
+      // most tables have updatedAt
+      updateData['updatedAt'] = now.toIso8601String();
+    } catch (_) {
+      // ignore
+    }
+
+    return await db.update(
       table,
+      updateData,
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -1477,7 +1996,9 @@ class DatabaseService {
             purchaseDocFileId TEXT,
             purchaseDocUpdatedAt TEXT,
             purchaseOrderId TEXT,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
       } catch (e) {
@@ -1533,7 +2054,9 @@ class DatabaseService {
             expenseDocUploaded INTEGER NOT NULL DEFAULT 0,
             expenseDocFileId TEXT,
             expenseDocUpdatedAt TEXT,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
       } catch (e) {
@@ -1599,7 +2122,9 @@ class DatabaseService {
             purchaseDocUploaded INTEGER NOT NULL DEFAULT 0,
             purchaseDocFileId TEXT,
             purchaseDocUpdatedAt TEXT,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
       } catch (e) {
@@ -1641,6 +2166,7 @@ class DatabaseService {
 
           if (existingOrderId == null || existingOrderId.isEmpty) {
             final createdAt = (row['createdAt'] as String?)?.trim();
+
             final supplierName = row['supplierName'] as String?;
             final supplierPhone = row['supplierPhone'] as String?;
             final note = row['note'] as String?;
@@ -1653,7 +2179,7 @@ class DatabaseService {
               'purchase_orders',
               {
                 'id': orderId,
-                'createdAt': createdAt ?? DateTime.now().toIso8601String(),
+                'createdAt': (createdAt == null || createdAt.isEmpty) ? now : createdAt,
                 'supplierName': supplierName,
                 'supplierPhone': supplierPhone,
                 'discountType': 'AMOUNT',
@@ -1664,6 +2190,8 @@ class DatabaseService {
                 'purchaseDocFileId': docFileId,
                 'purchaseDocUpdatedAt': docUpdatedAt,
                 'updatedAt': now,
+                'deletedAt': null,
+                'isSynced': 0,
               },
               conflictAlgorithm: ConflictAlgorithm.ignore,
             );
@@ -1708,7 +2236,9 @@ class DatabaseService {
             accountNo TEXT NOT NULL,
             accountName TEXT NOT NULL,
             isDefault INTEGER NOT NULL DEFAULT 0,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
       } catch (e) {
@@ -1723,7 +2253,9 @@ class DatabaseService {
           CREATE TABLE IF NOT EXISTS employees(
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
       } catch (e) {
@@ -1796,8 +2328,7 @@ class DatabaseService {
         // Backfill uuid + updatedAt for existing payments
         final rows = await db.query('debt_payments', columns: ['id', 'createdAt', 'uuid', 'updatedAt']);
         for (final r in rows) {
-          final pid = r['id'] as int?;
-          if (pid == null) continue;
+          final pid = r['id'];
           final existingUuid = (r['uuid'] as String?)?.trim();
           final createdAt = (r['createdAt'] as String?)?.trim();
           final existingUpdatedAt = (r['updatedAt'] as String?)?.trim();
@@ -1846,19 +2377,19 @@ class DatabaseService {
       } catch (e) {
         print('Lỗi khi thêm isSynced vào purchase_history: $e');
       }
-      
+
       try {
         await safeAddColumn(db, 'expenses', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
       } catch (e) {
         print('Lỗi khi thêm isSynced vào expenses: $e');
       }
-      
+
       try {
         await safeAddColumn(db, 'vietqr_bank_accounts', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
       } catch (e) {
         print('Lỗi khi thêm isSynced vào vietqr_bank_accounts: $e');
       }
-      
+
       try {
         await safeAddColumn(db, 'employees', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
       } catch (e) {
@@ -1873,29 +2404,88 @@ class DatabaseService {
       } catch (e) {
         print('Lỗi khi thêm isSynced vào purchase_history (v31): $e');
       }
-      
+
       try {
         await safeAddColumn(db, 'purchase_orders', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
       } catch (e) {
         print('Lỗi khi thêm isSynced vào purchase_orders (v31): $e');
       }
-      
+
       try {
         await safeAddColumn(db, 'expenses', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
       } catch (e) {
         print('Lỗi khi thêm isSynced vào expenses (v31): $e');
       }
-      
+
       try {
         await safeAddColumn(db, 'vietqr_bank_accounts', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
       } catch (e) {
         print('Lỗi khi thêm isSynced vào vietqr_bank_accounts (v31): $e');
       }
-      
+
       try {
         await safeAddColumn(db, 'employees', 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
       } catch (e) {
         print('Lỗi khi thêm isSynced vào employees (v31): $e');
+      }
+    }
+
+    // Migration lên version 32: Thêm deletedAt cho tất cả entity tables + bổ sung isSynced còn thiếu
+    if (oldVersion < 32) {
+      // deletedAt for entities
+      final tables = <String>[
+        'products',
+        'customers',
+        'sales',
+        'sale_items',
+        'debts',
+        'debt_payments',
+        'purchase_orders',
+        'purchase_history',
+        'expenses',
+        'employees',
+        'vietqr_bank_accounts',
+      ];
+
+      for (final t in tables) {
+        try {
+          await safeAddColumn(db, t, 'deletedAt', 'TEXT');
+        } catch (e) {
+          print('Lỗi khi thêm deletedAt vào $t: $e');
+        }
+      }
+
+      // Ensure isSynced exists for the remaining entity tables
+      final needIsSynced = <String>[
+        'purchase_orders',
+        'purchase_history',
+        'expenses',
+        'employees',
+        'vietqr_bank_accounts',
+      ];
+      for (final t in needIsSynced) {
+        try {
+          await safeAddColumn(db, t, 'isSynced', 'INTEGER NOT NULL DEFAULT 0');
+        } catch (e) {
+          print('Lỗi khi thêm isSynced vào $t (v32): $e');
+        }
+      }
+    }
+
+    // Migration lên version 33: sale_items thiếu updatedAt trong một số DB cũ
+    if (oldVersion < 33) {
+      try {
+        await safeAddColumn(db, 'sale_items', 'updatedAt', 'TEXT');
+      } catch (e) {
+        print('Lỗi khi thêm updatedAt vào sale_items (v33): $e');
+      }
+
+      try {
+        final now = DateTime.now().toIso8601String();
+        // Backfill for existing rows (avoid NULL updatedAt causing UPDATE failures later)
+        await db.execute("UPDATE sale_items SET updatedAt = '$now' WHERE updatedAt IS NULL OR TRIM(updatedAt) = ''");
+      } catch (e) {
+        print('Lỗi khi backfill updatedAt cho sale_items (v33): $e');
       }
     }
   }
@@ -1906,7 +2496,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 31, // Tăng version để áp dụng migration
+      version: 33, // Tăng version để áp dụng migration
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -1924,6 +2514,7 @@ class DatabaseService {
             imagePath TEXT,
             updatedAt TEXT NOT NULL,
             deviceId TEXT,
+            deletedAt TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
@@ -1937,6 +2528,7 @@ class DatabaseService {
             isSupplier INTEGER NOT NULL DEFAULT 0,
             updatedAt TEXT NOT NULL,
             deviceId TEXT,
+            deletedAt TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
@@ -1956,6 +2548,7 @@ class DatabaseService {
             note TEXT,
             updatedAt TEXT NOT NULL,
             deviceId TEXT,
+            deletedAt TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
@@ -1973,6 +2566,8 @@ class DatabaseService {
             itemType TEXT,
             displayName TEXT,
             mixItemsJson TEXT,
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (saleId) REFERENCES sales(id) ON DELETE CASCADE
           )
@@ -1994,11 +2589,12 @@ class DatabaseService {
             sourceId TEXT,
             updatedAt TEXT NOT NULL,
             deviceId TEXT,
+            deletedAt TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
 
-        await db.execute('''
+        await db.execute(''' 
           CREATE TABLE IF NOT EXISTS deleted_entities(
             entityType TEXT NOT NULL,
             entityId TEXT NOT NULL,
@@ -2019,12 +2615,13 @@ class DatabaseService {
             paymentType TEXT,
             createdAt TEXT NOT NULL,
             updatedAt TEXT,
+            deletedAt TEXT,
             isSynced INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (debtId) REFERENCES debts(id) ON DELETE CASCADE
           )
         ''');
 
-        await db.execute('''
+        await db.execute(''' 
           CREATE TABLE IF NOT EXISTS audit_logs(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             entity TEXT NOT NULL,
@@ -2075,7 +2672,9 @@ class DatabaseService {
             purchaseDocFileId TEXT,
             purchaseDocUpdatedAt TEXT,
             purchaseOrderId TEXT,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
 
@@ -2092,7 +2691,9 @@ class DatabaseService {
             purchaseDocUploaded INTEGER NOT NULL DEFAULT 0,
             purchaseDocFileId TEXT,
             purchaseDocUpdatedAt TEXT,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
 
@@ -2106,7 +2707,9 @@ class DatabaseService {
             expenseDocUploaded INTEGER NOT NULL DEFAULT 0,
             expenseDocFileId TEXT,
             expenseDocUpdatedAt TEXT,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
 
@@ -2150,7 +2753,9 @@ class DatabaseService {
             accountNo TEXT NOT NULL,
             accountName TEXT NOT NULL,
             isDefault INTEGER NOT NULL DEFAULT 0,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
 
@@ -2158,7 +2763,9 @@ class DatabaseService {
           CREATE TABLE IF NOT EXISTS employees(
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            updatedAt TEXT NOT NULL
+            updatedAt TEXT NOT NULL,
+            deletedAt TEXT,
+            isSynced INTEGER NOT NULL DEFAULT 0
           )
         ''');
 
@@ -2197,13 +2804,14 @@ class DatabaseService {
         print('DB downgrade detected (old=$oldVersion, new=$newVersion). Skip downgrade to avoid data loss.');
       },
     );
-    
+
     print('Đã khởi tạo database thành công');
   }
 
   Future<List<Map<String, dynamic>>> getVietQrBankAccounts() async {
     return db.query(
       'vietqr_bank_accounts',
+      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
       orderBy: 'isDefault DESC, updatedAt DESC',
     );
   }
@@ -2211,7 +2819,7 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getDefaultVietQrBankAccount() async {
     final rows = await db.query(
       'vietqr_bank_accounts',
-      where: 'isDefault = 1',
+      where: "isDefault = 1 AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -2259,11 +2867,7 @@ class DatabaseService {
   }
 
   Future<void> deleteVietQrBankAccount(String id) async {
-    await db.delete(
-      'vietqr_bank_accounts',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await deleteWithSync('vietqr_bank_accounts', id);
   }
 
   Future<void> setDefaultVietQrBankAccount(String id) async {
@@ -2281,12 +2885,13 @@ class DatabaseService {
 
   // Employees
   Future<List<Map<String, dynamic>>> getEmployees() async {
-    return db.query('employees', orderBy: 'id ASC');
+    return db.query('employees', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')", orderBy: 'id ASC');
   }
 
   Future<String> _nextEmployeeId() async {
-    final rows = await db.query('employees', columns: ['id']);
+    final rows = await db.query('employees', columns: ['id'], where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')");
     var maxNum = 0;
+
     for (final r in rows) {
       final id = (r['id']?.toString() ?? '').trim();
       final digits = id.replaceAll(RegExp(r'\D'), '');
@@ -2326,7 +2931,7 @@ class DatabaseService {
     final rows = await db.query(
       'sales',
       columns: ['id'],
-      where: 'employeeId = ?',
+      where: "employeeId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: [employeeId],
       limit: 1,
     );
@@ -2334,14 +2939,14 @@ class DatabaseService {
   }
 
   Future<void> deleteEmployee(String id) async {
-    await db.delete('employees', where: 'id = ?', whereArgs: [id]);
+    await deleteWithSync('employees', id);
   }
 
   // Products
   Future<List<Product>> getProducts() async {
     final rows = await db.query(
       'products',
-      where: "isActive = 1 AND (itemType IS NULL OR itemType = 'RAW')",
+      where: "isActive = 1 AND (itemType IS NULL OR itemType = 'RAW') AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       orderBy: 'name ASC',
     );
     return rows.map(Product.fromMap).toList();
@@ -2350,7 +2955,7 @@ class DatabaseService {
   Future<List<Product>> getProductsForSale() async {
     final rows = await db.query(
       'products',
-      where: 'isActive = 1',
+      where: "isActive = 1 AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       orderBy: 'name ASC',
     );
     return rows.map(Product.fromMap).toList();
@@ -2359,7 +2964,7 @@ class DatabaseService {
   Future<bool> isProductUsed(String productId) async {
     final saleCount = Sqflite.firstIntValue(
           await db.rawQuery(
-            'SELECT COUNT(1) FROM sale_items WHERE productId = ?',
+            "SELECT COUNT(1) FROM sale_items WHERE productId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
             [productId],
           ),
         ) ??
@@ -2368,7 +2973,7 @@ class DatabaseService {
 
     final purchaseCount = Sqflite.firstIntValue(
           await db.rawQuery(
-            'SELECT COUNT(1) FROM purchase_history WHERE productId = ?',
+            "SELECT COUNT(1) FROM purchase_history WHERE productId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
             [productId],
           ),
         ) ??
@@ -2379,7 +2984,7 @@ class DatabaseService {
   Future<bool> isCustomerUsed(String customerId) async {
     final saleCount = Sqflite.firstIntValue(
           await db.rawQuery(
-            'SELECT COUNT(1) FROM sales WHERE customerId = ?',
+            "SELECT COUNT(1) FROM sales WHERE customerId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
             [customerId],
           ),
         ) ??
@@ -2388,7 +2993,7 @@ class DatabaseService {
 
     final debtCount = Sqflite.firstIntValue(
           await db.rawQuery(
-            'SELECT COUNT(1) FROM debts WHERE partyId = ?',
+            "SELECT COUNT(1) FROM debts WHERE partyId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
             [customerId],
           ),
         ) ??
@@ -2397,14 +3002,11 @@ class DatabaseService {
   }
 
   Future<void> deleteCustomerHard(String customerId) async {
-    await db.delete('customers', where: 'id = ?', whereArgs: [customerId]);
+    await deleteWithSync('customers', customerId);
   }
 
   Future<void> deleteProductHard(String productId) async {
-    await db.transaction((txn) async {
-      await txn.delete('product_opening_stocks', where: 'productId = ?', whereArgs: [productId]);
-      await txn.delete('products', where: 'id = ?', whereArgs: [productId]);
-    });
+    await deleteWithSync('products', productId);
   }
 
   Future<void> insertProduct(Product p) async {
@@ -2463,7 +3065,7 @@ class DatabaseService {
     final start = DateTime(year, month, 1);
     final end = (month == 12) ? DateTime(year + 1, 1, 1) : DateTime(year, month + 1, 1);
     final rows = await db.rawQuery(
-      'SELECT SUM(quantity) as q FROM purchase_history WHERE productId = ? AND createdAt >= ? AND createdAt < ?',
+      "SELECT SUM(quantity) as q FROM purchase_history WHERE productId = ? AND createdAt >= ? AND createdAt < ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       [productId, start.toIso8601String(), end.toIso8601String()],
     );
     final q = rows.isNotEmpty ? rows.first['q'] : null;
@@ -2480,16 +3082,20 @@ class DatabaseService {
 
     final saleIdRows = await db.rawQuery(
       '''
-        SELECT id FROM sales WHERE createdAt >= ? AND createdAt < ?
+        SELECT id FROM sales WHERE createdAt >= ? AND createdAt < ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
       ''',
       [start.toIso8601String(), end.toIso8601String()],
     );
+
     if (saleIdRows.isEmpty) return 0.0;
     final ids = saleIdRows.map((e) => e['id'] as String).toList();
     final placeholders = List.filled(ids.length, '?').join(',');
     final items = await db.rawQuery(
       '''
-        SELECT productId, quantity, itemType, mixItemsJson FROM sale_items WHERE saleId IN ($placeholders)
+        SELECT productId, quantity, itemType, mixItemsJson
+        FROM sale_items
+        WHERE saleId IN ($placeholders)
+          AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
       ''',
       ids,
     );
@@ -2571,7 +3177,11 @@ class DatabaseService {
   // Customers
   Future<List<Customer>> getCustomers() async {
     try {
-      final rows = await db.query('customers', orderBy: 'name ASC');
+      final rows = await db.query(
+        'customers',
+        where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
+        orderBy: 'name ASC',
+      );
       final customers = <Customer>[];
       
       // Process each row
@@ -2659,10 +3269,12 @@ class DatabaseService {
     }
   }
 
-  // Sales
   Future<void> insertSale(Sale s) async {
     try {
+      // Initialize encryption service
       await EncryptionService.instance.init();
+      
+      // Encrypt note if it exists
       final encryptedNote = s.note != null ? await EncryptionService.instance.encrypt(s.note!) : null;
 
       // totalCost:
@@ -2678,7 +3290,7 @@ class DatabaseService {
       if (rawProductIds.isNotEmpty) {
         final productRows = await db.query(
           'products',
-          where: 'id IN (${List.filled(rawProductIds.length, '?').join(',')})',
+          where: "id IN (${List.filled(rawProductIds.length, '?').join(',')}) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
           whereArgs: rawProductIds,
         );
         for (final p in productRows) {
@@ -2714,7 +3326,7 @@ class DatabaseService {
           final t = (it.itemType ?? '').toUpperCase().trim();
           final snapUnitCost = (t == 'MIX')
               ? it.unitCost
-              : (productMap[it.productId] ?? it.unitCost);
+              : ((it.unitCost > 0) ? it.unitCost : (productMap[it.productId] ?? 0.0));
           await txn.insert('sale_items', {
             'saleId': s.id,
             'productId': it.productId,
@@ -2726,6 +3338,7 @@ class DatabaseService {
             'itemType': it.itemType,
             'displayName': it.displayName,
             'mixItemsJson': it.mixItemsJson,
+            'updatedAt': DateTime.now().toIso8601String(),
             'isSynced': 0,
           });
         }
@@ -2761,7 +3374,7 @@ class DatabaseService {
         }
         for (final entry in qtyByProductId.entries) {
           await txn.rawUpdate(
-            'UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ?',
+            "UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
             [entry.value, DateTime.now().toIso8601String(), entry.key],
           );
         }
@@ -2777,36 +3390,6 @@ class DatabaseService {
       developer.log('Error inserting sale:', error: e);
       rethrow;
     }
-  }
-
-  Map<String, double> _saleStockOutByProductId(Sale s) {
-    final qtyByProductId = <String, double>{};
-    for (final it in s.items) {
-      final t = (it.itemType ?? '').toUpperCase().trim();
-      if (t == 'MIX') {
-        final raw = (it.mixItemsJson ?? '').trim();
-        if (raw.isEmpty) continue;
-        try {
-          final decoded = jsonDecode(raw);
-          if (decoded is List) {
-            for (final e in decoded) {
-              if (e is Map) {
-                final rid = e['rawProductId']?.toString();
-                if (rid == null || rid.isEmpty) continue;
-                final rq = (e['rawQty'] as num?)?.toDouble() ?? 0.0;
-                qtyByProductId[rid] = (qtyByProductId[rid] ?? 0) + rq;
-              }
-            }
-          }
-        } catch (_) {
-          continue;
-        }
-      } else {
-        final pid = it.productId;
-        qtyByProductId[pid] = (qtyByProductId[pid] ?? 0) + it.quantity;
-      }
-    }
-    return qtyByProductId;
   }
 
   Future<void> updateSaleWithStockAdjustment({
@@ -2826,7 +3409,7 @@ class DatabaseService {
       await db.transaction((txn) async {
         for (final entry in deltaOut.entries) {
           await txn.rawUpdate(
-            'UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ?',
+            "UPDATE products SET currentStock = currentStock - ?, updatedAt = ? WHERE id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
             [entry.value, DateTime.now().toIso8601String(), entry.key],
           );
         }
@@ -2844,7 +3427,7 @@ class DatabaseService {
         if (rawProductIds.isNotEmpty) {
           final productRows = await txn.query(
             'products',
-            where: 'id IN (${List.filled(rawProductIds.length, '?').join(',')})',
+            where: "id IN (${List.filled(rawProductIds.length, '?').join(',')}) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
             whereArgs: rawProductIds,
           );
           for (final p in productRows) {
@@ -2877,12 +3460,18 @@ class DatabaseService {
           'updatedAt': DateTime.now().toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-        await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [newSale.id]);
+        final now = DateTime.now().toIso8601String();
+        await txn.update(
+          'sale_items',
+          {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+          where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [newSale.id],
+        );
         for (final it in newSale.items) {
           final t = (it.itemType ?? '').toUpperCase().trim();
           final snapUnitCost = (t == 'MIX')
               ? it.unitCost
-              : ((it.unitCost > 0) ? it.unitCost : (productMap[it.productId] ?? 0.0));
+              : (productMap[it.productId] ?? it.unitCost);
           await txn.insert('sale_items', {
             'saleId': newSale.id,
             'productId': it.productId,
@@ -2894,6 +3483,7 @@ class DatabaseService {
             'itemType': it.itemType,
             'displayName': it.displayName,
             'mixItemsJson': it.mixItemsJson,
+            'updatedAt': now,
             'isSynced': 0,
           });
         }
@@ -2926,7 +3516,7 @@ class DatabaseService {
       if (rawProductIds.isNotEmpty) {
         final productRows = await db.query(
           'products',
-          where: 'id IN (${List.filled(rawProductIds.length, '?').join(',')})',
+          where: "id IN (${List.filled(rawProductIds.length, '?').join(',')}) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
           whereArgs: rawProductIds,
         );
         for (final p in productRows) {
@@ -2958,7 +3548,13 @@ class DatabaseService {
           'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-        await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [s.id]);
+        final now = DateTime.now().toIso8601String();
+        await txn.update(
+          'sale_items',
+          {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+          where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [s.id],
+        );
         for (final it in s.items) {
           final t = (it.itemType ?? '').toUpperCase().trim();
           final snapUnitCost = (t == 'MIX')
@@ -2975,6 +3571,7 @@ class DatabaseService {
             'itemType': it.itemType,
             'displayName': it.displayName,
             'mixItemsJson': it.mixItemsJson,
+            'updatedAt': now,
             'isSynced': 0,
           });
         }
@@ -2985,469 +3582,107 @@ class DatabaseService {
     }
   }
 
-  Future<List<Sale>> getSales() async {
-    try {
-      await EncryptionService.instance.init();
-      final salesRows = await db.query('sales', orderBy: 'createdAt DESC');
-      final List<Sale> sales = [];
-      
-      await Future.forEach(salesRows, (row) async {
-        try {
-          final items = await db.query(
-            'sale_items',
-            where: 'saleId = ?',
-            whereArgs: [row['id']],
-          );
-
-          final saleItems = items
-              .map((m) => SaleItem.fromMap({
-                    'productId': m['productId'],
-                    'name': m['name'],
-                    'unitPrice': m['unitPrice'],
-                    'unitCost': m['unitCost'],
-                    'quantity': m['quantity'],
-                    'unit': m['unit'],
-                    'itemType': m['itemType'],
-                    'displayName': m['displayName'],
-                    'mixItemsJson': m['mixItemsJson'],
-                  }))
-              .toList();
-
-          final note = row['note'] as String?;
-          final decryptedNote = note != null ? await EncryptionService.instance.decrypt(note) : null;
-          final totalCost = (row['totalCost'] as num?)?.toDouble() ?? 0.0;
-
-          sales.add(
-            Sale(
-              id: row['id'] as String,
-              createdAt: DateTime.parse(row['createdAt'] as String),
-              customerId: row['customerId'] as String?,
-              customerName: row['customerName'] as String?,
-              employeeId: row['employeeId'] as String?,
-              employeeName: row['employeeName'] as String?,
-              items: saleItems,
-              discount: (row['discount'] as num).toDouble(),
-              paidAmount: (row['paidAmount'] as num).toDouble(),
-              paymentType: row['paymentType'] as String?,
-              note: decryptedNote,
-              totalCost: totalCost,
-            ),
-          );
-        } catch (e) {
-          developer.log('Error processing sale ${row['id']}: $e', error: e);
-        }
-      });
-      return sales;
-    } catch (e) {
-      developer.log('Error getting sales:', error: e);
-      rethrow;
-    }
-  }
-
-  // Debts
-  Future<void> insertDebt(Debt d) async {
-    try {
-      // Initialize encryption service
-      await EncryptionService.instance.init();
-      
-      // Encrypt description if it exists
-      final encryptedDescription = d.description != null 
-          ? await EncryptionService.instance.encrypt(d.description!)
-          : null;
-      
-      await db.insert('debts', {
-        'id': d.id,
-        'createdAt': d.createdAt.toIso8601String(),
-        'type': d.type == DebtType.oweOthers ? 0 : 1,
-        'partyId': d.partyId,
-        'partyName': d.partyName,
-        'initialAmount': d.initialAmount,
-        'amount': d.amount,
-        'description': encryptedDescription,
-        'dueDate': d.dueDate?.toIso8601String(),
-        'settled': d.settled ? 1 : 0,
-        'sourceType': d.sourceType,
-        'sourceId': d.sourceId,
-        'updatedAt': DateTime.now().toIso8601String(),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-      
-      await _addAudit('debt', d.id, 'create', {
-        'amount': d.amount,
-        'partyName': d.partyName,
-        'settled': d.settled,
-      });
-    } catch (e) {
-      developer.log('Error inserting debt:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<void> updateDebt(Debt d) async {
-    try {
-      // Initialize encryption service
-      await EncryptionService.instance.init();
-      
-      // Encrypt description if it exists
-      final encryptedDescription = d.description != null 
-          ? await EncryptionService.instance.encrypt(d.description!)
-          : null;
-      
-      await db.update(
-        'debts',
-        {
-          'type': d.type == DebtType.oweOthers ? 0 : 1,
-          'partyId': d.partyId,
-          'partyName': d.partyName,
-          'initialAmount': d.initialAmount,
-          'amount': d.amount,
-          'description': encryptedDescription,
-          'dueDate': d.dueDate?.toIso8601String(),
-          'settled': d.settled ? 1 : 0,
-          'sourceType': d.sourceType,
-          'sourceId': d.sourceId,
-          'updatedAt': DateTime.now().toIso8601String(),
-          'isSynced': 0, // Đánh dấu là chưa đồng bộ để đẩy lên Firestore
-        },
-        where: 'id = ?',
-        whereArgs: [d.id],
-      );
-      
-      await _addAudit('debt', d.id, 'update', {
-        'amount': d.amount,
-        'settled': d.settled,
-      });
-    } catch (e) {
-      developer.log('Error updating debt:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<void> updateDebtWithCreatedAt(Debt d) async {
-    try {
-      // Initialize encryption service
-      await EncryptionService.instance.init();
-      
-      // Encrypt description if it exists
-      final encryptedDescription = d.description != null 
-          ? await EncryptionService.instance.encrypt(d.description!)
-          : null;
-      
-      await db.update(
-        'debts',
-        {
-          'createdAt': d.createdAt.toIso8601String(),
-          'type': d.type == DebtType.oweOthers ? 0 : 1,
-          'partyId': d.partyId,
-          'partyName': d.partyName,
-          'initialAmount': d.initialAmount,
-          'amount': d.amount,
-          'description': encryptedDescription,
-          'dueDate': d.dueDate?.toIso8601String(),
-          'settled': d.settled ? 1 : 0,
-          'sourceType': d.sourceType,
-          'sourceId': d.sourceId,
-          'updatedAt': DateTime.now().toIso8601String(),
-          'isSynced': 0, // Đánh dấu là chưa đồng bộ để đẩy lên Firestore
-        },
-        where: 'id = ?',
-        whereArgs: [d.id],
-      );
-    } catch (e) {
-      developer.log('Error updating debt with createdAt:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<void> upsertDebt(Debt d, {DateTime? updatedAt}) async {
-    try {
-      // Initialize encryption service
-      await EncryptionService.instance.init();
-      
-      // Encrypt description if not null
-      final encryptedDescription = d.description != null 
-          ? await EncryptionService.instance.encrypt(d.description!)
-          : null;
-
-      await db.insert('debts', {
-        'id': d.id,
-        'createdAt': d.createdAt.toIso8601String(),
-        'type': d.type.index,
-        'partyId': d.partyId,
-        'partyName': d.partyName,
-        'initialAmount': d.initialAmount,
-        'amount': d.amount,
-        'description': encryptedDescription,
-        'dueDate': d.dueDate?.toIso8601String(),
-        'settled': d.settled ? 1 : 0,
-        'sourceType': d.sourceType,
-        'sourceId': d.sourceId,
-        'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-    } catch (e) {
-      developer.log('Error upserting debt:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<List<Debt>> getDebts() async {
-    try {
-      // Initialize encryption service
-      await EncryptionService.instance.init();
-      
-      final rows = await db.query('debts', orderBy: 'createdAt DESC');
-      
-      // Process rows asynchronously
-      return await Future.wait(rows.map((m) async {
-        final description = m['description'] as String?;
-        final decryptedDescription = description != null 
-            ? await EncryptionService.instance.decrypt(description)
-            : null;
-            
-        return Debt(
-          id: m['id'] as String,
-          createdAt: DateTime.parse(m['createdAt'] as String),
-          type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
-          partyId: m['partyId'] as String,
-          partyName: m['partyName'] as String,
-          initialAmount: ((m['initialAmount'] as num?)?.toDouble() ?? 0.0) > 0
-              ? (m['initialAmount'] as num).toDouble()
-              : (m['amount'] as num).toDouble(),
-          amount: (m['amount'] as num).toDouble(),
-          description: decryptedDescription,
-          dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
-          settled: (m['settled'] as int) == 1,
-          sourceType: m['sourceType'] as String?,
-          sourceId: m['sourceId'] as String?,
-        );
-      }));
-    } catch (e) {
-      developer.log('Error getting debts:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<Debt?> getDebtBySource({required String sourceType, required String sourceId}) async {
-    await EncryptionService.instance.init();
-    final rows = await db.query(
-      'debts',
-      where: 'sourceType = ? AND sourceId = ?',
-      whereArgs: [sourceType, sourceId],
-      orderBy: 'createdAt DESC',
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    final m = rows.first;
-    final description = m['description'] as String?;
-    final decryptedDescription =
-        description != null ? await EncryptionService.instance.decrypt(description) : null;
-
-    return Debt(
-      id: m['id'] as String,
-      createdAt: DateTime.parse(m['createdAt'] as String),
-      type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
-      partyId: m['partyId'] as String,
-      partyName: m['partyName'] as String,
-      initialAmount: ((m['initialAmount'] as num?)?.toDouble() ?? 0.0) > 0
-          ? (m['initialAmount'] as num).toDouble()
-          : (m['amount'] as num).toDouble(),
-      amount: (m['amount'] as num).toDouble(),
-      description: decryptedDescription,
-      dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
-      settled: (m['settled'] as int) == 1,
-      sourceType: m['sourceType'] as String?,
-      sourceId: m['sourceId'] as String?,
-    );
-  }
-
-  Future<Debt?> getDebtById(String debtId) async {
-    try {
-      await EncryptionService.instance.init();
-      final rows = await db.query(
-        'debts',
-        where: 'id = ?',
-        whereArgs: [debtId],
-        limit: 1,
-      );
-      if (rows.isEmpty) return null;
-      final m = rows.first;
-      final description = m['description'] as String?;
-      final decryptedDescription = description != null ? await EncryptionService.instance.decrypt(description) : null;
-      return Debt(
-        id: m['id'] as String,
-        createdAt: DateTime.parse(m['createdAt'] as String),
-        type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
-        partyId: m['partyId'] as String,
-        partyName: m['partyName'] as String,
-        initialAmount: ((m['initialAmount'] as num?)?.toDouble() ?? 0.0) > 0
-            ? (m['initialAmount'] as num).toDouble()
-            : (m['amount'] as num).toDouble(),
-        amount: (m['amount'] as num).toDouble(),
-        description: decryptedDescription,
-        dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
-        settled: (m['settled'] as int) == 1,
-        sourceType: m['sourceType'] as String?,
-        sourceId: m['sourceId'] as String?,
-      );
-    } catch (e) {
-      developer.log('Error getting debt by id:', error: e);
-      rethrow;
-    }
-  }
-
-  Future<void> muteDebtReminder(String debtId) async {
-    await db.insert(
-      'debt_reminder_settings',
-      {
-        'debtId': debtId,
-        'muted': 1,
-        'lastNotifiedAt': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
-  Future<void> markDebtNotifiedToday(String debtId) async {
-    await db.insert(
-      'debt_reminder_settings',
-      {
-        'debtId': debtId,
-        'muted': 0,
-        'lastNotifiedAt': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
-  Future<List<Debt>> getDebtsToRemind() async {
-    await EncryptionService.instance.init();
-
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    final todayEnd = todayStart.add(const Duration(days: 1));
-    final sevenDaysAgo = now.subtract(const Duration(days: 7));
-
-    final rows = await db.rawQuery(
-      '''
-      SELECT d.*,
-             s.muted as muted,
-             s.lastNotifiedAt as lastNotifiedAt
-      FROM debts d
-      LEFT JOIN debt_reminder_settings s ON s.debtId = d.id
-      WHERE d.settled = 0
-        AND (
-          (d.dueDate IS NOT NULL AND d.dueDate <= ?)
-          OR
-          (d.dueDate IS NULL AND d.createdAt <= ?)
-        )
-        AND (s.muted IS NULL OR s.muted = 0)
-      ORDER BY d.createdAt DESC
-      ''',
-      [now.toIso8601String(), sevenDaysAgo.toIso8601String()],
-    );
-
-    final result = <Debt>[];
-    for (final m in rows) {
-      final lastNotified = m['lastNotifiedAt'] as String?;
-      if (lastNotified != null) {
-        final dt = DateTime.tryParse(lastNotified);
-        if (dt != null && !dt.isBefore(todayStart) && dt.isBefore(todayEnd)) {
-          continue;
-        }
-      }
-
-      final description = m['description'] as String?;
-      final decryptedDescription =
-          description != null ? await EncryptionService.instance.decrypt(description) : null;
-
-      result.add(
-        Debt(
-          id: m['id'] as String,
-          createdAt: DateTime.parse(m['createdAt'] as String),
-          type: (m['type'] as int) == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
-          partyId: m['partyId'] as String,
-          partyName: m['partyName'] as String,
-          initialAmount: ((m['initialAmount'] as num?)?.toDouble() ?? 0.0) > 0
-              ? (m['initialAmount'] as num).toDouble()
-              : (m['amount'] as num).toDouble(),
-          amount: (m['amount'] as num).toDouble(),
-          description: decryptedDescription,
-          dueDate: m['dueDate'] != null ? DateTime.parse(m['dueDate'] as String) : null,
-          settled: (m['settled'] as int) == 1,
-          sourceType: m['sourceType'] as String?,
-          sourceId: m['sourceId'] as String?,
-        ),
-      );
-    }
-
-    return result;
-  }
-
-  Future<void> _markEntityAsDeletedTxn(Transaction txn, String table, String id) async {
-    final devId = await deviceId;
-    await txn.insert('deleted_entities', {
-      'entityType': table,
-      'entityId': id,
-      'deletedAt': DateTime.now().toIso8601String(),
-      'deviceId': devId,
-      'isSynced': 0, // Chưa đồng bộ
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
   Future<void> deleteSale(String saleId) async {
+    final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
-      // Ghi nhận xóa cho tất cả sale_items thuộc sale này để đồng bộ xóa trên Firestore
+      // Soft delete sale_items
       final items = await txn.query(
         'sale_items',
         columns: ['id'],
-        where: 'saleId = ?',
+        where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
         whereArgs: [saleId],
       );
+
       for (final it in items) {
         final iid = it['id'];
-        if (iid != null) {
-          await _markEntityAsDeletedTxn(txn, 'sale_items', iid.toString());
-          await _addAuditTxn(txn, 'sale_item', iid.toString(), 'delete', {});
-        }
+        if (iid == null) continue;
+        await _markEntityAsDeletedTxn(txn, 'sale_items', iid.toString());
+        await txn.update(
+          'sale_items',
+          {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+          where: 'id = ?',
+          whereArgs: [iid],
+        );
+        await _addAuditTxn(txn, 'sale_item', iid.toString(), 'delete', {});
       }
 
-      // Xóa dữ liệu local
-      await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
-      await txn.delete('sales', where: 'id = ?', whereArgs: [saleId]);
-
-      // Ghi nhận xóa sale để đồng bộ lên Firestore
+      // Soft delete sale
       await _markEntityAsDeletedTxn(txn, 'sales', saleId);
+      await txn.update(
+        'sales',
+        {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+        where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+        whereArgs: [saleId],
+      );
       await _addAuditTxn(txn, 'sale', saleId, 'delete', {});
     });
   }
 
   Future<void> deleteAllSales() async {
+    final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
-      await txn.delete('sale_items');
-      await txn.delete('sales');
+      final saleRows = await txn.query(
+        'sales',
+        columns: ['id'],
+        where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      );
+      for (final s in saleRows) {
+        final sid = (s['id']?.toString() ?? '').trim();
+        if (sid.isEmpty) continue;
+
+        // soft delete children
+        final items = await txn.query(
+          'sale_items',
+          columns: ['id'],
+          where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [sid],
+        );
+        for (final it in items) {
+          final iid = it['id'];
+          if (iid == null) continue;
+          await _markEntityAsDeletedTxn(txn, 'sale_items', iid.toString());
+          await txn.update(
+            'sale_items',
+            {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+            where: 'id = ?',
+            whereArgs: [iid],
+          );
+          await _addAuditTxn(txn, 'sale_item', iid.toString(), 'delete', {});
+        }
+
+        await _markEntityAsDeletedTxn(txn, 'sales', sid);
+        await txn.update(
+          'sales',
+          {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+          where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: [sid],
+        );
+      }
+
       await txn.insert('audit_logs', {
         'entity': 'sale',
         'entityId': '*',
         'action': 'delete_all',
-        'at': DateTime.now().toIso8601String(),
+        'at': now,
         'payload': '',
       });
     });
   }
 
   Future<Map<String, dynamic>> getAllForBackup() async {
-    final products = await db.query('products');
+    final products = await db.query('products', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')");
     final customers = await getCustomersForSync();
-    final sales = await db.query('sales');
+    final sales = await db.query('sales', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')");
     final debts = await getDebtsForSync();
-    final saleItems = await db.query('sale_items');
-    final purchaseHistory = await db.query('purchase_history');
+    final saleItems = await db.query('sale_items', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')");
+    final purchaseHistory = await db.query('purchase_history', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')");
     final deletedEntities = await db.query('deleted_entities');
     return {
       'products': products,
       'customers': customers,
       'sales': sales,
-      'sale_items': saleItems,
       'debts': debts,
+      'sale_items': saleItems,
       'purchase_history': purchaseHistory,
       'deleted_entities': deletedEntities,
     };
@@ -3462,7 +3697,7 @@ class DatabaseService {
         'updatedAt': now.toIso8601String(),
         'isSynced': 0,
       },
-      where: 'id = ?',
+      where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: [saleId],
     );
   }
@@ -3476,7 +3711,7 @@ class DatabaseService {
         'updatedAt': now.toIso8601String(),
         'isSynced': 0,
       },
-      where: 'id = ?',
+      where: 'id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
       whereArgs: [paymentId],
     );
   }
@@ -3490,7 +3725,7 @@ class DatabaseService {
         'updatedAt': now.toIso8601String(),
         'isSynced': 0,
       },
-      where: 'debtId = ?',
+      where: 'debtId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
       whereArgs: [debtId],
     );
   }
@@ -3537,7 +3772,7 @@ class DatabaseService {
 
       final payRows = await txn.query(
         'debt_payments',
-        where: 'id = ? AND debtId = ?',
+        where: 'id = ? AND debtId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
         whereArgs: [paymentId, debtId],
         limit: 1,
       );
@@ -3558,14 +3793,14 @@ class DatabaseService {
           'updatedAt': DateTime.now().toIso8601String(),
           'isSynced': 0,
         },
-        where: 'id = ?',
+        where: 'id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
         whereArgs: [paymentId],
       );
 
       final debtRows = await txn.query(
         'debts',
         columns: ['amount'],
-        where: 'id = ?',
+        where: 'id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
         whereArgs: [debtId],
         limit: 1,
       );
@@ -3584,7 +3819,7 @@ class DatabaseService {
           'updatedAt': DateTime.now().toIso8601String(),
           'isSynced': 0,
         },
-        where: 'id = ?',
+        where: 'id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
         whereArgs: [debtId],
       );
 
@@ -3599,7 +3834,7 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getDebtPayments(String debtId) async {
     try {
       final rows = await db.query('debt_payments', 
-        where: 'debtId = ?', 
+        where: "debtId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')", 
         whereArgs: [debtId], 
         orderBy: 'createdAt DESC'
       );
@@ -3622,7 +3857,7 @@ class DatabaseService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getDebtPaymentsForSync({DateTimeRange? range}) async {
+  Future<List<Map<String, dynamic>>> getDebtPaymentsForSync({required String debtId, DateTimeRange? range}) async {
     try {
       await EncryptionService.instance.init();
 
@@ -3652,10 +3887,10 @@ class DatabaseService {
           d.partyName as partyName
         FROM debt_payments p
         LEFT JOIN debts d ON d.id = p.debtId
-        ${where != null ? 'WHERE $where' : ''}
+        WHERE p.debtId = ? AND (p.deletedAt IS NULL OR TRIM(p.deletedAt) = '') ${where != null ? 'AND $where' : ''}
         ORDER BY p.createdAt DESC
         ''',
-        whereArgs,
+        whereArgs != null ? [debtId, ...whereArgs] : [debtId],
       );
 
       return await Future.wait(rows.map((m) async {
@@ -3675,7 +3910,7 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getDebtPaymentById(int id) async {
     try {
       final rows = await db.query('debt_payments', 
-        where: 'id = ?', 
+        where: "id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')", 
         whereArgs: [id], 
         limit: 1
       );
@@ -3699,44 +3934,61 @@ class DatabaseService {
   }
 
   Future<void> deleteDebtPayment(int id) async {
-    // Ghi nhận xóa để đồng bộ với Firestore, sau đó mới xóa local
+    final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
-      final rows = await txn.query('debt_payments', columns: ['uuid'], where: 'id = ?', whereArgs: [id], limit: 1);
+      final rows = await txn.query(
+        'debt_payments',
+        columns: ['uuid'],
+        where: 'id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
+        whereArgs: [id],
+        limit: 1,
+      );
       final uuid = (rows.isNotEmpty ? (rows.first['uuid'] as String?)?.trim() : null);
       await _markEntityAsDeletedTxn(txn, 'debt_payments', (uuid == null || uuid.isEmpty) ? id.toString() : uuid);
-      await txn.delete('debt_payments', where: 'id = ?', whereArgs: [id]);
+      await txn.update(
+        'debt_payments',
+        {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
       await _addAuditTxn(txn, 'debt_payment', id.toString(), 'delete', {});
     });
   }
-  
+
   Future<void> deleteDebt(String debtId) async {
+    final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
-      // Ghi nhận xóa cho tất cả các payment liên quan để đồng bộ xóa trên Firestore
       final payments = await txn.query(
         'debt_payments',
         columns: ['id', 'uuid'],
-        where: 'debtId = ?',
+        where: "debtId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
         whereArgs: [debtId],
       );
       for (final p in payments) {
         final pid = p['id'];
         final uuid = (p['uuid'] as String?)?.trim();
-        if (pid != null) {
-          await _markEntityAsDeletedTxn(txn, 'debt_payments', (uuid == null || uuid.isEmpty) ? pid.toString() : uuid);
-          await _addAuditTxn(txn, 'debt_payment', pid.toString(), 'delete', {});
-        }
+        if (pid == null) continue;
+        await _markEntityAsDeletedTxn(txn, 'debt_payments', (uuid == null || uuid.isEmpty) ? pid.toString() : uuid);
+        await txn.update(
+          'debt_payments',
+          {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+          where: 'id = ?',
+          whereArgs: [pid],
+        );
+        await _addAuditTxn(txn, 'debt_payment', pid.toString(), 'delete', {});
       }
 
-      // Xóa dữ liệu local
-      await txn.delete('debt_payments', where: 'debtId = ?', whereArgs: [debtId]);
-      await txn.delete('debts', where: 'id = ?', whereArgs: [debtId]);
-
-      // Ghi nhận xóa debt để đồng bộ lên Firestore
       await _markEntityAsDeletedTxn(txn, 'debts', debtId);
+      await txn.update(
+        'debts',
+        {'deletedAt': now, 'updatedAt': now, 'isSynced': 0},
+        where: 'id = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = \'\')',
+        whereArgs: [debtId],
+      );
       await _addAuditTxn(txn, 'debt', debtId, 'delete', {});
     });
   }
-  
+
   // Audit helpers
   Future<void> _addAudit(String entity, String entityId, String action, Map<String, dynamic> payload) async {
     await db.insert('audit_logs', {

@@ -229,7 +229,7 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
         si.mixItemsJson as mixItemsJson
       FROM sale_items si
       JOIN sales s ON s.id = si.saleId
-      ${start == null ? '' : 'WHERE s.createdAt >= ? AND s.createdAt <= ?'}
+      ${start == null ? "WHERE (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '') AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')" : "WHERE s.createdAt >= ? AND s.createdAt <= ? AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '') AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')"}
       ORDER BY s.createdAt DESC
       ''',
       start == null ? null : [start.toIso8601String(), end!.toIso8601String()],

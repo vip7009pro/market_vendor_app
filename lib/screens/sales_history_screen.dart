@@ -141,7 +141,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final debtRows = await db.query(
       'debts',
       columns: ['id', 'sourceId', 'amount', 'settled', 'type', 'partyId', 'partyName', 'description', 'createdAt', 'dueDate', 'sourceType'],
-      where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+      where: "sourceType = 'sale' AND sourceId IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: saleIds,
     );
     final debtBySaleId = <String, Map<String, dynamic>>{};
@@ -161,6 +161,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         SELECT debtId as debtId, SUM(amount) as total
         FROM debt_payments
         WHERE debtId IN ($dph)
+          AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
         GROUP BY debtId
         ''',
         debtIds,

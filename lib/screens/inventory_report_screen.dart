@@ -61,6 +61,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       FROM sale_items si
       JOIN sales s ON s.id = si.saleId
       WHERE s.createdAt >= ? AND s.createdAt <= ?
+        AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
+        AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')
       ''',
       [start.toIso8601String(), end.toIso8601String()],
     );
@@ -368,7 +370,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                         final purchaseRows = await db.query(
                           'purchase_history',
                           columns: ['quantity'],
-                          where: 'productId = ? AND createdAt >= ? AND createdAt <= ?',
+                          where: "productId = ? AND createdAt >= ? AND createdAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
                           whereArgs: [
                             productId,
                             start.toIso8601String(),
@@ -469,7 +471,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
 
     final purchaseRows = await db.query(
       'purchase_history',
-      where: 'createdAt >= ? AND createdAt <= ?',
+      where: "createdAt >= ? AND createdAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: [start.toIso8601String(), end.toIso8601String()],
     );
 
@@ -490,6 +492,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       FROM sale_items si
       JOIN sales s ON s.id = si.saleId
       WHERE s.createdAt >= ? AND s.createdAt <= ?
+        AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
+        AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')
       ''',
       [start.toIso8601String(), end.toIso8601String()],
     );

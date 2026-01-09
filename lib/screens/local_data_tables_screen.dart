@@ -21,6 +21,7 @@ class _LocalDataTablesScreenState extends State<LocalDataTablesScreen> {
 
   List<String> _tables = const [];
   Map<String, int> _rowCountByTable = const {};
+  Map<String, int> _totalRowCountByTable = const {};
   final Map<String, bool> _selected = {};
 
   @override
@@ -40,11 +41,13 @@ class _LocalDataTablesScreenState extends State<LocalDataTablesScreen> {
     try {
       final tables = await DatabaseService.instance.getUserTables();
       final counts = await DatabaseService.instance.countRowsByTable(tables);
+      final totalCounts = await DatabaseService.instance.countTotalRowsByTable(tables);
 
       if (!mounted) return;
       setState(() {
         _tables = tables;
         _rowCountByTable = counts;
+        _totalRowCountByTable = totalCounts;
         for (final t in tables) {
           _selected.putIfAbsent(t, () => false);
         }
@@ -184,6 +187,7 @@ class _LocalDataTablesScreenState extends State<LocalDataTablesScreen> {
                           itemBuilder: (_, i) {
                             final t = _tables[i];
                             final c = _rowCountByTable[t] ?? 0;
+                            final total = _totalRowCountByTable[t] ?? 0;
                             final checked = _selected[t] == true;
                             return CheckboxListTile(
                               value: checked,
@@ -195,7 +199,7 @@ class _LocalDataTablesScreenState extends State<LocalDataTablesScreen> {
                                       });
                                     },
                               title: Text(t),
-                              subtitle: Text('Số dòng: $c'),
+                              subtitle: Text('Số dòng: $c/$total'),
                               controlAffinity: ListTileControlAffinity.leading,
                             );
                           },

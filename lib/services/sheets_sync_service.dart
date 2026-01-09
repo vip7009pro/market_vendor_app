@@ -123,7 +123,7 @@ class SheetsSyncService {
     final customers = await DatabaseService.instance.getCustomersForSync();
     final productsRows = await db.query(
       'products',
-      where: 'isActive = 1',
+      where: "isActive = 1 AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       orderBy: 'name ASC',
     );
     final productsById = <String, Map<String, dynamic>>{
@@ -131,17 +131,23 @@ class SheetsSyncService {
     };
 
     final debts = await DatabaseService.instance.getDebtsForSync();
-    final debtPayments = await DatabaseService.instance.getDebtPaymentsForSync(range: range);
+    final debtPayments = <Map<String, dynamic>>[];
+    for (final d in debts) {
+      final did = (d['id']?.toString() ?? '').trim();
+      if (did.isEmpty) continue;
+      debtPayments.addAll(await DatabaseService.instance.getDebtPaymentsForSync(debtId: did, range: range));
+    }
 
     final expenses = await _getExpenses(range: range);
 
     final purchases = await db.query(
       'purchase_history',
+      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
       orderBy: 'createdAt DESC',
     );
 
     final sales = await DatabaseService.instance.getSalesForSync();
-    final saleItems = await db.query('sale_items');
+    final saleItems = await db.query('sale_items', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')");
     final saleById = <String, Map<String, dynamic>>{
       for (final s in sales) (s['id'] as String): s,
     };
@@ -163,7 +169,7 @@ class SheetsSyncService {
         SUM(si.unitPrice * si.quantity) as subtotal
       FROM sales s
       JOIN sale_items si ON si.saleId = s.id
-      ${rangeStart != null ? 'WHERE s.createdAt >= ? AND s.createdAt <= ?' : ''}
+      ${rangeStart != null ? "WHERE s.createdAt >= ? AND s.createdAt <= ? AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '') AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')" : "WHERE (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '') AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')"}
       GROUP BY s.id
       ''',
       rangeStart != null ? [rangeStart.toIso8601String(), rangeEnd!.toIso8601String()] : null,
@@ -177,7 +183,9 @@ class SheetsSyncService {
 
     final saleRowsForOrders = await db.query(
       'sales',
-      where: rangeStart != null ? 'createdAt >= ? AND createdAt <= ?' : null,
+      where: rangeStart != null
+          ? "createdAt >= ? AND createdAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')"
+          : "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: rangeStart != null ? [rangeStart.toIso8601String(), rangeEnd!.toIso8601String()] : null,
       orderBy: 'createdAt DESC',
     );
@@ -197,7 +205,7 @@ class SheetsSyncService {
       final debtRows = await db.query(
         'debts',
         columns: ['id', 'amount', 'sourceId'],
-        where: "sourceType = 'sale' AND sourceId IN ($placeholders)",
+        where: "sourceType = 'sale' AND sourceId IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
         whereArgs: saleIdsForDebt,
       );
       final debtIds = <String>[];
@@ -222,6 +230,7 @@ class SheetsSyncService {
             SUM(amount) as paidTotal
           FROM debt_payments
           WHERE debtId IN ($dph)
+            AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
           GROUP BY debtId
           ''',
           debtIds,
@@ -636,13 +645,13 @@ class SheetsSyncService {
   Future<List<Map<String, dynamic>>> _getExpenses({DateTimeRange? range}) async {
     final db = DatabaseService.instance.db;
     if (range == null) {
-      return db.query('expenses', orderBy: 'occurredAt DESC');
+      return db.query('expenses', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')", orderBy: 'occurredAt DESC');
     }
     final start = DateTime(range.start.year, range.start.month, range.start.day);
     final end = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999);
     return db.query(
       'expenses',
-      where: 'occurredAt >= ? AND occurredAt <= ?',
+      where: "occurredAt >= ? AND occurredAt <= ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: [start.toIso8601String(), end.toIso8601String()],
       orderBy: 'occurredAt DESC',
     );
@@ -670,6 +679,8 @@ class SheetsSyncService {
           si.mixItemsJson as mixItemsJson
         FROM sale_items si
         JOIN sales s ON s.id = si.saleId
+        WHERE (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')
+          AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
         ORDER BY s.createdAt DESC
         ''',
       );
@@ -697,6 +708,8 @@ class SheetsSyncService {
       FROM sale_items si
       JOIN sales s ON s.id = si.saleId
       WHERE s.createdAt >= ? AND s.createdAt <= ?
+        AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')
+        AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
       ORDER BY s.createdAt DESC
       ''',
       [start.toIso8601String(), end.toIso8601String()],
@@ -781,7 +794,7 @@ class SheetsSyncService {
 
     final productsRows = await db.query(
       'products',
-      where: 'isActive = 1',
+      where: "isActive = 1 AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       orderBy: 'name ASC',
     );
     final productsById = <String, Map<String, dynamic>>{
@@ -798,9 +811,13 @@ class SheetsSyncService {
         (r['productId'] as String): (r['openingStock'] as num?)?.toDouble() ?? 0,
     };
 
-    final purchases = await db.query('purchase_history', orderBy: 'createdAt DESC');
+    final purchases = await db.query(
+      'purchase_history',
+      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      orderBy: 'createdAt DESC',
+    );
     final sales = await DatabaseService.instance.getSalesForSync();
-    final saleItems = await db.query('sale_items');
+    final saleItems = await db.query('sale_items', where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')");
     final saleById = <String, Map<String, dynamic>>{
       for (final s in sales) (s['id'] as String): s,
     };

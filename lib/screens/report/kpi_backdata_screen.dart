@@ -86,6 +86,7 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
         quantity as quantity
       FROM sale_items
       WHERE saleId IN ($placeholders)
+        AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
       ORDER BY saleId
       ''',
       uniq,
@@ -124,6 +125,8 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
         FROM sale_items si
         JOIN sales s ON s.id = si.saleId
         WHERE s.createdAt >= ? AND s.createdAt <= ?
+          AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
+          AND (si.deletedAt IS NULL OR TRIM(si.deletedAt) = '')
         ${employeeId.isEmpty ? '' : 'AND s.employeeId = ?'}
         ORDER BY s.createdAt DESC
         ''',
@@ -151,6 +154,7 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
           'sale' as source
         FROM sales s
         WHERE s.createdAt >= ? AND s.createdAt <= ?
+          AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
           AND COALESCE(s.paidAmount, 0) > 0
           AND (
             (? = 1 AND LOWER(COALESCE(s.paymentType, '')) = 'cash')
@@ -181,6 +185,9 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
         JOIN sales s ON s.id = d.sourceId
         WHERE d.sourceType = 'sale'
           AND s.createdAt >= ? AND s.createdAt <= ?
+          AND (p.deletedAt IS NULL OR TRIM(p.deletedAt) = '')
+          AND (d.deletedAt IS NULL OR TRIM(d.deletedAt) = '')
+          AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
           AND (
             (? = 1 AND LOWER(COALESCE(p.paymentType, '')) = 'cash')
             OR
@@ -220,6 +227,7 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
           'sale' as source
         FROM sales s
         WHERE s.createdAt >= ? AND s.createdAt <= ?
+          AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
           AND COALESCE(s.paidAmount, 0) > 0
           AND (
             (? = 1 AND LOWER(COALESCE(s.paymentType, '')) = 'cash')
@@ -250,6 +258,9 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
         JOIN sales s ON s.id = d.sourceId
         WHERE d.sourceType = 'sale'
           AND p.createdAt >= ? AND p.createdAt <= ?
+          AND (p.deletedAt IS NULL OR TRIM(p.deletedAt) = '')
+          AND (d.deletedAt IS NULL OR TRIM(d.deletedAt) = '')
+          AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
           AND (
             (? = 1 AND LOWER(COALESCE(p.paymentType, '')) = 'cash')
             OR
@@ -289,6 +300,9 @@ class _KpiBackdataScreenState extends State<_KpiBackdataScreen> {
       JOIN debts d ON d.sourceType = 'sale' AND d.sourceId = s.id
       LEFT JOIN debt_payments p ON p.debtId = d.id
       WHERE s.createdAt >= ? AND s.createdAt <= ?
+        AND (s.deletedAt IS NULL OR TRIM(s.deletedAt) = '')
+        AND (d.deletedAt IS NULL OR TRIM(d.deletedAt) = '')
+        AND (p.deletedAt IS NULL OR TRIM(p.deletedAt) = '' OR p.deletedAt IS NULL)
         ${employeeId.isEmpty ? '' : 'AND s.employeeId = ?'}
       GROUP BY s.id, s.createdAt, s.customerName, s.employeeId, s.employeeName, d.id, d.amount
       HAVING (d.amount - COALESCE(SUM(p.amount), 0)) > 0
