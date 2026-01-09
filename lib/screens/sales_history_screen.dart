@@ -810,66 +810,85 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  if (s.debt > 0)
-                                    IconButton(
-                                      tooltip: 'QR nợ',
-                                      icon: const Icon(Icons.qr_code_2_outlined),
-                                      onPressed: () async {
-                                        await _showVietQrDebtDialog(s);
-                                      },
-                                    ),
-                                  IconButton(
-                                    tooltip: 'In hóa đơn',
-                                    icon: const Icon(Icons.print_outlined),
-                                    onPressed: () => _showPrintPreview(context, s, currency),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Sửa hóa đơn',
-                                    icon: const Icon(Icons.edit_outlined),
-                                    onPressed: () async {
-                                      final ok = await Navigator.push<bool>(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => SaleEditScreen(sale: s),
+                                  Wrap(
+                                    spacing: 0,
+                                    runSpacing: 0,
+                                    alignment: WrapAlignment.center,
+                                    children: [
+                                      if (s.debt > 0)
+                                        IconButton(
+                                          tooltip: 'QR nợ',
+                                          icon: const Icon(Icons.qr_code_2_outlined),
+                                          visualDensity: VisualDensity.compact,
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                                          onPressed: () async {
+                                            await _showVietQrDebtDialog(s);
+                                          },
                                         ),
-                                      );
-                                      if (ok == true) {
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Đã cập nhật bán hàng')),
-                                        );
-                                      }
-                                    },
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Xóa hóa đơn',
-                                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                    onPressed: () async {
-                                      final ok = await showDialog<bool>(
-                                        context: context,
-                                        builder: (_) => AlertDialog(
-                                          title: const Text('Xóa hóa đơn'),
-                                          content: const Text('Bạn có chắc muốn xóa hóa đơn này?'),
-                                          actions: [
-                                            TextButton(
-                                              onPressed: () => Navigator.pop(context, false),
-                                              child: const Text('Hủy'),
+                                      IconButton(
+                                        tooltip: 'In hóa đơn',
+                                        icon: const Icon(Icons.print_outlined),
+                                        visualDensity: VisualDensity.compact,
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                                        onPressed: () => _showPrintPreview(context, s, currency),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Sửa hóa đơn',
+                                        icon: const Icon(Icons.edit_outlined),
+                                        visualDensity: VisualDensity.compact,
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                                        onPressed: () async {
+                                          final ok = await Navigator.push<bool>(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => SaleEditScreen(sale: s),
                                             ),
-                                            FilledButton(
-                                              onPressed: () => Navigator.pop(context, true),
-                                              child: const Text('Xóa'),
+                                          );
+                                          if (ok == true) {
+                                            if (!context.mounted) return;
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('Đã cập nhật bán hàng')),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Xóa hóa đơn',
+                                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                        visualDensity: VisualDensity.compact,
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                                        onPressed: () async {
+                                          final ok = await showDialog<bool>(
+                                            context: context,
+                                            builder: (_) => AlertDialog(
+                                              title: const Text('Xóa hóa đơn'),
+                                              content: const Text('Bạn có chắc muốn xóa hóa đơn này?'),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(context, false),
+                                                  child: const Text('Hủy'),
+                                                ),
+                                                FilledButton(
+                                                  onPressed: () => Navigator.pop(context, true),
+                                                  child: const Text('Xóa'),
+                                                ),
+                                              ],
                                             ),
-                                          ],
-                                        ),
-                                      );
-                                      if (ok == true) {
-                                        await context.read<SaleProvider>().delete(s.id);
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Đã xóa hóa đơn')),
-                                        );
-                                      }
-                                    },
+                                          );
+                                          if (ok == true) {
+                                            await context.read<SaleProvider>().delete(s.id);
+                                            if (!context.mounted) return;
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('Đã xóa hóa đơn')),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),

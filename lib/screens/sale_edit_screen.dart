@@ -133,6 +133,17 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
     _paidCtrl.selection = TextSelection.collapsed(offset: _paidCtrl.text.length);
   }
 
+  void _setPaidFromUi(double value) {
+    final desired = value.clamp(0, double.infinity).toDouble();
+    final formatted = NumberFormat.decimalPattern('en_US').format(desired.truncate());
+    _paidEdited = true;
+    if (_paidCtrl.text != formatted) {
+      _paidCtrl.text = formatted;
+      _paidCtrl.selection = TextSelection.collapsed(offset: _paidCtrl.text.length);
+    }
+    setState(() {});
+  }
+
   double _parseMoney(String s) {
     return (NumberInputFormatter.tryParse(s) ?? 0).toDouble();
   }
@@ -504,9 +515,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
     }
 
     _discountCtrl.addListener(() {
-      setState(() {
-        _syncPaidWithTotalIfNotEdited(_total());
-      });
+      setState(() {});
     });
 
     _paidCtrl.addListener(() {
@@ -631,6 +640,24 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _setPaidFromUi(0),
+                          child: const Text('Khách nợ tất'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => _setPaidFromUi(total),
+                          child: const Text('Khách trả tất'),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -698,9 +725,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                               inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
                               decoration: InputDecoration(labelText: 'Số lượng (${it.unit})', isDense: true),
                               onChanged: (_) {
-                                setState(() {
-                                  _syncPaidWithTotalIfNotEdited(_total());
-                                });
+                                setState(() {});
                               },
                             ),
                           ),
@@ -712,9 +737,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                               inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
                               decoration: const InputDecoration(labelText: 'Đơn giá', isDense: true),
                               onChanged: (_) {
-                                setState(() {
-                                  _syncPaidWithTotalIfNotEdited(_total());
-                                });
+                                setState(() {});
                               },
                             ),
                           ),
@@ -856,9 +879,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                                       items[idx]['rawQty'] = val;
                                       _setMixItems(it, items);
                                       _recalcMixTotalsFromMixItems(it, items);
-                                      setState(() {
-                                        _syncPaidWithTotalIfNotEdited(_total());
-                                      });
+                                      setState(() {});
                                     },
                                   ),
                                 ),
@@ -880,9 +901,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                                       items[idx]['rawUnitCost'] = val;
                                       _setMixItems(it, items);
                                       _recalcMixTotalsFromMixItems(it, items);
-                                      setState(() {
-                                        _syncPaidWithTotalIfNotEdited(_total());
-                                      });
+                                      setState(() {});
                                     },
                                   ),
                                 ),
@@ -932,9 +951,7 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
                                     if (removedId.isNotEmpty) {
                                       _disposeMixRawFieldFor(mixProductId: it.productId, rawProductId: removedId);
                                     }
-                                    setState(() {
-                                      _syncPaidWithTotalIfNotEdited(_total());
-                                    });
+                                    setState(() {});
                                   },
                                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                                 ),

@@ -2015,10 +2015,9 @@ class _ReportScreenState extends State<ReportScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 12),                           
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 0),
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
                     child: _buildTopProductsCard(
                       currency: currency,
                       dateRange: _dateRange,

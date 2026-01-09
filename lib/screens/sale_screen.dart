@@ -719,7 +719,7 @@ class _SaleScreenState extends State<SaleScreen> {
             }
 
             return Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12),
               height: MediaQuery.of(context).size.height * 0.8,
               child: Column(
                 children: [
@@ -1406,10 +1406,10 @@ class _SaleScreenState extends State<SaleScreen> {
     );
   }
 
-  Future<Product?> _showProductPicker() async {
+  Future<void> _showProductPickerSheet() async {
     final products = await DatabaseService.instance.getProductsForSale();
     List<Product> baseProducts = products.toList();
-    return await showModalBottomSheet<Product>(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
@@ -1417,22 +1417,90 @@ class _SaleScreenState extends State<SaleScreen> {
         List<Product> filteredProducts = List.from(baseProducts);
 
         return StatefulBuilder(
-          builder: (context, setState) {
+          builder: (context, sheetSetState) {
             void applyFilter(String value) {
               if (value.trim().isEmpty) {
-                setState(() {
+                sheetSetState(() {
                   filteredProducts = List.from(baseProducts);
                 });
                 return;
               }
               final query = value.toLowerCase();
-              setState(() {
+              sheetSetState(() {
                 filteredProducts = baseProducts.where((product) {
                   final nameMatch = product.name.toLowerCase().contains(query);
                   final barcodeMatch = product.barcode?.toLowerCase().contains(query) ?? false;
                   return nameMatch || barcodeMatch;
                 }).toList();
               });
+            }
+
+            final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+
+            int currentQtyInCart(Product p) {
+              if (p.itemType == ProductItemType.mix) {
+                return _items.any((e) => e.productId == p.id) ? 1 : 0;
+              }
+              for (final it in _items) {
+                if (it.productId == p.id) return it.quantity.round();
+              }
+              return 0;
+            }
+
+            Future<void> addProduct(Product product) async {
+              if (!mounted) return;
+              this.setState(() {
+                _addSelectedProductToSale(product);
+              });
+              if (product.itemType != ProductItemType.mix) {
+                await _applyLastUnitTo(
+                  _items.lastWhere((item) => item.productId == product.id),
+                );
+              }
+              await _saveRecentProduct(product);
+              if (!_paidEdited) {
+                final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                if (!mounted) return;
+                this.setState(() => _paid = total2);
+              }
+              _clearProductField?.call();
+              _unfocusProductField?.call();
+              sheetSetState(() {});
+            }
+
+            Future<void> removeOne(Product product) async {
+              if (!mounted) return;
+              this.setState(() {
+                if (product.itemType == ProductItemType.mix) {
+                  _items.removeWhere((e) => e.productId == product.id);
+                  _mixDisplayNameCtrls.remove(product.id)?.dispose();
+                  return;
+                }
+
+                final idx = _items.indexWhere((e) => e.productId == product.id);
+                if (idx == -1) return;
+                final it = _items[idx];
+                it.quantity = (it.quantity - 1).clamp(0, double.infinity).toDouble();
+                if (it.quantity <= 0) {
+                  _items.removeAt(idx);
+                  _disposeQtyFieldFor(product.id);
+                } else {
+                  final c = _qtyControllers[product.id];
+                  if (c != null) {
+                    c.text = it.quantity.toStringAsFixed(it.quantity % 1 == 0 ? 0 : 2);
+                    c.selection = TextSelection.collapsed(offset: c.text.length);
+                  }
+                }
+              });
+
+              if (!_paidEdited) {
+                final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                if (!mounted) return;
+                this.setState(() => _paid = total2);
+              }
+              sheetSetState(() {});
             }
 
             return Container(
@@ -1470,66 +1538,138 @@ class _SaleScreenState extends State<SaleScreen> {
                           if (!context.mounted) return;
                           final products = await DatabaseService.instance.getProductsForSale();
                           baseProducts = products.toList();
-                          setState(() {
+                          sheetSetState(() {
                             applyFilter(searchController.text);
                           });
                         },
+                      ),
+                      IconButton(
+                        tooltip: 'Đóng',
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
                   Expanded(
-                    child:
-                        filteredProducts.isEmpty
-                            ? const Center(
-                              child: Text('Không tìm thấy sản phẩm nào'),
-                            )
-                            : ListView.builder(
-                              itemCount: filteredProducts.length,
-                              itemBuilder: (context, index) {
-                                final product = filteredProducts[index];
-                                final iconColor = product.itemType == ProductItemType.mix ? const Color.fromARGB(255, 93, 197, 8) : const Color.fromARGB(255, 240, 157, 184);
-                                return ListTile(
-                                  leading: CircleAvatar(
-                                    radius: 20,
-                                    child: Builder(
-                                      builder: (_) {
-                                        final img = product.imagePath;
-                                        if (img != null && img.trim().isNotEmpty) {
-                                          return FutureBuilder<String?>(
-                                            future: ProductImageService.instance.resolvePath(img),
-                                            builder: (context, snap) {
-                                              final full = snap.data;
-                                              if (full == null || full.isEmpty) {
-                                                return Icon(Icons.shopping_bag, color: iconColor);
-                                              }
-                                              return ClipOval(
-                                                child: Image.file(
-                                                  File(full),
-                                                  width: 40,
-                                                  height: 40,
-                                                  fit: BoxFit.cover,
-                                                ),
-                                              );
-                                            },
-                                          );
-                                        }
+                    child: filteredProducts.isEmpty
+                        ? const Center(child: Text('Không tìm thấy sản phẩm nào'))
+                        : GridView.builder(
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 4,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                              childAspectRatio: 1.05,
+                            ),
+                            itemCount: filteredProducts.length,
+                            itemBuilder: (context, index) {
+                              final product = filteredProducts[index];
+                              final iconColor = product.itemType == ProductItemType.mix
+                                  ? const Color.fromARGB(255, 93, 197, 8)
+                                  : const Color.fromARGB(255, 240, 157, 184);
+                              final qty = currentQtyInCart(product);
+
+                              Widget image() {
+                                final img = product.imagePath;
+                                if (img != null && img.trim().isNotEmpty) {
+                                  return FutureBuilder<String?>(
+                                    future: ProductImageService.instance.resolvePath(img),
+                                    builder: (context, snap) {
+                                      final full = snap.data;
+                                      if (full == null || full.isEmpty) {
                                         return Icon(Icons.shopping_bag, color: iconColor);
-                                      },
+                                      }
+                                      return ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Image.file(
+                                          File(full),
+                                          width: double.infinity,
+                                          height: double.infinity,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      );
+                                    },
+                                  );
+                                }
+                                return Icon(Icons.shopping_bag, color: iconColor, size: 36);
+                              }
+
+                              return Stack(
+                                children: [
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(10),
+                                    onTap: () async {
+                                      await addProduct(product);
+                                    },
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: Theme.of(context).dividerColor),
+                                      ),
+                                      padding: const EdgeInsets.all(6),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          Expanded(
+                                            child: Center(child: image()),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            product.name,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
+                                          ),
+                                          const SizedBox(height: 1),
+                                          Text(
+                                            product.itemType == ProductItemType.mix
+                                                ? 'MIX • ${currency.format(product.price)}'
+                                                : currency.format(product.price),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(color: Colors.grey[700], fontSize: 10),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
-                                  title: Text(product.name),
-                                  subtitle: Text(
-                                    product.itemType == ProductItemType.mix
-                                        ? 'MIX • ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}'
-                                        : '${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(product.price)} / ${product.unit}',
+                                  if (qty > 0)
+                                    Positioned(
+                                      top: 4,
+                                      right: 4,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context).colorScheme.primary,
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                        child: Text(
+                                          qty.toString(),
+                                          style: TextStyle(
+                                            color: Theme.of(context).colorScheme.onPrimary,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  Positioned(
+                                    top: 0,
+                                    left: 0,
+                                    child: IconButton(
+                                      tooltip: 'Giảm 1',
+                                      icon: const Icon(Icons.remove_circle_outline),
+                                      color: qty > 0 ? Colors.redAccent : Colors.grey,
+                                      visualDensity: VisualDensity.compact,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+                                      onPressed: qty > 0 ? () async => removeOne(product) : null,
+                                    ),
                                   ),
-                                  onTap: () {
-                                    Navigator.of(context).pop(product);
-                                  },
-                                );
-                              },
-                            ),
+                                ],
+                              );
+                            },
+                          ),
                   ),
                 ],
               ),
@@ -1664,26 +1804,7 @@ class _SaleScreenState extends State<SaleScreen> {
             tooltip: 'Thêm sản phẩm',
             icon: const Icon(Icons.add_shopping_cart_outlined),
             onPressed: () async {
-              final product = await _showProductPicker();
-              if (product == null) return;
-              if (!mounted) return;
-              setState(() {
-                _addSelectedProductToSale(product);
-              });
-              if (product.itemType != ProductItemType.mix) {
-                await _applyLastUnitTo(
-                  _items.lastWhere((item) => item.productId == product.id),
-                );
-              }
-              await _saveRecentProduct(product);
-              if (!_paidEdited) {
-                final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
-                final total2 = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
-                if (!mounted) return;
-                setState(() => _paid = total2);
-              }
-              _clearProductField?.call();
-              _unfocusProductField?.call();
+              await _showProductPickerSheet();
             },
           ),
           // Nút đặt hàng bằng giọng nói
