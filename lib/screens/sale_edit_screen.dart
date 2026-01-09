@@ -141,9 +141,45 @@ class _SaleEditScreenState extends State<SaleEditScreen> {
     return (NumberInputFormatter.tryParse(s) ?? 0).toDouble();
   }
 
-  double _subtotal() => _items.fold(0.0, (p, e) => p + e.total);
+  double _subtotal() {
+    var sum = 0.0;
+    for (var i = 0; i < _items.length; i++) {
+      final it = _items[i];
+      if (_isMixItem(it)) {
+        sum += it.total;
+        continue;
+      }
 
-  double _totalCostSnap() => _items.fold(0.0, (p, e) => p + e.totalCost);
+      final qtyText = (_qtyCtrls[i]?.text ?? '').trim();
+      final priceText = (_priceCtrls[i]?.text ?? '').trim();
+      final qty = _parseQty(qtyText);
+      final unitPrice = _parseMoney(priceText);
+      final effectiveQty = qtyText.isEmpty ? it.quantity : qty;
+      final effectivePrice = priceText.isEmpty ? it.unitPrice : unitPrice;
+      sum += (effectiveQty * effectivePrice);
+    }
+    return sum;
+  }
+
+  double _totalCostSnap() {
+    var sum = 0.0;
+    for (var i = 0; i < _items.length; i++) {
+      final it = _items[i];
+      if (_isMixItem(it)) {
+        sum += it.totalCost;
+        continue;
+      }
+
+      final qtyText = (_qtyCtrls[i]?.text ?? '').trim();
+      final costText = (_costCtrls[i]?.text ?? '').trim();
+      final qty = _parseQty(qtyText);
+      final unitCost = _parseMoney(costText);
+      final effectiveQty = qtyText.isEmpty ? it.quantity : qty;
+      final effectiveCost = costText.isEmpty ? it.unitCost : unitCost;
+      sum += (effectiveQty * effectiveCost);
+    }
+    return sum;
+  }
 
   double _discountValue() {
     final v = _parseMoney(_discountCtrl.text);

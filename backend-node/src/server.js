@@ -66,6 +66,248 @@ const poolConfig = (() => {
 const pool = new Pool(poolConfig);
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
+async function ensureSchema() {
+  // Core auth table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      google_sub TEXT NOT NULL UNIQUE,
+      email TEXT,
+      name TEXT,
+      photo_url TEXT,
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL
+    );
+  `);
+
+  // Sync events log for pull API
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sync_events (
+      event_id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL,
+      device_id TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      op TEXT NOT NULL,
+      payload JSONB,
+      client_updated_at TIMESTAMPTZ NOT NULL,
+      server_received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      event_uuid TEXT,
+      UNIQUE (user_id, event_uuid)
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sync_events_user_event_id ON sync_events (user_id, event_id);`);
+
+  // Entity tables (based on lib/services/database_service.dart onCreate schema)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS products (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      price NUMERIC NOT NULL,
+      cost_price NUMERIC NOT NULL DEFAULT 0,
+      current_stock NUMERIC NOT NULL DEFAULT 0,
+      unit TEXT NOT NULL,
+      barcode TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      item_type TEXT NOT NULL DEFAULT 'RAW',
+      is_stocked INTEGER NOT NULL DEFAULT 1,
+      image_path TEXT,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS customers (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT,
+      note TEXT,
+      is_supplier INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS employees (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sales (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      customer_id TEXT,
+      customer_name TEXT,
+      employee_id TEXT,
+      employee_name TEXT,
+      discount NUMERIC NOT NULL DEFAULT 0,
+      paid_amount NUMERIC NOT NULL DEFAULT 0,
+      payment_type TEXT,
+      total_cost NUMERIC NOT NULL DEFAULT 0,
+      note TEXT,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sale_items (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      sale_id TEXT NOT NULL,
+      product_id TEXT,
+      name TEXT NOT NULL,
+      unit_price NUMERIC NOT NULL,
+      unit_cost NUMERIC NOT NULL DEFAULT 0,
+      quantity NUMERIC NOT NULL,
+      unit TEXT NOT NULL,
+      item_type TEXT,
+      display_name TEXT,
+      mix_items_json TEXT,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sale_items_user_sale ON sale_items (user_id, sale_id);`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS debts (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      type INTEGER NOT NULL,
+      party_id TEXT NOT NULL,
+      party_name TEXT NOT NULL,
+      initial_amount NUMERIC NOT NULL DEFAULT 0,
+      amount NUMERIC NOT NULL,
+      description TEXT,
+      due_date TIMESTAMPTZ,
+      settled INTEGER NOT NULL DEFAULT 0,
+      source_type TEXT,
+      source_id TEXT,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS debt_payments (
+      user_id BIGINT NOT NULL,
+      uuid TEXT NOT NULL,
+      debt_id TEXT NOT NULL,
+      amount NUMERIC NOT NULL,
+      note TEXT,
+      payment_type TEXT,
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, uuid)
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_debt_payments_user_debt ON debt_payments (user_id, debt_id);`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      supplier_name TEXT,
+      supplier_phone TEXT,
+      discount_type TEXT NOT NULL DEFAULT 'AMOUNT',
+      discount_value NUMERIC NOT NULL DEFAULT 0,
+      paid_amount NUMERIC NOT NULL DEFAULT 0,
+      note TEXT,
+      purchase_doc_uploaded INTEGER NOT NULL DEFAULT 0,
+      purchase_doc_file_id TEXT,
+      purchase_doc_updated_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchase_history (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      product_id TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      quantity NUMERIC NOT NULL,
+      unit_cost NUMERIC NOT NULL DEFAULT 0,
+      total_cost NUMERIC NOT NULL DEFAULT 0,
+      paid_amount NUMERIC NOT NULL DEFAULT 0,
+      supplier_name TEXT,
+      supplier_phone TEXT,
+      note TEXT,
+      purchase_doc_uploaded INTEGER NOT NULL DEFAULT 0,
+      purchase_doc_file_id TEXT,
+      purchase_doc_updated_at TIMESTAMPTZ,
+      purchase_order_id TEXT,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS expenses (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      occurred_at TIMESTAMPTZ NOT NULL,
+      amount NUMERIC NOT NULL,
+      category TEXT NOT NULL,
+      note TEXT,
+      expense_doc_uploaded INTEGER NOT NULL DEFAULT 0,
+      expense_doc_file_id TEXT,
+      expense_doc_updated_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vietqr_bank_accounts (
+      user_id BIGINT NOT NULL,
+      id TEXT NOT NULL,
+      bank_api_id INTEGER,
+      name TEXT,
+      code TEXT,
+      bin TEXT,
+      short_name TEXT,
+      logo TEXT,
+      transfer_supported INTEGER,
+      lookup_supported INTEGER,
+      support INTEGER,
+      is_transfer INTEGER,
+      swift_code TEXT,
+      account_no TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, id)
+    );
+  `);
+}
+
 function parseIsoOrNull(v) {
   if (!v || typeof v !== 'string') return null;
   const d = new Date(v);
@@ -113,12 +355,13 @@ async function upsertLww({
   await client.query(sql, values);
 }
 
-async function deleteLww({ client, table, userId, id, deletedAt }) {
+async function deleteLww({ client, table, userId, id, deletedAt, primaryKey = 'id' }) {
   // All tables support soft delete now
+  // NOTE: primaryKey is a trusted identifier (only passed from server code).
   const sql = `
     UPDATE ${table}
     SET deleted_at = $3
-    WHERE user_id = $1 AND id = $2
+    WHERE user_id = $1 AND ${primaryKey} = $2
       AND (updated_at IS NULL OR $3 > updated_at)
   `;
   await client.query(sql, [userId, id, deletedAt]);
@@ -178,13 +421,15 @@ async function applyEvent({ client, userId, ev }) {
       case 'customers':
       case 'sales':
       case 'debts':
-      case 'debt_payments':
       case 'purchase_orders':
       case 'purchase_history':
       case 'expenses':
       case 'employees':
       case 'vietqr_bank_accounts':
+      case 'sale_items':
         return deleteLww({ client, table: entity, userId, id: entityId, deletedAt });
+      case 'debt_payments':
+        return deleteLww({ client, table: entity, userId, id: entityId, deletedAt, primaryKey: 'uuid' });
       default:
         return;
     }
@@ -362,7 +607,7 @@ async function applyEvent({ client, userId, ev }) {
       });
 
     case 'sales':
-      return upsertLww({
+      await upsertLww({
         client,
         table: 'sales',
         userId,
@@ -381,6 +626,51 @@ async function applyEvent({ client, userId, ev }) {
           note: p.note ?? null,
         },
       });
+
+      // Persist embedded items into sale_items.
+      // Client does not send sale_items as independent events; they are included in sales.payload.items.
+      const items = Array.isArray(p.items) ? p.items : [];
+
+      // Soft delete existing items for this sale (LWW via updatedAt)
+      await client.query(
+        `
+        UPDATE sale_items
+        SET deleted_at = $3, updated_at = $3
+        WHERE user_id = $1 AND sale_id = $2
+          AND (updated_at IS NULL OR $3 > updated_at)
+        `,
+        [userId, entityId, updatedAt]
+      );
+
+      for (let i = 0; i < items.length; i += 1) {
+        const it = items[i] || {};
+
+        // Create stable string id per sale based on local row id (int) or index.
+        const localIdRaw = it.id ?? it.localId ?? i;
+        const itemId = `${entityId}:${String(localIdRaw)}`;
+
+        await upsertLww({
+          client,
+          table: 'sale_items',
+          userId,
+          id: itemId,
+          updatedAt,
+          columns: {
+            sale_id: entityId,
+            product_id: it.productId ?? null,
+            name: it.name ?? '',
+            unit_price: it.unitPrice ?? 0,
+            unit_cost: it.unitCost ?? 0,
+            quantity: it.quantity ?? 0,
+            unit: it.unit ?? '',
+            item_type: it.itemType ?? null,
+            display_name: it.displayName ?? null,
+            mix_items_json: it.mixItemsJson ?? null,
+          },
+        });
+      }
+
+      return;
 
     case 'vietqr_bank_accounts':
       return upsertLww({
@@ -553,6 +843,7 @@ app.post('/sync/push', authMiddleware, async (req, res) => {
 });
 
 app.get('/sync/pull', authMiddleware, async (req, res) => {
+  console.log('vao pull');
   const cursorRaw = (req.query.cursor ?? '0').toString();
   const cursor = Number.isFinite(Number(cursorRaw)) ? Number(cursorRaw) : 0;
   const limitRaw = (req.query.limit ?? '500').toString();
@@ -569,7 +860,9 @@ app.get('/sync/pull', authMiddleware, async (req, res) => {
     `,
     [userId, cursor, limit],
   );
+  
   const nextCursor = r.rows.length ? r.rows[r.rows.length - 1].event_id : cursor;
+  console.log(r.rows)
   return res.json({ cursor: nextCursor, events: r.rows });
 });
 
@@ -589,6 +882,13 @@ app.listen(Number(PORT), () => {
     try {
       await pool.query('SELECT 1');
       console.log('DB connection: OK');
+
+      try {
+        await ensureSchema();
+        console.log('DB schema: OK');
+      } catch (e) {
+        console.error('DB schema: ERROR', e);
+      }
     } catch (e) {
       console.error('DB connection: ERROR', e);
     }
