@@ -30,6 +30,15 @@ class OnlineSyncService {
     debugPrint('[OnlineSync] $message');
   }
 
+  static int _parseInt(dynamic v, {int fallback = 0}) {
+    if (v == null) return fallback;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    final s = v.toString().trim();
+    if (s.isEmpty) return fallback;
+    return int.tryParse(s) ?? fallback;
+  }
+
   static Future<void> _logDb({required String action, String? details}) async {
     try {
       final db = DatabaseService.instance.db;
@@ -479,7 +488,7 @@ class OnlineSyncService {
     }
 
     final decoded = (jsonDecode(resp.body) as Map).cast<String, dynamic>();
-    final newCursor = (decoded['cursor'] as num?)?.toInt() ?? cursor;
+    final newCursor = _parseInt(decoded['cursor'], fallback: cursor);
     final events = (decoded['events'] as List?)?.cast<dynamic>() ?? const [];
 
     _log('pull: cursor $cursor -> $newCursor events=${events.length}');
