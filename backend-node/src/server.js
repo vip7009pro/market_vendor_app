@@ -862,7 +862,7 @@ app.get('/sync/pull', authMiddleware, async (req, res) => {
   );
   
   const nextCursor = r.rows.length ? r.rows[r.rows.length - 1].event_id : cursor;
-  console.log(r.rows)
+  //console.log(r.rows)
   return res.json({ cursor: nextCursor, events: r.rows });
 });
 

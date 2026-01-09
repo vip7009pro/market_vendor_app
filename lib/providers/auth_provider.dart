@@ -35,9 +35,9 @@ class AuthProvider extends ChangeNotifier {
     _firebaseAuth.authStateChanges().listen((user) {
       _firebaseUser = user;
       if (user == null) {
-        OnlineSyncService.stopAutoSync();
+        //OnlineSyncService.stopAutoSync();
       } else {
-        OnlineSyncService.startAutoSync(auth: this);
+        //OnlineSyncService.startAutoSync(auth: this);
       }
       notifyListeners();
     });

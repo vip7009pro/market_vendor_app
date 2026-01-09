@@ -433,7 +433,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Column(
               children: [
-                ListTile(
+               /*  ListTile(
                   leading: Icon(Icons.cloud_sync_outlined, color: theme.colorScheme.primary),
                   title: const Text('Đồng bộ Online (Backend)'),
                   subtitle: const Text('Cấu hình URL + Sync now + trạng thái'),
@@ -445,7 +445,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   },
                 ),
-                const Divider(height: 1),
+                const Divider(height: 1), */
                 ListTile(
                   leading: Icon(Icons.cloud_outlined, color: theme.colorScheme.primary),
                   title: const Text('Quản lý backup Google Drive'),

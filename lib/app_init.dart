@@ -28,7 +28,7 @@ class _AppInitState extends State<AppInit> {
 
   @override
   void dispose() {
-    OnlineSyncService.stopAutoSync();
+    //OnlineSyncService.stopAutoSync();
     super.dispose();
   }
 
@@ -47,13 +47,13 @@ class _AppInitState extends State<AppInit> {
       final auth = context.read<AuthProvider>();
       if (auth.isSignedIn) {
         try {
-          await OnlineSyncService.syncNow(auth: auth);
+          //await OnlineSyncService.syncNow(auth: auth);
         } catch (_) {
           // ignore
         }
 
         try {
-          await OnlineSyncService.startAutoSync(auth: auth);
+          //await OnlineSyncService.startAutoSync(auth: auth);
         } catch (_) {
           // ignore
         }
