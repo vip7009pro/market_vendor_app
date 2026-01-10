@@ -34,6 +34,7 @@ class ThemeProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final savedThemeName = prefs.getString('app_theme') ?? 'light';
     _setTheme(savedThemeName);
+    notifyListeners();
   }
 
   Future<void> setTheme(String themeName) async {

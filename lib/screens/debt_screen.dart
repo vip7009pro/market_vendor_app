@@ -31,6 +31,7 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
   _DebtLinkFilter _linkFilter = _DebtLinkFilter.all;
 
   bool _isTableView = false;
+  bool _showFilterBar = false;
 
   final PageController _oweChartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _oweChartPageIndex = ValueNotifier<int>(0);
@@ -140,6 +141,11 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
         title: const Text('Ghi nợ'),
         actions: [
           IconButton(
+            tooltip: _showFilterBar ? 'Ẩn bộ lọc' : 'Hiện bộ lọc',
+            icon: Icon(_showFilterBar ? Icons.filter_alt_off_outlined : Icons.filter_alt_outlined),
+            onPressed: () => setState(() => _showFilterBar = !_showFilterBar),
+          ),
+          IconButton(
             tooltip: _isTableView ? 'Hiển thị dạng thẻ' : 'Hiển thị dạng bảng',
             icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_chart_outlined),
             onPressed: () => setState(() => _isTableView = !_isTableView),
@@ -168,94 +174,106 @@ class _DebtScreenState extends State<DebtScreen> with SingleTickerProviderStateM
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'Lọc theo tên người',
-                      isDense: true,
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.event),
-                  label: Text(_range == null
-                      ? 'Khoảng ngày'
-                      : '${DateFormat('dd/MM').format(_range!.start)} - ${DateFormat('dd/MM').format(_range!.end)}'),
-                  onPressed: () async {
-                    final now = DateTime.now();
-                    final picked = await showDateRangePicker(
-                      context: context,
-                      firstDate: DateTime(now.year - 3),
-                      lastDate: DateTime(now.year + 3),
-                      initialDateRange: _range,
-                    );
-                    if (picked != null) setState(() => _range = picked);
-                  },
-                ),
-                if (_range != null)
-                  IconButton(
-                    tooltip: 'Xóa lọc ngày',
-                    icon: const Icon(Icons.clear),
-                    onPressed: () => setState(() => _range = null),
-                  ),
-              ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            child: ClipRect(
+              child: _showFilterBar
+                  ? Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _searchCtrl,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Lọc theo tên người',
+                                    isDense: true,
+                                    prefixIcon: Icon(Icons.search),
+                                  ),
+                                  onChanged: (_) => setState(() {}),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.event),
+                                label: Text(_range == null
+                                    ? 'Khoảng ngày'
+                                    : '${DateFormat('dd/MM').format(_range!.start)} - ${DateFormat('dd/MM').format(_range!.end)}'),
+                                onPressed: () async {
+                                  final now = DateTime.now();
+                                  final picked = await showDateRangePicker(
+                                    context: context,
+                                    firstDate: DateTime(now.year - 3),
+                                    lastDate: DateTime(now.year + 3),
+                                    initialDateRange: _range,
+                                  );
+                                  if (picked != null) setState(() => _range = picked);
+                                },
+                              ),
+                              if (_range != null)
+                                IconButton(
+                                  tooltip: 'Xóa lọc ngày',
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () => setState(() => _range = null),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                          child: Row(
+                            children: [
+                              const Text('Chỉ hiển thị còn nợ'),
+                              const SizedBox(width: 8),
+                              Switch(
+                                value: _showOnlyUnpaid,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _showOnlyUnpaid = value;
+                                  });
+                                },
+                              ),
+                              const Spacer(),
+                              Text(
+                                'Tổng: ${_tabController.index == 0 ? othersOwe.length : iOwe.length} người',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 2.0),
+                          child: Row(
+                            children: [
+                              FilterChip(
+                                label: const Text('Tất cả'),
+                                selected: _linkFilter == _DebtLinkFilter.all,
+                                onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.all),
+                              ),
+                              const SizedBox(width: 8),
+                              FilterChip(
+                                label: const Text('Có giao dịch'),
+                                selected: _linkFilter == _DebtLinkFilter.linked,
+                                onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.linked),
+                              ),
+                              const SizedBox(width: 8),
+                              FilterChip(
+                                label: const Text('Nợ ngoài'),
+                                selected: _linkFilter == _DebtLinkFilter.external,
+                                onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.external),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-            child: Row(
-              children: [
-                const Text('Chỉ hiển thị còn nợ'),
-                const SizedBox(width: 8),
-                Switch(
-                  value: _showOnlyUnpaid,
-                  onChanged: (value) {
-                    setState(() {
-                      _showOnlyUnpaid = value;
-                    });
-                  },
-                ),
-                const Spacer(),
-                Text(
-                  'Tổng: ${_tabController.index == 0 ? othersOwe.length : iOwe.length} người',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 2.0),
-            child: Row(
-              children: [
-                FilterChip(
-                  label: const Text('Tất cả'),
-                  selected: _linkFilter == _DebtLinkFilter.all,
-                  onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.all),
-                ),
-                const SizedBox(width: 8),
-                FilterChip(
-                  label: const Text('Có giao dịch'),
-                  selected: _linkFilter == _DebtLinkFilter.linked,
-                  onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.linked),
-                ),
-                const SizedBox(width: 8),
-                FilterChip(
-                  label: const Text('Nợ ngoài'),
-                  selected: _linkFilter == _DebtLinkFilter.external,
-                  onSelected: (_) => setState(() => _linkFilter = _DebtLinkFilter.external),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
           Expanded(
             child: TabBarView(
               controller: _tabController,

@@ -114,9 +114,9 @@ class _HomeScreenState extends State<HomeScreen> {
     // Load theme
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final prefs = await SharedPreferences.getInstance();
-      final savedTheme = prefs.getString('selected_theme') ?? 'light';
+      final savedTheme = prefs.getString('app_theme') ?? 'light';
       final themeProvider = context.read<ThemeProvider>();
-      themeProvider.setTheme(savedTheme);
+      await themeProvider.setTheme(savedTheme);
     });
 
     // Khi vào HomeScreen nghĩa là đã login → check đổi tài khoản và refresh data

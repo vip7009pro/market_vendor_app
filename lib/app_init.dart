@@ -35,7 +35,7 @@ class _AppInitState extends State<AppInit> {
   Future<void> _bootstrap() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedTheme = prefs.getString('selected_theme') ?? 'light';
+      final savedTheme = prefs.getString('app_theme') ?? 'light';
       await Future.wait([
         context.read<ProductProvider>().load(),
         context.read<CustomerProvider>().load(),
