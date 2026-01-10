@@ -23,10 +23,12 @@ import 'purchase_order_create_screen.dart';
 
 class PurchaseHistoryScreen extends StatefulWidget {
   final bool embedded;
+  final bool? showFilterBar;
 
   const PurchaseHistoryScreen({
     super.key,
     this.embedded = false,
+    this.showFilterBar,
   });
 
   @override
@@ -50,6 +52,8 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
   String _query = '';
 
   bool _isTableView = false;
+
+  bool _showFilterBar = false;
 
   bool _autoCreatingOrders = false;
   bool _autoCreatedOnce = false;
@@ -1062,423 +1066,293 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
     final products = context.watch<ProductProvider>().products;
     final productById = {for (final p in products) p.id: p};
 
-    final content = Column(
-        children: [
-          if (widget.embedded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Row(
+    final showFilter = widget.embedded ? (widget.showFilterBar ?? false) : _showFilterBar;
+
+    final filterBar = AnimatedSize(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeInOut,
+      child: ClipRect(
+        child: showFilter
+            ? Column(
                 children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const PurchaseOrderCreateScreen()),
-                        );
-                        if (!mounted) return;
-                        await context.read<ProductProvider>().load();
-                        await context.read<DebtProvider>().load();
-                        setState(() {
-                          _orderDebtInfoCache.clear();
-                        });
-                      },
-                      icon: const Icon(Icons.add),
-                      label: const Text('Nhập hàng'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: _isTableView ? 'Hiển thị dạng thẻ' : 'Hiển thị dạng bảng',
-                    icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_chart_outlined),
-                    onPressed: () => setState(() => _isTableView = !_isTableView),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.filter_list),
-                    label: const Text('Khoảng ngày'),
-                    onPressed: () async {
-                      final now = DateTime.now();
-                      final picked = await showDateRangePicker(
-                        context: context,
-                        firstDate: DateTime(now.year - 2),
-                        lastDate: DateTime(now.year + 1),
-                        initialDateRange: _range,
-                      );
-                      if (picked != null) {
-                        setState(() => _range = picked);
-                      }
-                    },
-                  ),
-                  if (_range != null) ...[
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.clear),
-                      tooltip: 'Xoá lọc ngày',
-                      onPressed: () => setState(() => _range = null),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Tìm theo tên sản phẩm / nhà cung cấp / ghi chú',
-                isDense: true,
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (v) => setState(() => _query = v.trim()),
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _load(),
-              builder: (context, snap) {
-                if (snap.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final rows = snap.data ?? const [];
-                if (rows.isEmpty) {
-                  return const Center(child: Text('Chưa có lịch sử nhập hàng'));
-                }
-
-                if (_isTableView) {
-                  return _buildTable(rows: rows, currency: currency, fmtDate: fmtDate);
-                }
-
-                return ListView.separated(
-                  itemCount: rows.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final r = rows[i];
-                    final createdAt = DateTime.tryParse(r['createdAt'] as String? ?? '') ?? DateTime.now();
-                    final name = (r['productName'] as String?) ?? '';
-                    final pid = (r['productId'] as String?) ?? '';
-                    final prod = pid.isEmpty ? null : productById[pid];
-                    final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
-                    final unitCost = (r['unitCost'] as num?)?.toDouble() ?? 0;
-                    final totalCost = (r['totalCost'] as num?)?.toDouble() ?? (qty * unitCost);
-                    final paidAmount = (r['paidAmount'] as num?)?.toDouble() ?? 0;
-                    final remainDebt = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
-                    final note = (r['note'] as String?)?.trim();
-                    final supplierName = (r['supplierName'] as String?)?.trim();
-                    final docUploaded = (r['purchaseDocUploaded'] as int?) == 1;
-                    final docUploading = _docUploading.contains(r['id'] as String);
-                    final purchaseId = (r['id'] as String?) ?? '';
-                    final purchaseOrderId = (r['purchaseOrderId'] as String?)?.trim();
-                    final assignedOrder = purchaseOrderId != null && purchaseOrderId.isNotEmpty;
-
-                    final dtText = fmtDate.format(createdAt);
-                    final docBtnColor = docUploaded ? Colors.green : Colors.orange;
-
-                    return ListTile(
-                      dense: true,
-                      visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      onTap: () async {
-                        await _editPurchaseDialog(r);
-                        if (!mounted) return;
-                        setState(() {});
-                      },
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.green.withValues(alpha: 0.12),
-                        child: Builder(
-                          builder: (_) {
-                            final img = prod?.imagePath;
-                            if (img != null && img.trim().isNotEmpty) {
-                              return FutureBuilder<String?>(
-                                future: ProductImageService.instance.resolvePath(img),
-                                builder: (context, snap) {
-                                  final full = snap.data;
-                                  if (full == null || full.isEmpty) {
-                                    return const Icon(Icons.add_shopping_cart, color: Colors.green);
-                                  }
-                                  return ClipOval(
-                                    child: Image.file(
-                                      File(full),
-                                      width: 40,
-                                      height: 40,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  );
-                                },
-                              );
-                            }
-                            return const Icon(Icons.add_shopping_cart, color: Colors.green);
-                          },
-                        ),
-                      ),
-                      title: assignedOrder
-                          ? FutureBuilder<_OrderDebtInfo>(
-                              future: _orderDebtInfoFuture(purchaseOrderId),
-                              builder: (context, snap) {
-                                final settled = snap.data?.settled;
-                                final nameColor = settled == null
-                                    ? null
-                                    : (settled ? Colors.green : Colors.redAccent);
-                                return Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(fontWeight: FontWeight.w700, color: nameColor),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      dtText,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(color: Colors.black54, fontSize: 12),
-                                    ),
-                                  ],
-                                );
-                              },
-                            )
-                          : Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: remainDebt > 0 ? Colors.redAccent : Colors.green,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  dtText,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: Colors.black54, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'SL: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}  |  Giá: ${currency.format(unitCost)}  |  TT: ${currency.format(totalCost)}',
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Row(
+                      children: [
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.event),
+                          label: Text(
+                            _range == null
+                                ? 'Khoảng ngày'
+                                : '${DateFormat('dd/MM').format(_range!.start)} - ${DateFormat('dd/MM').format(_range!.end)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
-                          if (assignedOrder)
-                            FutureBuilder<_OrderDebtInfo>(
-                              future: _orderDebtInfoFuture(purchaseOrderId),
+                          onPressed: () async {
+                            final now = DateTime.now();
+                            final picked = await showDateRangePicker(
+                              context: context,
+                              firstDate: DateTime(now.year - 2),
+                              lastDate: DateTime(now.year + 1),
+                              initialDateRange: _range,
+                            );
+                            if (picked != null) setState(() => _range = picked);
+                          },
+                        ),
+                        if (_range != null) ...[
+                          const SizedBox(width: 4),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.clear),
+                            tooltip: 'Xoá lọc ngày',
+                            onPressed: () => setState(() => _range = null),
+                          ),
+                        ],
+                        const SizedBox(width: 4),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          tooltip: _isTableView ? 'Hiển thị dạng thẻ' : 'Hiển thị dạng bảng',
+                          icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_chart_outlined),
+                          onPressed: () => setState(() => _isTableView = !_isTableView),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            decoration: const InputDecoration(
+                              hintText: 'Tìm...',
+                              isDense: true,
+                              prefixIcon: Icon(Icons.search),
+                            ),
+                            onChanged: (v) => setState(() => _query = v.trim()),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 16),
+                ],
+              )
+            : const SizedBox.shrink(),
+      ),
+    );
+
+    final content = Column(
+      children: [
+        filterBar,
+        Expanded(
+          child: FutureBuilder<List<Map<String, dynamic>>>(
+            future: _load(),
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final rows = snap.data ?? const [];
+              if (rows.isEmpty) {
+                return const Center(child: Text('Chưa có dữ liệu'));
+              }
+              if (_isTableView) {
+                return _buildTable(rows: rows, currency: currency, fmtDate: fmtDate);
+              }
+              return ListView.separated(
+                itemCount: rows.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final r = rows[i];
+                  final createdAt = DateTime.tryParse(r['createdAt'] as String? ?? '') ?? DateTime.now();
+                  final name = (r['productName'] as String?) ?? '';
+                  final pid = (r['productId'] as String?) ?? '';
+                  final prod = pid.isEmpty ? null : productById[pid];
+                  final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
+                  final unitCost = (r['unitCost'] as num?)?.toDouble() ?? 0;
+                  final totalCost = (r['totalCost'] as num?)?.toDouble() ?? (qty * unitCost);
+                  final paidAmount = (r['paidAmount'] as num?)?.toDouble() ?? 0;
+                  final remainDebt = (totalCost - paidAmount).clamp(0.0, double.infinity).toDouble();
+                  final note = (r['note'] as String?)?.trim();
+                  final supplierName = (r['supplierName'] as String?)?.trim();
+                  final docUploaded = (r['purchaseDocUploaded'] as int?) == 1;
+                  final docUploading = _docUploading.contains(r['id'] as String);
+                  final purchaseId = (r['id'] as String?) ?? '';
+                  final purchaseOrderId = (r['purchaseOrderId'] as String?)?.trim();
+                  final assignedOrder = purchaseOrderId != null && purchaseOrderId.isNotEmpty;
+
+                  final dtText = fmtDate.format(createdAt);
+                  final docBtnColor = docUploaded ? Colors.green : Colors.orange;
+
+                  return ListTile(
+                    dense: true,
+                    visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    onTap: () async {
+                      await _editPurchaseDialog(r);
+                      if (!mounted) return;
+                      setState(() {});
+                    },
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.green.withValues(alpha: 0.12),
+                      child: Builder(
+                        builder: (_) {
+                          final img = prod?.imagePath;
+                          if (img != null && img.trim().isNotEmpty) {
+                            return FutureBuilder<String?>(
+                              future: ProductImageService.instance.resolvePath(img),
                               builder: (context, snap) {
-                                final info = snap.data;
-                                final settled = info?.settled ?? true;
-                                final paid = info?.paid ?? 0.0;
-                                final remain = info?.remain ?? 0.0;
-                                final text = settled
-                                    ? 'Đơn: Đã tất toán'
-                                    : 'Đơn: Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
-                                final color = settled ? Colors.green : Colors.redAccent;
-                                return Text(
-                                  text,
-                                  style: TextStyle(color: color, fontWeight: FontWeight.w600),
+                                final full = snap.data;
+                                if (full == null || full.isEmpty) {
+                                  return const Icon(Icons.add_shopping_cart, color: Colors.green);
+                                }
+                                return ClipOval(
+                                  child: Image.file(
+                                    File(full),
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover,
+                                  ),
                                 );
                               },
+                            );
+                          }
+                          return const Icon(Icons.add_shopping_cart, color: Colors.green);
+                        },
+                      ),
+                    ),
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: remainDebt > 0 ? Colors.redAccent : Colors.green,
                             ),
-                          if (!assignedOrder) ...[
-                            Text('Đã trả: ${currency.format(paidAmount)}'),
-                            if (remainDebt > 0)
-                              FutureBuilder(
-                                future: DatabaseService.instance.getDebtBySource(
-                                  sourceType: 'purchase',
-                                  sourceId: r['id'] as String,
-                                ),
-                                builder: (context, snap) {
-                                  final d = snap.data;
-                                  if (snap.connectionState != ConnectionState.done || d == null) {
-                                    return Text(
-                                      'Còn nợ: ${currency.format(remainDebt)}',
-                                      style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          dtText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.black54, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'SL: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}  |  Giá: ${currency.format(unitCost)}  |  TT: ${currency.format(totalCost)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        if (supplierName != null && supplierName.isNotEmpty)
+                          Text('NCC: $supplierName', maxLines: 1, overflow: TextOverflow.ellipsis),
+                        if (note != null && note.isNotEmpty) Text('Ghi chú: $note'),
+                        if (assignedOrder)
+                          Text(
+                            'Đơn: Đã gán',
+                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w700),
+                          ),
+                      ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: assignedOrder ? 'Mở đơn' : 'Tạo đơn nhanh',
+                          onPressed: purchaseId.isEmpty
+                              ? null
+                              : () async {
+                                  final target = assignedOrder ? purchaseOrderId : null;
+                                  final orderId = target ??
+                                      await DatabaseService.instance.quickCreateOrderForPurchaseHistoryRow(
+                                        purchaseHistoryId: purchaseId,
+                                      );
+                                  if (!mounted) return;
+                                  if (orderId == null || orderId.trim().isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Không thể tạo/mở đơn')),
                                     );
+                                    return;
                                   }
-
-                                  return FutureBuilder<double>(
-                                    future: DatabaseService.instance.getTotalPaidForDebt(d.id),
-                                    builder: (context, paidSnap) {
-                                      final paid = paidSnap.data ?? 0;
-                                      final remain = d.amount;
-                                      final settled = d.settled || remain <= 0;
-                                      final text = settled
-                                          ? 'Đã tất toán'
-                                          : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
-                                      final color = settled ? Colors.green : Colors.redAccent;
-                                      return Text(
-                                        text,
-                                        style: TextStyle(color: color, fontWeight: FontWeight.w600),
-                                      );
-                                    },
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => PurchaseOrderDetailScreen(purchaseOrderId: orderId),
+                                    ),
                                   );
+                                  if (!mounted) return;
+                                  await context.read<ProductProvider>().load();
+                                  await context.read<DebtProvider>().load();
+                                  setState(() {
+                                    _orderDebtInfoCache.clear();
+                                  });
                                 },
-                              ),
-                            if (remainDebt <= 0)
-                              const Text(
-                                'Đã tất toán',
-                                style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
-                              ),
+                          icon: docUploading
+                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                              : Icon(assignedOrder ? Icons.receipt_long : Icons.receipt_long_outlined),
+                          color: docBtnColor,
+                        ),
+                        PopupMenuButton<String>(
+                          onSelected: (v) async {
+                            if (v == 'edit') {
+                              await _editPurchaseDialog(r);
+                            }
+                            if (v == 'delete') {
+                              await _deletePurchase(r);
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                            PopupMenuItem(value: 'delete', child: Text('Xóa')),
                           ],
-                          if (supplierName != null && supplierName.isNotEmpty)
-                            Text('NCC: $supplierName', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          Row(
-                            children: [
-                              const Text('Đơn: '),
-                              Text(
-                                assignedOrder ? 'Đã gán' : 'Chưa gán',
-                                style: TextStyle(
-                                  color: assignedOrder ? Colors.green : Colors.black54,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (note != null && note.isNotEmpty) Text('Ghi chú: $note'),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: assignedOrder ? 'Mở đơn' : 'Tạo đơn nhanh',
-                            onPressed: purchaseId.isEmpty
-                                ? null
-                                : () async {
-                                    if (assignedOrder) {
-                                      final changed = await Navigator.push<bool>(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => PurchaseOrderDetailScreen(purchaseOrderId: purchaseOrderId),
-                                        ),
-                                      );
-                                      if (!mounted) return;
-                                      if (changed == true) {
-                                        await context.read<ProductProvider>().load();
-                                        await context.read<DebtProvider>().load();
-                                      }
-                                      setState(() {
-                                        _orderDebtInfoCache.clear();
-                                      });
-                                      return;
-                                    }
-
-                                    final orderId = await DatabaseService.instance
-                                        .quickCreateOrderForPurchaseHistoryRow(purchaseHistoryId: purchaseId);
-                                    if (!mounted) return;
-                                    if (orderId == null || orderId.trim().isEmpty) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Không thể tạo đơn')),
-                                      );
-                                      return;
-                                    }
-                                    final changed = await Navigator.push<bool>(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => PurchaseOrderDetailScreen(purchaseOrderId: orderId),
-                                      ),
-                                    );
-                                    if (!mounted) return;
-                                    if (changed == true) {
-                                      await context.read<ProductProvider>().load();
-                                      await context.read<DebtProvider>().load();
-                                    }
-                                    setState(() {
-                                      _orderDebtInfoCache.clear();
-                                    });
-                                  },
-                            icon: docUploading
-                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                : Icon(assignedOrder ? Icons.receipt_long : Icons.receipt_long_outlined),
-                            color: docBtnColor,
-                          ),
-                          PopupMenuButton<String>(
-                            onSelected: (v) async {
-                              if (v == 'edit') {
-                                await _editPurchaseDialog(r);
-                              }
-                              if (v == 'delete') {
-                                await _deletePurchase(r);
-                              }
-                            },
-                            itemBuilder: (_) => [
-                              const PopupMenuItem(value: 'edit', child: Text('Sửa')),
-                              const PopupMenuItem(value: 'delete', child: Text('Xóa')),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
           ),
-        ],
-      );
-
-    if (widget.embedded) {
-      return content;
-    }
+        ),
+      ],
+    );
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Lịch sử nhập hàng'),
-        actions: [
-          IconButton(
-            tooltip: _isTableView ? 'Hiển thị dạng thẻ' : 'Hiển thị dạng bảng',
-            icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_chart_outlined),
-            onPressed: () => setState(() => _isTableView = !_isTableView),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'Nhập hàng',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const PurchaseOrderCreateScreen()),
-              );
-              if (!mounted) return;
-              await context.read<ProductProvider>().load();
-              await context.read<DebtProvider>().load();
-              setState(() {
-                _orderDebtInfoCache.clear();
-              });
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            tooltip: 'Chọn khoảng ngày',
-            onPressed: () async {
-              final now = DateTime.now();
-              final picked = await showDateRangePicker(
-                context: context,
-                firstDate: DateTime(now.year - 2),
-                lastDate: DateTime(now.year + 1),
-                initialDateRange: _range,
-              );
-              if (picked != null) {
-                setState(() => _range = picked);
-              }
-            },
-          ),
-          if (_range != null)
-            IconButton(
-              icon: const Icon(Icons.clear),
-              tooltip: 'Xoá lọc ngày',
-              onPressed: () => setState(() => _range = null),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Text('Lịch sử nhập hàng'),
+              actions: [
+                IconButton(
+                  tooltip: _showFilterBar ? 'Ẩn bộ lọc' : 'Hiện bộ lọc',
+                  icon: Icon(
+                    _showFilterBar
+                        ? Icons.filter_alt_off_outlined
+                        : Icons.filter_alt_outlined,
+                  ),
+                  onPressed: () => setState(() => _showFilterBar = !_showFilterBar),
+                ),
+              ],
             ),
-        ],
+      floatingActionButton: FloatingActionButton.small(
+        tooltip: 'Nhập hàng',
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PurchaseOrderCreateScreen()),
+          );
+          if (!mounted) return;
+          await context.read<ProductProvider>().load();
+          await context.read<DebtProvider>().load();
+          setState(() {
+            _orderDebtInfoCache.clear();
+          });
+        },
+        child: const Icon(Icons.add),
       ),
       body: content,
     );

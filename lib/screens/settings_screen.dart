@@ -243,98 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
-  elevation: 2,
-  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-  child: Padding(
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            CircleAvatar(
-                        radius: 30,
-                        // Chỉ hiện ảnh khi có URL
-                        backgroundImage:
-                            auth.isSignedIn &&
-                                    auth.firebaseUser?.photoURL != null &&
-                                    auth.firebaseUser!.photoURL!.isNotEmpty
-                                ? NetworkImage(auth.firebaseUser!.photoURL!)
-                                : null,
-                        // Logic cho phần nội dung hiển thị đè lên hoặc thay thế
-                        child:
-                            auth.isSignedIn
-                                ? (auth.firebaseUser?.photoURL == null ||
-                                        auth.firebaseUser!.photoURL!.isEmpty
-                                    ? Text(
-                                      auth.firebaseUser?.displayName?[0]
-                                              .toUpperCase() ??
-                                          'U',
-                                      style: const TextStyle(fontSize: 24),
-                                    )
-                                    : null) // Nếu đã có ảnh nền thì child phải là null để không đè icon lên ảnh
-                                : const Icon(
-                                  Icons.person,
-                                  size: 30,
-                                ), // Nếu chưa đăng nhập thì hiện icon
-                      ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    auth.isSignedIn
-                        ? (auth.firebaseUser?.displayName ?? 'Người dùng')
-                        : 'Khách',
-                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  if (auth.isSignedIn && auth.firebaseUser?.email != null)
-                    Text(
-                      auth.firebaseUser!.email!,
-                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-                    ),
-                  if (!auth.isSignedIn)
-                    Text(
-                      'Đăng nhập để đồng bộ dữ liệu',
-                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: auth.isLoading ? null : () async {
-              if (auth.isSignedIn) {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Xác nhận đăng xuất'),
-                    content: const Text('Bạn có chắc muốn đăng xuất?'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-                      FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Đăng xuất')),
-                    ],
-                  ),
-                );
-                if (confirm == true) await auth.signOut();
-              } else {
-                await auth.signInWithGoogle();
-              }
-            },
-            icon: Icon(auth.isSignedIn ? Icons.logout : Icons.login),
-            label: Text(auth.isSignedIn ? 'Đăng xuất' : 'Đăng nhập với Google'),
-          ),
-        ),
-      ],
-    ),
-  ),
-),
+         
                    const SizedBox(height: 16),
           
           // Quick Actions Section
@@ -731,7 +640,98 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
-
+ Card(
+  elevation: 2,
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  child: Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            CircleAvatar(
+                        radius: 30,
+                        // Chỉ hiện ảnh khi có URL
+                        backgroundImage:
+                            auth.isSignedIn &&
+                                    auth.firebaseUser?.photoURL != null &&
+                                    auth.firebaseUser!.photoURL!.isNotEmpty
+                                ? NetworkImage(auth.firebaseUser!.photoURL!)
+                                : null,
+                        // Logic cho phần nội dung hiển thị đè lên hoặc thay thế
+                        child:
+                            auth.isSignedIn
+                                ? (auth.firebaseUser?.photoURL == null ||
+                                        auth.firebaseUser!.photoURL!.isEmpty
+                                    ? Text(
+                                      auth.firebaseUser?.displayName?[0]
+                                              .toUpperCase() ??
+                                          'U',
+                                      style: const TextStyle(fontSize: 24),
+                                    )
+                                    : null) // Nếu đã có ảnh nền thì child phải là null để không đè icon lên ảnh
+                                : const Icon(
+                                  Icons.person,
+                                  size: 30,
+                                ), // Nếu chưa đăng nhập thì hiện icon
+                      ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    auth.isSignedIn
+                        ? (auth.firebaseUser?.displayName ?? 'Người dùng')
+                        : 'Khách',
+                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  if (auth.isSignedIn && auth.firebaseUser?.email != null)
+                    Text(
+                      auth.firebaseUser!.email!,
+                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                    ),
+                  if (!auth.isSignedIn)
+                    Text(
+                      'Đăng nhập để đồng bộ dữ liệu',
+                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: auth.isLoading ? null : () async {
+              if (auth.isSignedIn) {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('Xác nhận đăng xuất'),
+                    content: const Text('Bạn có chắc muốn đăng xuất?'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+                      FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Đăng xuất')),
+                    ],
+                  ),
+                );
+                if (confirm == true) await auth.signOut();
+              } else {
+                await auth.signInWithGoogle();
+              }
+            },
+            icon: Icon(auth.isSignedIn ? Icons.logout : Icons.login),
+            label: Text(auth.isSignedIn ? 'Đăng xuất' : 'Đăng nhập với Google'),
+          ),
+        ),
+      ],
+    ),
+  ),
+),
           // Premium Status Card
           if (purchaseProvider.isStoreAvailable)
             Padding(

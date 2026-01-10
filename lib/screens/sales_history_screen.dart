@@ -75,10 +75,7 @@ class _DebtIssueInfo {
     );
   }
   factory _DebtIssueInfo.missing({required String saleId}) {
-    return _DebtIssueInfo._(
-      saleId: saleId,
-      kind: _DebtIssueKind.missing,
-    );
+    return _DebtIssueInfo._(saleId: saleId, kind: _DebtIssueKind.missing);
   }
   factory _DebtIssueInfo.mismatch({
     required String saleId,
@@ -102,7 +99,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   String _query = '';
   bool _onlyDebtIssues = false;
   bool _isTableView = false;
-
+  bool _showFilterBar = false;
   bool _didBackfillUnitCost = false;
   final Map<String, _DebtIssueInfo> _debtIssueBySaleId = {};
   String _lastIssueKey = '';
@@ -125,8 +122,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (withDebt.isEmpty) {
       if (!mounted) return;
       setState(() {
-        _debtIssueBySaleId
-          ..clear();
+        _debtIssueBySaleId..clear();
         _lastIssueKey = '';
       });
       return;
@@ -140,8 +136,21 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final placeholders = List.filled(saleIds.length, '?').join(',');
     final debtRows = await db.query(
       'debts',
-      columns: ['id', 'sourceId', 'amount', 'settled', 'type', 'partyId', 'partyName', 'description', 'createdAt', 'dueDate', 'sourceType'],
-      where: "sourceType = 'sale' AND sourceId IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      columns: [
+        'id',
+        'sourceId',
+        'amount',
+        'settled',
+        'type',
+        'partyId',
+        'partyName',
+        'description',
+        'createdAt',
+        'dueDate',
+        'sourceType',
+      ],
+      where:
+          "sourceType = 'sale' AND sourceId IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
       whereArgs: saleIds,
     );
     final debtBySaleId = <String, Map<String, dynamic>>{};
@@ -156,16 +165,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final paidByDebtId = <String, double>{};
     if (debtIds.isNotEmpty) {
       final dph = List.filled(debtIds.length, '?').join(',');
-      final payAgg = await db.rawQuery(
-        '''
+      final payAgg = await db.rawQuery('''
         SELECT debtId as debtId, SUM(amount) as total
         FROM debt_payments
         WHERE debtId IN ($dph)
           AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
         GROUP BY debtId
-        ''',
-        debtIds,
-      );
+        ''', debtIds);
       for (final r in payAgg) {
         final did = (r['debtId']?.toString() ?? '').trim();
         if (did.isEmpty) continue;
@@ -192,13 +198,19 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         final settled = ((debtRow['settled'] as int?) ?? 0) == 1;
         final debt = Debt(
           id: did,
-          createdAt: createdAtRaw != null ? DateTime.parse(createdAtRaw) : DateTime.now(),
+          createdAt:
+              createdAtRaw != null
+                  ? DateTime.parse(createdAtRaw)
+                  : DateTime.now(),
           type: typeInt == 0 ? DebtType.oweOthers : DebtType.othersOweMe,
           partyId: (debtRow['partyId']?.toString() ?? '').trim(),
           partyName: (debtRow['partyName']?.toString() ?? '').trim(),
           amount: remain,
           description: debtRow['description']?.toString(),
-          dueDate: (dueDateRaw != null && dueDateRaw.trim().isNotEmpty) ? DateTime.tryParse(dueDateRaw) : null,
+          dueDate:
+              (dueDateRaw != null && dueDateRaw.trim().isNotEmpty)
+                  ? DateTime.tryParse(dueDateRaw)
+                  : null,
           settled: settled,
           sourceType: debtRow['sourceType']?.toString(),
           sourceId: debtRow['sourceId']?.toString(),
@@ -229,24 +241,38 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
   _DebtIssueInfo? _getIssue(String saleId) => _debtIssueBySaleId[saleId];
   Future<void> _createDebtForSale(Sale s) async {
-    final partyName = (s.customerName?.trim().isNotEmpty == true) ? s.customerName!.trim() : 'Khách lẻ';
+    final partyName =
+        (s.customerName?.trim().isNotEmpty == true)
+            ? s.customerName!.trim()
+            : 'Khách lẻ';
     final newDebt = Debt(
       createdAt: s.createdAt,
       type: DebtType.othersOweMe,
-      partyId: (s.customerId?.trim().isNotEmpty == true) ? s.customerId!.trim() : 'customer_unknown',
+      partyId:
+          (s.customerId?.trim().isNotEmpty == true)
+              ? s.customerId!.trim()
+              : 'customer_unknown',
       partyName: partyName,
       amount: s.debt,
-      description: 'Bán hàng: $partyName, Tổng ${s.total.toStringAsFixed(0)}, Đã trả ${s.paidAmount.toStringAsFixed(0)}',
+      description:
+          'Bán hàng: $partyName, Tổng ${s.total.toStringAsFixed(0)}, Đã trả ${s.paidAmount.toStringAsFixed(0)}',
       sourceType: 'sale',
       sourceId: s.id,
     );
     await context.read<DebtProvider>().add(newDebt);
     await context.read<DebtProvider>().load();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tạo ghi nợ cho hóa đơn')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Đã tạo ghi nợ cho hóa đơn')));
   }
-  Future<void> _syncInitialDebtForSale({required Sale s, required Debt debt, required double alreadyPaid}) async {
-    final newRemain = (s.debt - alreadyPaid).clamp(0.0, double.infinity).toDouble();
+  Future<void> _syncInitialDebtForSale({
+    required Sale s,
+    required Debt debt,
+    required double alreadyPaid,
+  }) async {
+    final newRemain =
+        (s.debt - alreadyPaid).clamp(0.0, double.infinity).toDouble();
     final updated = Debt(
       id: debt.id,
       createdAt: debt.createdAt,
@@ -263,7 +289,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     await DatabaseService.instance.updateDebt(updated);
     await context.read<DebtProvider>().load();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã đồng bộ nợ ban đầu theo hóa đơn')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã đồng bộ nợ ban đầu theo hóa đơn')),
+    );
   }
   IconData _paymentTypeIcon(String? t) {
     final v = (t ?? '').trim().toLowerCase();
@@ -308,14 +336,19 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (raw.length >= 5) return raw.substring(raw.length - 5);
     return raw;
   }
-  String _buildVietQrAddInfoFromSale({required String saleId, required Sale sale}) {
+  String _buildVietQrAddInfoFromSale({
+    required String saleId,
+    required Sale sale,
+  }) {
     final parts = <String>[];
     for (final it in sale.items) {
       final name = (it.name).trim();
       if (name.isEmpty) continue;
       final qty = it.quantity;
       final total = it.total;
-      parts.add('${name} x${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}=${total.toInt()}');
+      parts.add(
+        '${name} x${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}=${total.toInt()}',
+      );
     }
     final tail = _last5DigitsOfId(saleId);
     final raw = '${tail.isEmpty ? '' : '$tail '}Noi dung: ${parts.join('; ')}';
@@ -336,12 +369,16 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
     if (!mounted) return;
     if (debtRows.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không tìm thấy ghi nợ của hóa đơn')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không tìm thấy ghi nợ của hóa đơn')),
+      );
       return;
     }
     final remain = (debtRows.first['amount'] as num?)?.toDouble() ?? 0.0;
     if (remain <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Khoản nợ đã tất toán')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Khoản nợ đã tất toán')));
       return;
     }
     final bank = await DatabaseService.instance.getDefaultVietQrBankAccount();
@@ -349,15 +386,19 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (bank == null) {
       await showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Chưa cấu hình ngân hàng'),
-          content: const Text(
-            'Bạn chưa cấu hình ngân hàng VietQR mặc định.\n\nVào Cài đặt > Ngân hàng VietQR để thêm và chọn mặc định.',
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
-          ],
-        ),
+        builder:
+            (ctx) => AlertDialog(
+              title: const Text('Chưa cấu hình ngân hàng'),
+              content: const Text(
+                'Bạn chưa cấu hình ngân hàng VietQR mặc định.\n\nVào Cài đặt > Ngân hàng VietQR để thêm và chọn mặc định.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Đóng'),
+                ),
+              ],
+            ),
       );
       return;
     }
@@ -370,13 +411,19 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (bankId.isEmpty || accountNo.isEmpty || accountName.isEmpty) {
       await showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Thiếu thông tin ngân hàng'),
-          content: const Text('Thông tin ngân hàng VietQR mặc định chưa đầy đủ. Vui lòng kiểm tra lại.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
-          ],
-        ),
+        builder:
+            (ctx) => AlertDialog(
+              title: const Text('Thiếu thông tin ngân hàng'),
+              content: const Text(
+                'Thông tin ngân hàng VietQR mặc định chưa đầy đủ. Vui lòng kiểm tra lại.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Đóng'),
+                ),
+              ],
+            ),
       );
       return;
     }
@@ -391,45 +438,54 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Center(child: Text('QR thanh toán nợ')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (logo.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Image.network(
-                  logo,
-                  width: 46,
-                  height: 46,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Center(child: Text('QR thanh toán nợ')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (logo.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Image.network(
+                      logo,
+                      width: 46,
+                      height: 46,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                Text(
+                  'Số tiền: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(amount)}',
                 ),
-              ),
-            Text('Số tiền: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(amount)}'),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                url,
-                width: 320,
-                height: 320,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Padding(
-                  padding: EdgeInsets.all(6),
-                  child: Text('Không tải được QR. Vui lòng kiểm tra mạng.'),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    url,
+                    width: 320,
+                    height: 320,
+                    fit: BoxFit.contain,
+                    errorBuilder:
+                        (_, __, ___) => const Padding(
+                          padding: EdgeInsets.all(6),
+                          child: Text(
+                            'Không tải được QR. Vui lòng kiểm tra mạng.',
+                          ),
+                        ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(desc, maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(desc, maxLines: 2, overflow: TextOverflow.ellipsis),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
-        ],
-      ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Đóng'),
+              ),
+            ],
+          ),
     );
   }
   Future<void> _setSalePaymentType({required Sale sale}) async {
@@ -475,12 +531,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     final rows = await DatabaseService.instance.getEmployees();
     if (!mounted) return null;
     if (rows.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Chưa có nhân viên nào')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Chưa có nhân viên nào')));
       return null;
     }
-
     final picked = await showModalBottomSheet<Map<String, String>>(
       context: context,
       showDragHandle: true,
@@ -503,7 +558,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   leading: const Icon(Icons.badge_outlined),
                   title: Text(label),
                   subtitle: Text(id),
-                  onTap: () => Navigator.pop(ctx, <String, String>{'id': id, 'name': name}),
+                  onTap:
+                      () => Navigator.pop(ctx, <String, String>{
+                        'id': id,
+                        'name': name,
+                      }),
                 );
               }),
             ],
@@ -514,18 +573,19 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (picked == null) return null;
     return picked;
   }
-
   Future<void> _assignEmployeeForSale(Sale s) async {
     final picked = await _pickEmployee(allowClear: true);
     if (picked == null) return;
-
     final employeeId = (picked['id'] ?? '').trim();
     final employeeName = (picked['name'] ?? '').trim();
-
     final db = DatabaseService.instance.db;
     await db.rawUpdate(
       'UPDATE sales SET employeeId = ?, employeeName = ? WHERE id = ?',
-      [employeeId.isEmpty ? null : employeeId, employeeName.isEmpty ? null : employeeName, s.id],
+      [
+        employeeId.isEmpty ? null : employeeId,
+        employeeName.isEmpty ? null : employeeName,
+        s.id,
+      ],
     );
     if (!mounted) return;
     await context.read<SaleProvider>().load();
@@ -535,33 +595,33 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       const SnackBar(content: Text('Đã cập nhật nhân viên cho hóa đơn')),
     );
   }
-
   Future<void> _bulkAssignEmployeeForMissingSales() async {
     final picked = await _pickEmployee(allowClear: false);
     if (picked == null) return;
     final employeeId = (picked['id'] ?? '').trim();
     final employeeName = (picked['name'] ?? '').trim();
     if (employeeId.isEmpty) return;
-
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Gán nhân viên hàng loạt'),
-        content: const Text('Gán nhân viên cho các giao dịch chưa có nhân viên?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Hủy'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Gán nhân viên hàng loạt'),
+            content: const Text(
+              'Gán nhân viên cho các giao dịch chưa có nhân viên?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Hủy'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Gán'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Gán'),
-          ),
-        ],
-      ),
     );
     if (ok != true) return;
-
     final db = DatabaseService.instance.db;
     await db.rawUpdate(
       "UPDATE sales SET employeeId = ?, employeeName = ? WHERE employeeId IS NULL OR TRIM(employeeId) = ''",
@@ -572,10 +632,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     if (!mounted) return;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Đã gán nhân viên cho các giao dịch chưa có nhân viên')),
+      const SnackBar(
+        content: Text('Đã gán nhân viên cho các giao dịch chưa có nhân viên'),
+      ),
     );
   }
-
   Future<void> _showSaleActionSheet(Sale s) async {
     final issue = _getIssue(s.id);
     await showModalBottomSheet<void>(
@@ -628,20 +689,24 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 leading: const Icon(Icons.tune),
                 title: const Text('Set kiểu thanh toán'),
                 subtitle: Text(
-                  s.paidAmount > 0 ? _paymentTypeLabel(s.paymentType) : 'Chỉ áp dụng khi có số tiền đã trả > 0',
+                  s.paidAmount > 0
+                      ? _paymentTypeLabel(s.paymentType)
+                      : 'Chỉ áp dụng khi có số tiền đã trả > 0',
                 ),
-                onTap: s.paidAmount > 0
-                    ? () async {
-                        Navigator.pop(ctx);
-                        await _setSalePaymentType(sale: s);
-                      }
-                    : null,
+                onTap:
+                    s.paidAmount > 0
+                        ? () async {
+                          Navigator.pop(ctx);
+                          await _setSalePaymentType(sale: s);
+                        }
+                        : null,
               ),
               ListTile(
                 leading: const Icon(Icons.badge_outlined),
                 title: const Text('Gán nhân viên'),
                 subtitle: Text(
-                  ((s.employeeName ?? '').trim().isNotEmpty || (s.employeeId ?? '').trim().isNotEmpty)
+                  ((s.employeeName ?? '').trim().isNotEmpty ||
+                          (s.employeeId ?? '').trim().isNotEmpty)
                       ? 'Hiện tại: ${((s.employeeName ?? '').trim().isNotEmpty) ? (s.employeeName ?? '').trim() : (s.employeeId ?? '').trim()}'
                       : 'Chưa gán nhân viên',
                 ),
@@ -656,12 +721,16 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       },
     );
   }
-
-  Widget _tableHeaderCell(String text, {double? width, TextAlign align = TextAlign.left}) {
+  Widget _tableHeaderCell(
+    String text, {
+    double? width,
+    TextAlign align = TextAlign.left,
+  }) {
     return Container(
-      alignment: align == TextAlign.right
-          ? Alignment.centerRight
-          : align == TextAlign.center
+      alignment:
+          align == TextAlign.right
+              ? Alignment.centerRight
+              : align == TextAlign.center
               ? Alignment.center
               : Alignment.centerLeft,
       width: width,
@@ -669,7 +738,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
     );
   }
-  Widget _tableCell(Widget child, {double? width, Alignment alignment = Alignment.centerLeft}) {
+  Widget _tableCell(
+    Widget child, {
+    double? width,
+    Alignment alignment = Alignment.centerLeft,
+  }) {
     return Container(
       alignment: alignment,
       width: width,
@@ -696,8 +769,18 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     const wIssue = 140.0;
     const wItems = 420.0;
     const wActions = 170.0;
-    const tableWidth = wDate + wCustomer + wEmployee + wTotal + wDiscount + wPaid + wDebt + wPayType + wIssue + wItems + wActions;
-
+    const tableWidth =
+        wDate +
+        wCustomer +
+        wEmployee +
+        wTotal +
+        wDiscount +
+        wPaid +
+        wDebt +
+        wPayType +
+        wIssue +
+        wItems +
+        wActions;
     String issueText(Sale s) {
       if (s.debt <= 0) return 'Đã thanh toán';
       final issue = _getIssue(s.id);
@@ -723,15 +806,34 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                       _tableHeaderCell('Ngày', width: wDate),
                       _tableHeaderCell('Khách', width: wCustomer),
                       _tableHeaderCell('Nhân viên', width: wEmployee),
-                      _tableHeaderCell('Tổng', width: wTotal, align: TextAlign.right),
-                      _tableHeaderCell('Giảm', width: wDiscount, align: TextAlign.right),
-                      _tableHeaderCell('Đã trả', width: wPaid, align: TextAlign.right),
-                      _tableHeaderCell('Còn nợ', width: wDebt, align: TextAlign.right),
+                      _tableHeaderCell(
+                        'Tổng',
+                        width: wTotal,
+                        align: TextAlign.right,
+                      ),
+                      _tableHeaderCell(
+                        'Giảm',
+                        width: wDiscount,
+                        align: TextAlign.right,
+                      ),
+                      _tableHeaderCell(
+                        'Đã trả',
+                        width: wPaid,
+                        align: TextAlign.right,
+                      ),
+                      _tableHeaderCell(
+                        'Còn nợ',
+                        width: wDebt,
+                        align: TextAlign.right,
+                      ),
                       _tableHeaderCell('Thanh toán', width: wPayType),
-
                       _tableHeaderCell('Trạng thái', width: wIssue),
                       _tableHeaderCell('Mặt hàng', width: wItems),
-                      _tableHeaderCell('Thao tác', width: wActions, align: TextAlign.center),
+                      _tableHeaderCell(
+                        'Thao tác',
+                        width: wActions,
+                        align: TextAlign.center,
+                      ),
                     ],
                   ),
                 ),
@@ -743,15 +845,20 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                     itemBuilder: (context, i) {
                       final s = rows[i];
                       final customerName = (s.customerName ?? '').trim();
-                      final customer = customerName.isEmpty ? 'Khách lẻ' : customerName;
+                      final customer =
+                          customerName.isEmpty ? 'Khách lẻ' : customerName;
                       final employeeName = (s.employeeName ?? '').trim();
                       final employeeId = (s.employeeId ?? '').trim();
-                      final employeeLabel = employeeName.isNotEmpty ? employeeName : (employeeId.isNotEmpty ? employeeId : '');
+                      final employeeLabel =
+                          employeeName.isNotEmpty
+                              ? employeeName
+                              : (employeeId.isNotEmpty ? employeeId : '');
                       final items = s.items
-                          .map((item) =>
-                              '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}')
+                          .map(
+                            (item) =>
+                                '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}',
+                          )
                           .join(', ');
-
                       return InkWell(
                         onTap: () {
                           Navigator.push(
@@ -766,21 +873,36 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                         },
                         child: Row(
                           children: [
-                            _tableCell(Text(fmtDate.format(s.createdAt)), width: wDate),
                             _tableCell(
-                              Text(customer, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              Text(fmtDate.format(s.createdAt)),
+                              width: wDate,
+                            ),
+                            _tableCell(
+                              Text(
+                                customer,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               width: wCustomer,
                             ),
                             _tableCell(
-                              Text(employeeLabel, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              Text(
+                                employeeLabel,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               width: wEmployee,
                             ),
                             _tableCell(
-                              Text(currency.format(s.total), style: const TextStyle(fontWeight: FontWeight.w700)),
+                              Text(
+                                currency.format(s.total),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                               width: wTotal,
                               alignment: Alignment.centerRight,
                             ),
-
                             _tableCell(
                               Text(currency.format(s.discount)),
                               width: wDiscount,
@@ -797,13 +919,20 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               alignment: Alignment.centerRight,
                             ),
                             _tableCell(
-                              Text(s.paidAmount > 0 ? _paymentTypeLabel(s.paymentType) : ''),
+                              Text(
+                                s.paidAmount > 0
+                                    ? _paymentTypeLabel(s.paymentType)
+                                    : '',
+                              ),
                               width: wPayType,
                             ),
-
                             _tableCell(Text(issueText(s)), width: wIssue),
                             _tableCell(
-                              Text(items, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              Text(
+                                items,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               width: wItems,
                             ),
                             _tableCell(
@@ -818,10 +947,16 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                       if (s.debt > 0)
                                         IconButton(
                                           tooltip: 'QR nợ',
-                                          icon: const Icon(Icons.qr_code_2_outlined),
+                                          icon: const Icon(
+                                            Icons.qr_code_2_outlined,
+                                          ),
                                           visualDensity: VisualDensity.compact,
                                           padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                                          constraints:
+                                              const BoxConstraints.tightFor(
+                                                width: 34,
+                                                height: 34,
+                                              ),
                                           onPressed: () async {
                                             await _showVietQrDebtDialog(s);
                                           },
@@ -831,59 +966,106 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                         icon: const Icon(Icons.print_outlined),
                                         visualDensity: VisualDensity.compact,
                                         padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-                                        onPressed: () => _showPrintPreview(context, s, currency),
+                                        constraints:
+                                            const BoxConstraints.tightFor(
+                                              width: 34,
+                                              height: 34,
+                                            ),
+                                        onPressed:
+                                            () => _showPrintPreview(
+                                              context,
+                                              s,
+                                              currency,
+                                            ),
                                       ),
                                       IconButton(
                                         tooltip: 'Sửa hóa đơn',
                                         icon: const Icon(Icons.edit_outlined),
                                         visualDensity: VisualDensity.compact,
                                         padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                                        constraints:
+                                            const BoxConstraints.tightFor(
+                                              width: 34,
+                                              height: 34,
+                                            ),
                                         onPressed: () async {
                                           final ok = await Navigator.push<bool>(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) => SaleEditScreen(sale: s),
+                                              builder:
+                                                  (_) =>
+                                                      SaleEditScreen(sale: s),
                                             ),
                                           );
                                           if (ok == true) {
                                             if (!context.mounted) return;
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(content: Text('Đã cập nhật bán hàng')),
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Đã cập nhật bán hàng',
+                                                ),
+                                              ),
                                             );
                                           }
                                         },
                                       ),
                                       IconButton(
                                         tooltip: 'Xóa hóa đơn',
-                                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                          color: Colors.redAccent,
+                                        ),
                                         visualDensity: VisualDensity.compact,
                                         padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                                        constraints:
+                                            const BoxConstraints.tightFor(
+                                              width: 34,
+                                              height: 34,
+                                            ),
                                         onPressed: () async {
                                           final ok = await showDialog<bool>(
                                             context: context,
-                                            builder: (_) => AlertDialog(
-                                              title: const Text('Xóa hóa đơn'),
-                                              content: const Text('Bạn có chắc muốn xóa hóa đơn này?'),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () => Navigator.pop(context, false),
-                                                  child: const Text('Hủy'),
+                                            builder:
+                                                (_) => AlertDialog(
+                                                  title: const Text(
+                                                    'Xóa hóa đơn',
+                                                  ),
+                                                  content: const Text(
+                                                    'Bạn có chắc muốn xóa hóa đơn này?',
+                                                  ),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed:
+                                                          () => Navigator.pop(
+                                                            context,
+                                                            false,
+                                                          ),
+                                                      child: const Text('Hủy'),
+                                                    ),
+                                                    FilledButton(
+                                                      onPressed:
+                                                          () => Navigator.pop(
+                                                            context,
+                                                            true,
+                                                          ),
+                                                      child: const Text('Xóa'),
+                                                    ),
+                                                  ],
                                                 ),
-                                                FilledButton(
-                                                  onPressed: () => Navigator.pop(context, true),
-                                                  child: const Text('Xóa'),
-                                                ),
-                                              ],
-                                            ),
                                           );
                                           if (ok == true) {
-                                            await context.read<SaleProvider>().delete(s.id);
+                                            await context
+                                                .read<SaleProvider>()
+                                                .delete(s.id);
                                             if (!context.mounted) return;
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(content: Text('Đã xóa hóa đơn')),
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Đã xóa hóa đơn'),
+                                              ),
                                             );
                                           }
                                         },
@@ -912,28 +1094,55 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   Widget build(BuildContext context) {
     final sales = context.watch<SaleProvider>().sales;
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
-    final currency =
-        NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+    final currency = NumberFormat.currency(
+      locale: 'vi_VN',
+      symbol: '₫',
+      decimalDigits: 0,
+    );
     var filtered = sales;
     if (_range != null) {
-      final start =
-          DateTime(_range!.start.year, _range!.start.month, _range!.start.day);
+      final start = DateTime(
+        _range!.start.year,
+        _range!.start.month,
+        _range!.start.day,
+      );
       final end = DateTime(
-          _range!.end.year, _range!.end.month, _range!.end.day, 23, 59, 59, 999);
-      filtered = filtered
-          .where((s) =>
-              s.createdAt.isAfter(start.subtract(const Duration(milliseconds: 1))) &&
-              s.createdAt.isBefore(end.add(const Duration(milliseconds: 1))))
-          .toList();
+        _range!.end.year,
+        _range!.end.month,
+        _range!.end.day,
+        23,
+        59,
+        59,
+        999,
+      );
+      filtered =
+          filtered
+              .where(
+                (s) =>
+                    s.createdAt.isAfter(
+                      start.subtract(const Duration(milliseconds: 1)),
+                    ) &&
+                    s.createdAt.isBefore(
+                      end.add(const Duration(milliseconds: 1)),
+                    ),
+              )
+              .toList();
     }
     if (_query.isNotEmpty) {
       final q = _vn(_query).toLowerCase();
-      filtered = filtered.where((s) {
-        final rawCustomer = s.customerName?.trim();
-        final customer = _vn((rawCustomer != null && rawCustomer.isNotEmpty) ? rawCustomer : 'Khách lẻ').toLowerCase();
-        final items = _vn(s.items.map((e) => e.name).join(', ')).toLowerCase();
-        return customer.contains(q) || items.contains(q);
-      }).toList();
+      filtered =
+          filtered.where((s) {
+            final rawCustomer = s.customerName?.trim();
+            final customer =
+                _vn(
+                  (rawCustomer != null && rawCustomer.isNotEmpty)
+                      ? rawCustomer
+                      : 'Khách lẻ',
+                ).toLowerCase();
+            final items =
+                _vn(s.items.map((e) => e.name).join(', ')).toLowerCase();
+            return customer.contains(q) || items.contains(q);
+          }).toList();
     }
     // Tạo bản sao và sắp xếp theo createdAt giảm dần (mới nhất lên đầu)
     final List<Sale> sortedFiltered = List.from(filtered)
@@ -943,11 +1152,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     });
     final List<Sale> finalList;
     if (_onlyDebtIssues) {
-      finalList = sortedFiltered.where((s) {
-        if (s.debt <= 0) return false;
-        final issue = _getIssue(s.id);
-        return issue != null && issue.kind != _DebtIssueKind.ok;
-      }).toList();
+      finalList =
+          sortedFiltered.where((s) {
+            if (s.debt <= 0) return false;
+            final issue = _getIssue(s.id);
+            return issue != null && issue.kind != _DebtIssueKind.ok;
+          }).toList();
     } else {
       finalList = sortedFiltered;
     }
@@ -955,6 +1165,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       appBar: AppBar(
         title: const Text('Lịch sử bán hàng'),
         actions: [
+          IconButton(
+            tooltip: _showFilterBar ? 'Ẩn bộ lọc' : 'Hiện bộ lọc',
+            icon: Icon(
+              _showFilterBar
+                  ? Icons.filter_alt_off_outlined
+                  : Icons.filter_alt_outlined,
+            ),
+            onPressed: () => setState(() => _showFilterBar = !_showFilterBar),
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.menu),
             onSelected: (val) async {
@@ -972,14 +1191,23 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
               } else if (val == 'delete_all') {
                 final ok = await showDialog<bool>(
                   context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Xóa tất cả lịch sử'),
-                    content: const Text('Bạn có chắc muốn xóa tất cả lịch sử bán hàng?'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-                      FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa')),
-                    ],
-                  ),
+                  builder:
+                      (_) => AlertDialog(
+                        title: const Text('Xóa tất cả lịch sử'),
+                        content: const Text(
+                          'Bạn có chắc muốn xóa tất cả lịch sử bán hàng?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Hủy'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Xóa'),
+                          ),
+                        ],
+                      ),
                 );
                 if (ok == true) {
                   final messenger = ScaffoldMessenger.of(context);
@@ -990,9 +1218,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                       action: SnackBarAction(
                         label: 'Hoàn tác',
                         onPressed: () async {
-                          final ok = await context.read<SaleProvider>().undoDeleteAll();
+                          final ok =
+                              await context
+                                  .read<SaleProvider>()
+                                  .undoDeleteAll();
                           if (ok) {
-                            messenger.showSnackBar(const SnackBar(content: Text('Đã khôi phục')));
+                            messenger.showSnackBar(
+                              const SnackBar(content: Text('Đã khôi phục')),
+                            );
                           }
                         },
                       ),
@@ -1003,225 +1236,299 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 await _exportCsv(context, sortedFiltered);
               }
             },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'bulk_assign_employee',
-                child: const Text('Gán nhân viên (thiếu)'),
-              ),
-              PopupMenuItem(
-                value: 'toggle_view',
-                child: Text(_isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng'),
-              ),
-              const PopupMenuItem(
-                value: 'sales_items_history',
-                child: Text('Bán hàng chi tiết'),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(value: 'export_csv', child: Text('Xuất CSV')),
-              const PopupMenuItem(value: 'delete_all', child: Text('Xóa tất cả')),
-            ],
+            itemBuilder:
+                (context) => [
+                  PopupMenuItem(
+                    value: 'bulk_assign_employee',
+                    child: const Text('Gán nhân viên (thiếu)'),
+                  ),
+                  PopupMenuItem(
+                    value: 'toggle_view',
+                    child: Text(
+                      _isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng',
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'sales_items_history',
+                    child: Text('Bán hàng chi tiết'),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: 'export_csv',
+                    child: Text('Xuất CSV'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete_all',
+                    child: Text('Xóa tất cả'),
+                  ),
+                ],
           ),
         ],
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 180,
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      hintText: 'Tìm theo khách hàng / mặt hàng',
-                      isDense: true,
-                      prefixIcon: Icon(Icons.search, size: 18),
-                    ),
-                    onChanged: (v) => setState(() => _query = v.trim()),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilterChip(
-                  label: const Text('Nợ lỗi'),
-                  selected: _onlyDebtIssues,
-                  labelStyle: const TextStyle(fontSize: 12),
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  onSelected: (v) => setState(() => _onlyDebtIssues = v),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.date_range, size: 18),
-                  label: Text(
-                    _range == null
-                        ? 'Khoảng ngày'
-                        : '${DateFormat('dd/MM').format(_range!.start)} - ${DateFormat('dd/MM').format(_range!.end)}',
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    minimumSize: const Size(0, 36),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: () async {
-                    final now = DateTime.now();
-                    final picked = await showDateRangePicker(
-                      context: context,
-                      firstDate: DateTime(now.year - 2),
-                      lastDate: DateTime(now.year + 1),
-                      initialDateRange: _range,
-                    );
-                    if (picked != null) setState(() => _range = picked);
-                  },
-                ),
-                if (_range != null) ...[
-                  const SizedBox(width: 6),
-                  IconButton(
-                    tooltip: 'Xoá lọc ngày',
-                    icon: const Icon(Icons.clear, size: 18),
-                    visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                    onPressed: () => setState(() => _range = null),
-                  ),
-                ],
-              ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            child: ClipRect(
+              child: _showFilterBar
+                  ? Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 180,
+                                child: TextField(
+                                  decoration: const InputDecoration(
+                                    hintText: 'Tìm theo khách hàng / mặt hàng',
+                                    isDense: true,
+                                    prefixIcon: Icon(Icons.search, size: 18),
+                                  ),
+                                  onChanged: (v) => setState(() => _query = v.trim()),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              FilterChip(
+                                label: const Text('Nợ lỗi'),
+                                selected: _onlyDebtIssues,
+                                labelStyle: const TextStyle(fontSize: 12),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                onSelected: (v) => setState(() => _onlyDebtIssues = v),
+                              ),
+                              const SizedBox(width: 8),
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.date_range, size: 18),
+                                label: Text(
+                                  _range == null
+                                      ? 'Khoảng ngày'
+                                      : '${DateFormat('dd/MM').format(_range!.start)} - ${DateFormat('dd/MM').format(_range!.end)}',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  minimumSize: const Size(0, 36),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed: () async {
+                                  final now = DateTime.now();
+                                  final picked = await showDateRangePicker(
+                                    context: context,
+                                    firstDate: DateTime(now.year - 2),
+                                    lastDate: DateTime(now.year + 1),
+                                    initialDateRange: _range,
+                                  );
+                                  if (picked != null) setState(() => _range = picked);
+                                },
+                              ),
+                              if (_range != null) ...[
+                                const SizedBox(width: 6),
+                                IconButton(
+                                  tooltip: 'Xoá lọc ngày',
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  visualDensity: VisualDensity.compact,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 36,
+                                    minHeight: 36,
+                                  ),
+                                  onPressed: () => setState(() => _range = null),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Divider(height: 1),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
-          const SizedBox(height: 6),
-          const Divider(height: 1),
           Expanded(
-            child: _isTableView
-                ? _buildSalesTable(rows: finalList, fmtDate: fmtDate, currency: currency)
-                : ListView.separated(
-                    itemCount: finalList.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 1),
-                    itemBuilder: (context, i) {
-                      final s = finalList[i];
-                      final customerName = (s.customerName ?? '').trim();
-                      final customer = customerName.isEmpty ? 'Khách lẻ' : customerName;
-                      final employeeName = (s.employeeName ?? '').trim();
-                      final employeeId = (s.employeeId ?? '').trim();
-                      final employeeLabel = employeeName.isNotEmpty ? employeeName : (employeeId.isNotEmpty ? employeeId : '');
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                        elevation: 1,
-                        child: InkWell(
-                          onLongPress: () async {
-                            await _showSaleActionSheet(s);
-                          },
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => _SaleDetailScreen(sale: s),
-                              ),
-                            );
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(5),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Header row with customer and total
-                                Row(
-                                  children: [
-                                    if (s.paidAmount > 0) ...[
-                                      Padding(
-                                        padding: const EdgeInsets.only(right: 8),
-                                        child: Icon(
-                                          _paymentTypeIcon(s.paymentType),
-                                          size: 18,
-                                          color: _paymentTypeColor(context, s.paymentType),
+            child:
+                _isTableView
+                    ? _buildSalesTable(
+                      rows: finalList,
+                      fmtDate: fmtDate,
+                      currency: currency,
+                    )
+                    : ListView.separated(
+                      itemCount: finalList.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 1),
+                      itemBuilder: (context, i) {
+                        final s = finalList[i];
+                        final customerName = (s.customerName ?? '').trim();
+                        final customer =
+                            customerName.isEmpty ? 'Khách lẻ' : customerName;
+                        final employeeName = (s.employeeName ?? '').trim();
+                        final employeeId = (s.employeeId ?? '').trim();
+                        final employeeLabel =
+                            employeeName.isNotEmpty
+                                ? employeeName
+                                : (employeeId.isNotEmpty ? employeeId : '');
+                        return Card(
+                          margin: const EdgeInsets.symmetric(
+                            vertical: 4,
+                            horizontal: 8,
+                          ),
+                          elevation: 1,
+                          child: InkWell(
+                            onLongPress: () async {
+                              await _showSaleActionSheet(s);
+                            },
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => _SaleDetailScreen(sale: s),
+                                ),
+                              );
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(5),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Header row with customer and total
+                                  Row(
+                                    children: [
+                                      if (s.paidAmount > 0) ...[
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 8,
+                                          ),
+                                          child: Icon(
+                                            _paymentTypeIcon(s.paymentType),
+                                            size: 18,
+                                            color: _paymentTypeColor(
+                                              context,
+                                              s.paymentType,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              customer,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              s.debt > 0
+                                                  ? Colors.red.withOpacity(0.1)
+                                                  : Colors.green.withOpacity(
+                                                    0.1,
+                                                  ),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          currency.format(s.total),
+                                          style: TextStyle(
+                                            color:
+                                                s.debt > 0
+                                                    ? Colors.red
+                                                    : Colors.green,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
                                         ),
                                       ),
                                     ],
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            customer,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          fmtDate.format(s.createdAt),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
                                           ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: s.debt > 0
-                                            ? Colors.red.withOpacity(0.1)
-                                            : Colors.green.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Text(
-                                        currency.format(s.total),
-                                        style: TextStyle(
-                                          color:
-                                              s.debt > 0 ? Colors.red : Colors.green,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        fmtDate.format(s.createdAt),
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    if (employeeLabel.isNotEmpty)
-                                      Text(
-                                        'NV: $employeeLabel',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.right,
-                                      ),
-                                  ],
-                                ),
-                                // Items list
-                                const SizedBox(height: 2),
-                                ...s.items
-                                    .map((item) => Padding(
-                                          padding: const EdgeInsets.only(bottom: 4),
+                                      if (employeeLabel.isNotEmpty)
+                                        Text(
+                                          'NV: $employeeLabel',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[700],
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.right,
+                                        ),
+                                    ],
+                                  ),
+                                  // Items list
+                                  const SizedBox(height: 2),
+                                  ...s.items
+                                      .map(
+                                        (item) => Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 4,
+                                          ),
                                           child: Row(
                                             children: [
                                               Container(
                                                 width: 6,
                                                 height: 6,
-                                                margin:
-                                                    const EdgeInsets.only(right: 8),
+                                                margin: const EdgeInsets.only(
+                                                  right: 8,
+                                                ),
                                                 decoration: const BoxDecoration(
                                                   color: Colors.blue,
                                                   shape: BoxShape.circle,
                                                 ),
                                               ),
-                                              if (((item.itemType ?? '').toUpperCase().trim()) == 'MIX')
+                                              if (((item.itemType ?? '')
+                                                      .toUpperCase()
+                                                      .trim()) ==
+                                                  'MIX')
                                                 Padding(
-                                                  padding: const EdgeInsets.only(right: 6),
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        right: 6,
+                                                      ),
                                                   child: Icon(
                                                     Icons.blender,
                                                     size: 16,
-                                                    color: Colors.deepPurple[400],
+                                                    color:
+                                                        Colors.deepPurple[400],
                                                   ),
                                                 )
                                               else
                                                 Padding(
-                                                  padding: const EdgeInsets.only(right: 6),
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        right: 6,
+                                                      ),
                                                   child: Icon(
                                                     Icons.inventory_2_outlined,
                                                     size: 16,
@@ -1231,7 +1538,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                               Expanded(
                                                 child: Text(
                                                   '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} ',
-                                                  style: const TextStyle(fontSize: 13),
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                  ),
                                                 ),
                                               ),
                                               Text(
@@ -1243,44 +1552,60 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                               ),
                                             ],
                                           ),
-                                        ))
-                                    .toList(),
-                                // Payment status and actions
-                                const SizedBox(height: 2),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    if (s.discount > 0)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 1, vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: Colors.orange.withOpacity(0.12),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          'Giảm: ${currency.format(s.discount)}',
-                                          style: const TextStyle(
-                                            color: Colors.deepOrange,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                          ),
                                         ),
                                       )
-                                    else
-                                      if (s.debt > 0)
-                                        FutureBuilder<Debt?>(
-                                          future: DatabaseService.instance.getDebtBySource(
-                                            sourceType: 'sale',
-                                            sourceId: s.id,
+                                      .toList(),
+                                  // Payment status and actions
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      if (s.discount > 0)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 1,
+                                            vertical: 1,
                                           ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.orange.withOpacity(
+                                              0.12,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'Giảm: ${currency.format(s.discount)}',
+                                            style: const TextStyle(
+                                              color: Colors.deepOrange,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        )
+                                      else if (s.debt > 0)
+                                        FutureBuilder<Debt?>(
+                                          future: DatabaseService.instance
+                                              .getDebtBySource(
+                                                sourceType: 'sale',
+                                                sourceId: s.id,
+                                              ),
                                           builder: (context, snap) {
-                                            if (snap.connectionState != ConnectionState.done) {
+                                            if (snap.connectionState !=
+                                                ConnectionState.done) {
                                               return Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 2,
+                                                      vertical: 1,
+                                                    ),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.red.withOpacity(0.1),
-                                                  borderRadius: BorderRadius.circular(4),
+                                                  color: Colors.red.withOpacity(
+                                                    0.1,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
                                                 ),
                                                 child: Text(
                                                   'Còn nợ: ${currency.format(s.debt)}',
@@ -1295,10 +1620,16 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                             final d = snap.data;
                                             if (d == null) {
                                               return Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 4,
+                                                    ),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.deepOrange.withOpacity(0.12),
-                                                  borderRadius: BorderRadius.circular(4),
+                                                  color: Colors.deepOrange
+                                                      .withOpacity(0.12),
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
                                                 ),
                                                 child: Text(
                                                   'Còn nợ: ${currency.format(s.debt)} • Thiếu ghi nợ',
@@ -1311,64 +1642,107 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                               );
                                             }
                                             return FutureBuilder<double>(
-                                              future: DatabaseService.instance.getTotalPaidForDebt(d.id),
+                                              future: DatabaseService.instance
+                                                  .getTotalPaidForDebt(d.id),
                                               builder: (context, paidSnap) {
-                                                if (paidSnap.connectionState != ConnectionState.done) {
+                                                if (paidSnap.connectionState !=
+                                                    ConnectionState.done) {
                                                   return Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 4,
+                                                        ),
                                                     decoration: BoxDecoration(
-                                                      color: Colors.red.withOpacity(0.1),
-                                                      borderRadius: BorderRadius.circular(4),
+                                                      color: Colors.red
+                                                          .withOpacity(0.1),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            4,
+                                                          ),
                                                     ),
                                                     child: Text(
                                                       'Còn nợ: ${currency.format(s.debt)}',
                                                       style: const TextStyle(
                                                         color: Colors.red,
                                                         fontSize: 12,
-                                                        fontWeight: FontWeight.w500,
+                                                        fontWeight:
+                                                            FontWeight.w500,
                                                       ),
                                                     ),
                                                   );
                                                 }
                                                 final paid = paidSnap.data ?? 0;
                                                 final remain = d.amount;
-                                                final initialDebt = d.initialAmount;
-                                                final mismatch = (initialDebt - s.debt).abs() > 0.5;
+                                                final initialDebt =
+                                                    d.initialAmount;
+                                                final mismatch =
+                                                    (initialDebt - s.debt)
+                                                        .abs() >
+                                                    0.5;
                                                 if (mismatch) {
                                                   return Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 4,
+                                                        ),
                                                     decoration: BoxDecoration(
-                                                      color: Colors.orange.withOpacity(0.16),
-                                                      borderRadius: BorderRadius.circular(4),
+                                                      color: Colors.orange
+                                                          .withOpacity(0.16),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            4,
+                                                          ),
                                                     ),
                                                     child: Text(
                                                       'Lệch nợ • Sale: ${currency.format(s.debt)} | Debt gốc: ${currency.format(initialDebt)} | Còn: ${currency.format(remain)}',
                                                       style: const TextStyle(
-                                                        color: Colors.deepOrange,
+                                                        color:
+                                                            Colors.deepOrange,
                                                         fontSize: 12,
-                                                        fontWeight: FontWeight.w700,
+                                                        fontWeight:
+                                                            FontWeight.w700,
                                                       ),
                                                     ),
                                                   );
                                                 }
-                                                final settled = d.settled || remain <= 0;
-                                                final bg = settled ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1);
-                                                final fg = settled ? Colors.green : Colors.red;
-                                                final text = settled
-                                                    ? 'Đã tất toán'
-                                                    : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
+                                                final settled =
+                                                    d.settled || remain <= 0;
+                                                final bg =
+                                                    settled
+                                                        ? Colors.green
+                                                            .withOpacity(0.1)
+                                                        : Colors.red
+                                                            .withOpacity(0.1);
+                                                final fg =
+                                                    settled
+                                                        ? Colors.green
+                                                        : Colors.red;
+                                                final text =
+                                                    settled
+                                                        ? 'Đã tất toán'
+                                                        : 'Đã trả: ${currency.format(paid)} | Còn: ${currency.format(remain)}';
                                                 return Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 4,
+                                                      ),
                                                   decoration: BoxDecoration(
                                                     color: bg,
-                                                    borderRadius: BorderRadius.circular(4),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          4,
+                                                        ),
                                                   ),
                                                   child: Text(
                                                     text,
                                                     style: TextStyle(
                                                       color: fg,
                                                       fontSize: 12,
-                                                      fontWeight: FontWeight.w500,
+                                                      fontWeight:
+                                                          FontWeight.w500,
                                                     ),
                                                   ),
                                                 );
@@ -1379,10 +1753,16 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                       else
                                         Container(
                                           padding: const EdgeInsets.symmetric(
-                                              horizontal: 8, vertical: 4),
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
                                           decoration: BoxDecoration(
-                                            color: Colors.green.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(4),
+                                            color: Colors.green.withOpacity(
+                                              0.1,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
                                           ),
                                           child: const Text(
                                             'Đã thanh toán',
@@ -1393,106 +1773,151 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                             ),
                                           ),
                                         ),
-                                    // New Print Button & Delete Button & Edit Button
-                                    Row(
-                                      children: [
-                                        if (s.debt > 0) ...[
+                                      // New Print Button & Delete Button & Edit Button
+                                      Row(
+                                        children: [
+                                          if (s.debt > 0) ...[
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.qr_code_2_outlined,
+                                                color: Colors.blueAccent,
+                                                size: 20,
+                                              ),
+                                              tooltip: 'QR nợ',
+                                              padding: EdgeInsets.zero,
+                                              constraints:
+                                                  const BoxConstraints(),
+                                              onPressed: () async {
+                                                await _showVietQrDebtDialog(s);
+                                              },
+                                            ),
+                                            const SizedBox(width: 1),
+                                          ],
                                           IconButton(
-                                            icon: const Icon(Icons.qr_code_2_outlined, color: Colors.blueAccent, size: 20),
-                                            tooltip: 'QR nợ',
+                                            icon: const Icon(
+                                              Icons.print_outlined,
+                                              color: Colors.blueAccent,
+                                              size: 20,
+                                            ),
+                                            tooltip: 'In hóa đơn',
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(),
+                                            onPressed:
+                                                () => _showPrintPreview(
+                                                  context,
+                                                  s,
+                                                  currency,
+                                                ),
+                                          ),
+                                          const SizedBox(width: 2),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                              color: Colors.redAccent,
+                                              size: 20,
+                                            ),
+                                            tooltip: 'Xóa hóa đơn',
                                             padding: EdgeInsets.zero,
                                             constraints: const BoxConstraints(),
                                             onPressed: () async {
-                                              await _showVietQrDebtDialog(s);
+                                              final ok = await showDialog<bool>(
+                                                context: context,
+                                                builder:
+                                                    (_) => AlertDialog(
+                                                      title: const Text(
+                                                        'Xóa hóa đơn',
+                                                      ),
+                                                      content: const Text(
+                                                        'Bạn có chắc muốn xóa hóa đơn này?',
+                                                      ),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed:
+                                                              () =>
+                                                                  Navigator.pop(
+                                                                    context,
+                                                                    false,
+                                                                  ),
+                                                          child: const Text(
+                                                            'Hủy',
+                                                          ),
+                                                        ),
+                                                        FilledButton(
+                                                          onPressed:
+                                                              () =>
+                                                                  Navigator.pop(
+                                                                    context,
+                                                                    true,
+                                                                  ),
+                                                          child: const Text(
+                                                            'Xóa',
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                              );
+                                              if (ok == true) {
+                                                await context
+                                                    .read<SaleProvider>()
+                                                    .delete(s.id);
+                                                if (!context.mounted) return;
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Đã xóa hóa đơn',
+                                                    ),
+                                                  ),
+                                                );
+                                              }
                                             },
                                           ),
                                           const SizedBox(width: 1),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.edit_outlined,
+                                              color: Colors.blueAccent,
+                                              size: 20,
+                                            ),
+                                            tooltip: 'Sửa hóa đơn',
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(),
+                                            onPressed: () async {
+                                              final ok =
+                                                  await Navigator.push<bool>(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder:
+                                                          (_) => SaleEditScreen(
+                                                            sale: s,
+                                                          ),
+                                                    ),
+                                                  );
+                                              if (ok == true) {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Đã cập nhật bán hàng',
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                          ),
                                         ],
-                                        IconButton(
-                                          icon: const Icon(Icons.print_outlined,
-                                              color: Colors.blueAccent, size: 20),
-                                          tooltip: 'In hóa đơn',
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                          onPressed: () => _showPrintPreview(
-                                              context, s, currency),
-                                        ),
-                                        const SizedBox(width: 2),
-                                        IconButton(
-                                          icon: const Icon(Icons.delete_outline,
-                                              color: Colors.redAccent, size: 20),
-                                          tooltip: 'Xóa hóa đơn',
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                          onPressed: () async {
-                                            final ok = await showDialog<bool>(
-                                              context: context,
-                                              builder: (_) => AlertDialog(
-                                                title: const Text('Xóa hóa đơn'),
-                                                content: const Text(
-                                                    'Bạn có chắc muốn xóa hóa đơn này?'),
-                                                actions: [
-                                                  TextButton(
-                                                      onPressed: () =>
-                                                          Navigator.pop(
-                                                              context, false),
-                                                      child: const Text('Hủy')),
-                                                  FilledButton(
-                                                      onPressed: () =>
-                                                          Navigator.pop(context, true),
-                                                      child: const Text('Xóa')),
-                                                ],
-                                              ),
-                                            );
-                                            if (ok == true) {
-                                              await context
-                                                  .read<SaleProvider>()
-                                                  .delete(s.id);
-                                              if (!context.mounted) return;
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                const SnackBar(
-                                                    content: Text('Đã xóa hóa đơn')),
-                                              );
-                                            }
-                                          },
-                                        ),
-                                        const SizedBox(width: 1),
-                                        IconButton(
-                                          icon: const Icon(Icons.edit_outlined,
-                                              color: Colors.blueAccent, size: 20),
-                                          tooltip: 'Sửa hóa đơn',
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                          onPressed: () async {
-                                            final ok = await Navigator.push<bool>(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (_) => SaleEditScreen(
-                                                  sale: s,
-                                                ),
-                                              ),
-                                            );
-                                            if (ok == true) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                const SnackBar(
-                                                    content: Text('Đã cập nhật bán hàng')),
-                                              );
-                                            }
-                                          },
-                                        ),
-                                      ],
-                                    ), // <-- Đã thêm đóng ngoặc Row này
-                                  ],
-                                ), // <-- Đã thêm đóng ngoặc Row lớn này
-                              ],
+                                      ), // <-- Đã thêm đóng ngoặc Row này
+                                    ],
+                                  ), // <-- Đã thêm đóng ngoặc Row lớn này
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
           ),
         ],
       ),
@@ -1500,7 +1925,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   }
   // Hàm hiển thị màn hình preview và in
   Future<void> _showPrintPreview(
-      BuildContext context, Sale sale, NumberFormat currency) async {
+    BuildContext context,
+    Sale sale,
+    NumberFormat currency,
+  ) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -1513,13 +1941,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     // Tạo nội dung CSV
     final buffer = StringBuffer();
     buffer.writeln(
-        'id,createdAt,customerId,customerName,subtotal,discount,paid,total,debt,items');
+      'id,createdAt,customerId,customerName,subtotal,discount,paid,total,debt,items',
+    );
     for (final s in sales) {
       final items = s.items
           .map((e) => '${e.name} x ${e.quantity} @ ${e.unitPrice}')
           .join('; ');
       buffer.writeln(
-          '${s.id},${s.createdAt.toIso8601String()},${s.customerId ?? ''},${s.customerName ?? ''},${s.subtotal},${s.discount},${s.paidAmount},${s.total},${s.debt},"${items.replaceAll('"', '""')}"');
+        '${s.id},${s.createdAt.toIso8601String()},${s.customerId ?? ''},${s.customerName ?? ''},${s.subtotal},${s.discount},${s.paidAmount},${s.total},${s.debt},"${items.replaceAll('"', '""')}"',
+      );
     }
     // Sử dụng helper để xuất file
     await FileHelper.exportCsv(
@@ -1560,9 +1990,7 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
   Future<void> _editSale() async {
     final ok = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(
-        builder: (_) => SaleEditScreen(sale: widget.sale),
-      ),
+      MaterialPageRoute(builder: (_) => SaleEditScreen(sale: widget.sale)),
     );
     if (!mounted) return;
     if (ok == true) {
@@ -1571,26 +1999,35 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
       Sale? updated;
       try {
         updated = context.read<SaleProvider>().sales.firstWhere(
-              (s) => s.id == widget.sale.id,
-            );
+          (s) => s.id == widget.sale.id,
+        );
       } catch (_) {
         updated = null;
       }
       setState(() {
         _sale = updated ?? _sale;
       });
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Đã cập nhật bán hàng')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Đã cập nhật bán hàng')));
     }
   }
   @override
   Widget build(BuildContext context) {
     final sale = _sale;
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
-    final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
-    final customer = sale.customerName?.trim().isNotEmpty == true ? sale.customerName!.trim() : 'Khách lẻ';
+    final currency = NumberFormat.currency(
+      locale: 'vi_VN',
+      symbol: '₫',
+      decimalDigits: 0,
+    );
+    final customer =
+        sale.customerName?.trim().isNotEmpty == true
+            ? sale.customerName!.trim()
+            : 'Khách lẻ';
     final paidAll = sale.debt <= 0;
-    final statusBg = paidAll ? Colors.green.withOpacity(0.12) : Colors.red.withOpacity(0.12);
+    final statusBg =
+        paidAll ? Colors.green.withOpacity(0.12) : Colors.red.withOpacity(0.12);
     final statusFg = paidAll ? Colors.green : Colors.red;
     return Scaffold(
       appBar: AppBar(
@@ -1608,10 +2045,9 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
               await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => ReceiptPreviewScreen(
-                    sale: sale,
-                    currency: currency,
-                  ),
+                  builder:
+                      (_) =>
+                          ReceiptPreviewScreen(sale: sale, currency: currency),
                 ),
               );
             },
@@ -1641,14 +2077,21 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: statusBg,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
                           paidAll ? 'Đã thanh toán' : 'Còn nợ',
-                          style: TextStyle(color: statusFg, fontWeight: FontWeight.w700, fontSize: 12),
+                          style: TextStyle(
+                            color: statusFg,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -1661,38 +2104,82 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
                   const Divider(height: 16),
                   Row(
                     children: [
-                      Expanded(child: Text('Tạm tính', style: TextStyle(color: Colors.grey[700]))),
-                      Text(currency.format(sale.subtotal), style: const TextStyle(fontWeight: FontWeight.w700)),
+                      Expanded(
+                        child: Text(
+                          'Tạm tính',
+                          style: TextStyle(color: Colors.grey[700]),
+                        ),
+                      ),
+                      Text(
+                        currency.format(sale.subtotal),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      Expanded(child: Text('Giảm', style: TextStyle(color: Colors.grey[700]))),
-                      Text(currency.format(sale.discount), style: const TextStyle(fontWeight: FontWeight.w700)),
+                      Expanded(
+                        child: Text(
+                          'Giảm',
+                          style: TextStyle(color: Colors.grey[700]),
+                        ),
+                      ),
+                      Text(
+                        currency.format(sale.discount),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      Expanded(child: Text('Khách trả', style: TextStyle(color: Colors.grey[700]))),
-                      Text(currency.format(sale.paidAmount), style: const TextStyle(fontWeight: FontWeight.w700)),
+                      Expanded(
+                        child: Text(
+                          'Khách trả',
+                          style: TextStyle(color: Colors.grey[700]),
+                        ),
+                      ),
+                      Text(
+                        currency.format(sale.paidAmount),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      Expanded(child: Text('Còn nợ', style: TextStyle(color: Colors.grey[700]))),
-                      Text(currency.format(sale.debt), style: const TextStyle(fontWeight: FontWeight.w700)),
+                      Expanded(
+                        child: Text(
+                          'Còn nợ',
+                          style: TextStyle(color: Colors.grey[700]),
+                        ),
+                      ),
+                      Text(
+                        currency.format(sale.debt),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ],
                   ),
                   const Divider(height: 16),
                   Row(
                     children: [
                       const Expanded(
-                        child: Text('Tổng cộng', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        child: Text(
+                          'Tổng cộng',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                      Text(currency.format(sale.total), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text(
+                        currency.format(sale.total),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -1710,21 +2197,38 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
           ...sale.items.map((it) {
             final t = (it.itemType ?? '').toUpperCase().trim();
             final isMix = t == 'MIX';
-            final title = (isMix && it.displayName?.trim().isNotEmpty == true)
-                ? it.displayName!.trim()
-                : it.name;
-            final mixItems = isMix ? _decodeMixItems(it.mixItemsJson) : const <Map<String, dynamic>>[];
-            final leading = isMix
-                ? Icon(Icons.blender, color: Colors.deepPurple[400])
-                : Icon(Icons.inventory_2_outlined, color: Colors.blueGrey[400]);
+            final title =
+                (isMix && it.displayName?.trim().isNotEmpty == true)
+                    ? it.displayName!.trim()
+                    : it.name;
+            final mixItems =
+                isMix
+                    ? _decodeMixItems(it.mixItemsJson)
+                    : const <Map<String, dynamic>>[];
+            final leading =
+                isMix
+                    ? Icon(Icons.blender, color: Colors.deepPurple[400])
+                    : Icon(
+                      Icons.inventory_2_outlined,
+                      color: Colors.blueGrey[400],
+                    );
             if (!isMix) {
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
                   leading: leading,
-                  title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  subtitle: Text('${it.quantity} ${it.unit} × ${currency.format(it.unitPrice)}'),
-                  trailing: Text(currency.format(it.total), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${it.quantity} ${it.unit} × ${currency.format(it.unitPrice)}',
+                  ),
+                  trailing: Text(
+                    currency.format(it.total),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
               );
             }
@@ -1735,12 +2239,21 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
                 title: Row(
                   children: [
                     Expanded(
-                      child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    Text(currency.format(it.total), style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                      currency.format(it.total),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
-                subtitle: Text('${it.quantity} ${it.unit} × ${currency.format(it.unitPrice)}'),
+                subtitle: Text(
+                  '${it.quantity} ${it.unit} × ${currency.format(it.unitPrice)}',
+                ),
                 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 children: [
                   if (mixItems.isEmpty)
@@ -1750,41 +2263,48 @@ class _SaleDetailScreenState extends State<_SaleDetailScreen> {
                     )
                   else
                     Column(
-                      children: mixItems.map((m) {
-                        final rawName = (m['rawName']?.toString() ?? '').trim();
-                        final rawUnit = (m['rawUnit']?.toString() ?? '').trim();
-                        final rawQty = (m['rawQty'] as num?)?.toDouble() ?? 0.0;
-                        final rawUnitCost = (m['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
-                        final lineTotal = rawQty * rawUnitCost;
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  rawName.isEmpty ? 'Nguyên liệu' : rawName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                      children:
+                          mixItems.map((m) {
+                            final rawName =
+                                (m['rawName']?.toString() ?? '').trim();
+                            final rawUnit =
+                                (m['rawUnit']?.toString() ?? '').trim();
+                            final rawQty =
+                                (m['rawQty'] as num?)?.toDouble() ?? 0.0;
+                            final rawUnitCost =
+                                (m['rawUnitCost'] as num?)?.toDouble() ?? 0.0;
+                            final lineTotal = rawQty * rawUnitCost;
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      rawName.isEmpty ? 'Nguyên liệu' : rawName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${rawQty.toStringAsFixed(rawQty % 1 == 0 ? 0 : 2)} ${rawUnit.isEmpty ? '' : rawUnit}',
+                                    style: TextStyle(color: Colors.grey[700]),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    currency.format(rawUnitCost),
+                                    style: TextStyle(color: Colors.grey[700]),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    currency.format(lineTotal),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              Text(
-                                '${rawQty.toStringAsFixed(rawQty % 1 == 0 ? 0 : 2)} ${rawUnit.isEmpty ? '' : rawUnit}',
-                                style: TextStyle(color: Colors.grey[700]),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                currency.format(rawUnitCost),
-                                style: TextStyle(color: Colors.grey[700]),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                currency.format(lineTotal),
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
+                            );
+                          }).toList(),
                     ),
                 ],
               ),

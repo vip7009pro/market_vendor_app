@@ -29,6 +29,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
   bool _isTableView = false;
 
+  bool _showFilterBar = false;
+
   final Set<String> _docUploading = <String>{};
 
   static const List<String> _categories = <String>[
@@ -647,6 +649,15 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
         title: const Text('Chi phí'),
         actions: [
           IconButton(
+            tooltip: _showFilterBar ? 'Ẩn bộ lọc' : 'Hiện bộ lọc',
+            icon: Icon(
+              _showFilterBar
+                  ? Icons.filter_alt_off_outlined
+                  : Icons.filter_alt_outlined,
+            ),
+            onPressed: () => setState(() => _showFilterBar = !_showFilterBar),
+          ),
+          IconButton(
             tooltip: _isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng',
             icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
             onPressed: () => setState(() => _isTableView = !_isTableView),
@@ -682,41 +693,53 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Column(
-              children: [
-                DropdownButtonFormField<String>(
-                  value: _category,
-                  items: _categories
-                      .map((c) => DropdownMenuItem(
-                            value: c,
-                            child: Text(c == 'all' ? 'Tất cả' : c),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v == null) return;
-                    setState(() => _category = v);
-                  },
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    prefixIcon: Icon(Icons.category_outlined),
-                    labelText: 'Phân loại',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  decoration: const InputDecoration(
-                    hintText: 'Tìm theo ghi chú',
-                    isDense: true,
-                    prefixIcon: Icon(Icons.search),
-                  ),
-                  onChanged: (v) => setState(() => _query = v.trim()),
-                ),
-              ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            child: ClipRect(
+              child: _showFilterBar
+                  ? Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                          child: Column(
+                            children: [
+                              DropdownButtonFormField<String>(
+                                value: _category,
+                                items: _categories
+                                    .map((c) => DropdownMenuItem(
+                                          value: c,
+                                          child: Text(c == 'all' ? 'Tất cả' : c),
+                                        ))
+                                    .toList(),
+                                onChanged: (v) {
+                                  if (v == null) return;
+                                  setState(() => _category = v);
+                                },
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  prefixIcon: Icon(Icons.category_outlined),
+                                  labelText: 'Phân loại',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                decoration: const InputDecoration(
+                                  hintText: 'Tìm theo ghi chú',
+                                  isDense: true,
+                                  prefixIcon: Icon(Icons.search),
+                                ),
+                                onChanged: (v) => setState(() => _query = v.trim()),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 16),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
-          const Divider(height: 16),
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
               future: _load(),

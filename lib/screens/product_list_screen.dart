@@ -37,6 +37,8 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
 
   bool _isTableViewExportRaw = false;
 
+  bool _showFilterBar = false;
+
   @override
   void initState() {
     super.initState();
@@ -309,18 +311,30 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: TextField(
-            decoration: const InputDecoration(
-              hintText: 'Tìm theo tên / mã vạch',
-              isDense: true,
-              prefixIcon: Icon(Icons.search),
-            ),
-            onChanged: (v) => setState(() => _productsQuery = v),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeInOut,
+          child: ClipRect(
+            child: _showFilterBar
+                ? Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            hintText: 'Tìm theo tên / mã vạch',
+                            isDense: true,
+                            prefixIcon: Icon(Icons.search),
+                          ),
+                          onChanged: (v) => setState(() => _productsQuery = v),
+                        ),
+                      ),
+                      const Divider(height: 1),
+                    ],
+                  )
+                : const SizedBox.shrink(),
           ),
         ),
-        const Divider(height: 1),
         Expanded(
           child: _isTableViewProducts
               ? _buildProductsTable(rows: filtered, currency: currency)
@@ -437,7 +451,7 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
   }
 
   Widget _buildTab1ImportHistory(BuildContext context) {
-    return const PurchaseHistoryScreen(embedded: true);
+    return PurchaseHistoryScreen(embedded: true, showFilterBar: _showFilterBar);
   }
 
   Widget _buildTab2ExportHistoryRaw(BuildContext context) {
@@ -447,47 +461,59 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
     final byId = {for (final p in products) p.id: p};
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  decoration: const InputDecoration(
-                    hintText: 'Tìm theo sản phẩm / khách hàng',
-                    isDense: true,
-                    prefixIcon: Icon(Icons.search),
-                  ),
-                  onChanged: (v) => setState(() => _exportQuery = v.trim()),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                tooltip: 'Chọn khoảng ngày (theo ngày xuất)',
-                icon: const Icon(Icons.filter_list),
-                onPressed: () => _pickRangeForTab(2),
-              ),
-              if (_exportRange != null)
-                IconButton(
-                  tooltip: 'Xoá lọc ngày',
-                  icon: const Icon(Icons.clear),
-                  onPressed: () => _clearRangeForTab(2),
-                ),
-            ],
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeInOut,
+          child: ClipRect(
+            child: _showFilterBar
+                ? Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                decoration: const InputDecoration(
+                                  hintText: 'Tìm theo sản phẩm / khách hàng',
+                                  isDense: true,
+                                  prefixIcon: Icon(Icons.search),
+                                ),
+                                onChanged: (v) => setState(() => _exportQuery = v.trim()),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              tooltip: 'Chọn khoảng ngày (theo ngày xuất)',
+                              icon: const Icon(Icons.filter_list),
+                              onPressed: () => _pickRangeForTab(2),
+                            ),
+                            if (_exportRange != null)
+                              IconButton(
+                                tooltip: 'Xoá lọc ngày',
+                                icon: const Icon(Icons.clear),
+                                onPressed: () => _clearRangeForTab(2),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (_exportRange != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Đang lọc: ${DateFormat('dd/MM/yyyy').format(_exportRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_exportRange!.end)}',
+                              style: const TextStyle(color: Colors.black54, fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                      const Divider(height: 1),
+                    ],
+                  )
+                : const SizedBox.shrink(),
           ),
         ),
-        if (_exportRange != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Đang lọc: ${DateFormat('dd/MM/yyyy').format(_exportRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_exportRange!.end)}',
-                style: const TextStyle(color: Colors.black54, fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ),
-        const Divider(height: 1),
         Expanded(
           child: FutureBuilder<List<Map<String, dynamic>>>(
             future: _loadExportHistoryRaw(),
@@ -691,6 +717,15 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: _showFilterBar ? 'Ẩn bộ lọc' : 'Hiện bộ lọc',
+            icon: Icon(
+              _showFilterBar
+                  ? Icons.filter_alt_off_outlined
+                  : Icons.filter_alt_outlined,
+            ),
+            onPressed: () => setState(() => _showFilterBar = !_showFilterBar),
+          ),
           if (tabIndex == 0) ...[
             IconButton(
               tooltip: _isTableViewProducts ? 'Xem dạng thẻ' : 'Xem dạng bảng',
@@ -734,17 +769,6 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
               icon: Icon(_isTableViewExportRaw ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
               onPressed: () => setState(() => _isTableViewExportRaw = !_isTableViewExportRaw),
             ),
-            IconButton(
-              tooltip: 'Chọn khoảng ngày',
-              icon: const Icon(Icons.filter_list),
-              onPressed: () => _pickRangeForTab(tabIndex),
-            ),
-            if (_exportRange != null)
-              IconButton(
-                tooltip: 'Xoá lọc ngày',
-                icon: const Icon(Icons.clear),
-                onPressed: () => _clearRangeForTab(tabIndex),
-              ),
           ],
         ],
       ),

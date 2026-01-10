@@ -31,6 +31,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
 
   bool _isTableView = false;
 
+  bool _showFilterBar = false;
+
   _AmountMode _amountMode = _AmountMode.sell;
 
   late Future<List<_InventoryRow>> _rowsFuture;
@@ -719,6 +721,15 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
         title: const Text('Bảng kê tồn kho'),
         actions: [
           IconButton(
+            tooltip: _showFilterBar ? 'Ẩn bộ lọc' : 'Hiện bộ lọc',
+            icon: Icon(
+              _showFilterBar
+                  ? Icons.filter_alt_off_outlined
+                  : Icons.filter_alt_outlined,
+            ),
+            onPressed: () => setState(() => _showFilterBar = !_showFilterBar),
+          ),
+          IconButton(
             tooltip: _isTableView ? 'Xem dạng thẻ' : 'Xem dạng bảng',
             icon: Icon(_isTableView ? Icons.view_agenda_outlined : Icons.table_rows_outlined),
             onPressed: () => setState(() => _isTableView = !_isTableView),
@@ -764,48 +775,60 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Lọc theo tên sản phẩm',
-                isDense: true,
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (v) {
-                setState(() => _query = v);
-                _refreshRowsPreserveScroll();
-              },
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            child: ClipRect(
+              child: _showFilterBar
+                  ? Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                          child: TextField(
+                            decoration: const InputDecoration(
+                              hintText: 'Lọc theo tên sản phẩm',
+                              isDense: true,
+                              prefixIcon: Icon(Icons.search),
+                            ),
+                            onChanged: (v) {
+                              setState(() => _query = v);
+                              _refreshRowsPreserveScroll();
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Từ ${DateFormat('dd/MM/yyyy').format(_range.start)} đến ${DateFormat('dd/MM/yyyy').format(_range.end)}',
+                                  style: const TextStyle(color: Colors.black54),
+                                ),
+                              ),
+                              FilledButton.icon(
+                                onPressed: _loading
+                                    ? null
+                                    : () async {
+                                        setState(() => _loading = true);
+                                        final rows = await _loadRows();
+                                        if (!mounted) return;
+                                        setState(() => _loading = false);
+                                        await _exportExcel(rows);
+                                      },
+                                icon: const Icon(Icons.download),
+                                label: const Text('Xuất Excel'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 16),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Từ ${DateFormat('dd/MM/yyyy').format(_range.start)} đến ${DateFormat('dd/MM/yyyy').format(_range.end)}',
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: _loading
-                      ? null
-                      : () async {
-                          setState(() => _loading = true);
-                          final rows = await _loadRows();
-                          if (!mounted) return;
-                          setState(() => _loading = false);
-                          await _exportExcel(rows);
-                        },
-                  icon: const Icon(Icons.download),
-                  label: const Text('Xuất Excel'),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 16),
           Expanded(
             child: FutureBuilder<List<_InventoryRow>>(
               future: _rowsFuture,

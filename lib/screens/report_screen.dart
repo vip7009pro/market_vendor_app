@@ -40,6 +40,8 @@ class _ReportScreenState extends State<ReportScreen> {
   String? _selectedEmployeeId;
   List<Map<String, dynamic>> _employees = const [];
 
+  bool _showFilterBar = false;
+
   final PageController _chartPageController = PageController(initialPage: 0);
   final ValueNotifier<int> _chartPageIndex = ValueNotifier<int>(0);
   final PageController _netChartPageController = PageController(initialPage: 0);
@@ -749,7 +751,7 @@ class _ReportScreenState extends State<ReportScreen> {
       for (final s in sales) {
         final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
         if (createdAt == null) continue;
-        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+        if (createdAt.isBefore(monthStart) || createdAt.isAfter(monthEnd)) continue;
         final sid = (s['id']?.toString() ?? '').trim();
         if (sid.isEmpty) continue;
         saleIdsInRangeForDebt.add(sid);
@@ -786,21 +788,23 @@ class _ReportScreenState extends State<ReportScreen> {
           final payAgg = await db.rawQuery(
             '''
             SELECT
-              debtId as debtId,
-              SUM(CASE WHEN paymentType = 'cash' THEN amount ELSE 0 END) as paidCash,
-              SUM(CASE WHEN paymentType = 'bank' THEN amount ELSE 0 END) as paidBank,
-              SUM(CASE WHEN paymentType IS NULL OR TRIM(paymentType) = '' THEN amount ELSE 0 END) as paidUnset,
-              SUM(amount) as paidTotal
-            FROM debt_payments
-            WHERE debtId IN ($dph)
-              AND (deletedAt IS NULL OR TRIM(deletedAt) = '')
-            GROUP BY debtId
+              d.id as debtId,
+              SUM(CASE WHEN dp.paymentType = 'cash' THEN dp.amount ELSE 0 END) as paidCash,
+              SUM(CASE WHEN dp.paymentType = 'bank' THEN dp.amount ELSE 0 END) as paidBank,
+              SUM(CASE WHEN dp.paymentType IS NULL OR TRIM(dp.paymentType) = '' THEN dp.amount ELSE 0 END) as paidUnset,
+              SUM(dp.amount) as paidTotal
+            FROM debts d
+            LEFT JOIN debt_payments dp ON dp.debtId = d.id
+            WHERE d.id IN ($dph)
+              AND (d.deletedAt IS NULL OR TRIM(d.deletedAt) = '')
+              AND (dp.deletedAt IS NULL OR TRIM(dp.deletedAt) = '' OR dp.deletedAt IS NULL)
+            GROUP BY d.id
             ''',
             debtIds,
           );
           for (final r in payAgg) {
             final did = (r['debtId']?.toString() ?? '').trim();
-            final sid = (debtIdToSaleId[did] ?? '').trim();
+            final sid = (r['saleId']?.toString() ?? '').trim();
             if (did.isEmpty || sid.isEmpty) continue;
             final paidCash = (r['paidCash'] as num?)?.toDouble() ?? 0.0;
             final paidBank = (r['paidBank'] as num?)?.toDouble() ?? 0.0;
@@ -816,7 +820,7 @@ class _ReportScreenState extends State<ReportScreen> {
       for (final s in sales) {
         final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
         if (createdAt == null) continue;
-        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+        if (createdAt.isBefore(monthStart) || createdAt.isAfter(monthEnd)) continue;
         final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
         final saleId = (s['id']?.toString() ?? '').trim();
         if (saleId.isEmpty) continue;
@@ -885,7 +889,7 @@ class _ReportScreenState extends State<ReportScreen> {
       for (final s in sales) {
         final createdAt = DateTime.tryParse(s['createdAt'] as String? ?? '');
         if (createdAt == null) continue;
-        if (createdAt.isBefore(rangeStart) || createdAt.isAfter(rangeEnd)) continue;
+        if (createdAt.isBefore(monthStart) || createdAt.isAfter(monthEnd)) continue;
         final discount = (s['discount'] as num?)?.toDouble() ?? 0.0;
         final saleId = (s['id']?.toString() ?? '').trim();
         if (saleId.isEmpty) continue;
@@ -1576,6 +1580,15 @@ class _ReportScreenState extends State<ReportScreen> {
       appBar: AppBar(
         title: const Text('Báo cáo'),
         actions: [
+          IconButton(
+            tooltip: _showFilterBar ? 'Ẩn bộ lọc' : 'Hiện bộ lọc',
+            icon: Icon(
+              _showFilterBar
+                  ? Icons.filter_alt_off_outlined
+                  : Icons.filter_alt_outlined,
+            ),
+            onPressed: () => setState(() => _showFilterBar = !_showFilterBar),
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.menu),
             onSelected: (v) {
@@ -1615,54 +1628,62 @@ class _ReportScreenState extends State<ReportScreen> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _pickEmployeeFilter,
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          minimumSize: const Size(0, 36),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        icon: const Icon(Icons.badge_outlined, size: 16),
-                        label: Text(
-                          selectedEmployeeName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            child: ClipRect(
+              child: _showFilterBar
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _pickEmployeeFilter,
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    minimumSize: const Size(0, 36),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  icon: const Icon(Icons.badge_outlined, size: 16),
+                                  label: Text(
+                                    selectedEmployeeName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _selectDateRange(context),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    minimumSize: const Size(0, 36),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  icon: const Icon(Icons.calendar_today, size: 16),
+                                  label: Text(
+                                    '${DateFormat('dd/MM').format(_dateRange.start)} - ${DateFormat('dd/MM').format(_dateRange.end)}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _selectDateRange(context),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          minimumSize: const Size(0, 36),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        icon: const Icon(Icons.calendar_today, size: 16),
-                        label: Text(
-                          '${DateFormat('dd/MM').format(_dateRange.start)} - ${DateFormat('dd/MM').format(_dateRange.end)}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
           Expanded(
