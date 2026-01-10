@@ -35,7 +35,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     'all',
     'Nhân công',
     'Thuê mặt bằng-kho bãi',
-    'Phí quản lý (vpp, dụng cụ, công cụ .v.v.)',
+    'Phí quản lý (vpp, dụng cụ)',
     'Điện',
     'Nước',
     'Internet',
