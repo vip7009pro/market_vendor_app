@@ -31,7 +31,7 @@ class ThemeSelectionScreen extends StatelessWidget {
                 await themeProvider.setTheme(value);
                 // Lưu theme vào SharedPreferences
                 final prefs = await SharedPreferences.getInstance();
-                await prefs.setString('selected_theme', value);
+                await prefs.setString('app_theme', value);
                 // Update the UI immediately
                 if (context.mounted) {
                   Navigator.pop(context);
@@ -48,10 +48,16 @@ class ThemeSelectionScreen extends StatelessWidget {
     switch (themeName) {
       case 'light':
         return 'Hồng mộng mơ';
-      case 'dark':
-        return 'Tối';
       case 'nature':
         return 'Thiên nhiên';
+      case 'ocean':
+        return 'Biển xanh';
+      case 'sunset':
+        return 'Hoàng hôn';
+      case 'lavender':
+        return 'Lavender';
+      case 'midnight':
+        return 'Midnight';
       default:
         return themeName;
     }

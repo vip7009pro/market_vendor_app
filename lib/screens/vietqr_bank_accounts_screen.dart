@@ -64,26 +64,26 @@ class _VietQrBankAccountsScreenState extends State<VietQrBankAccountsScreen> {
           children: [
             if (logo.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(bottom: 0),
                 child: Image.network(
                   logo,
-                  width: 46,
-                  height: 46,
+                  width: 200,
+                  height: 100,
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                 ),
               ),
             Text(bankName.isEmpty ? 'Ngân hàng' : bankName),
-            const SizedBox(height: 6),
+         
             Text(accountNo, style: const TextStyle(fontWeight: FontWeight.w700)),
             Text(accountName, textAlign: TextAlign.center),
-            const SizedBox(height: 6),
+            
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Image.network(
                 url,
-                width: 320,
-                height: 320,
+                width: 490,
+                height: 400,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const Padding(
                   padding: EdgeInsets.all(6),
@@ -94,7 +94,12 @@ class _VietQrBankAccountsScreenState extends State<VietQrBankAccountsScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Đóng'),
+            ),
+          ),
         ],
       ),
     );

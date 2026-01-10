@@ -36,8 +36,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildMenuButton(
     BuildContext context, {
     required IconData icon,
+    required Color iconColor,
     required String label,
-    required VoidCallback onTap,
+    required Future<void> Function()? onTap,
   }) {
     return Card(
       elevation: 1,
@@ -46,21 +47,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
         side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.1)),
       ),
       child: InkWell(
-        onTap: onTap,
+        onTap: onTap == null
+            ? null
+            : () {
+                onTap();
+              },
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-          child: Row(
-            children: [
-              Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 10),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const Spacer(),
-              const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
-            ],
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          child: Opacity(
+            opacity: onTap == null ? 0.5 : 1,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 24, color: iconColor),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -338,27 +348,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
-              final w = constraints.maxWidth;
-              final crossAxisCount = w >= 520 ? 3 : 2;
-              final childAspectRatio = crossAxisCount == 3 ? 3.2 : 2.8;
               final children = <Widget>[
                 _buildMenuButton(
                   context,
                   icon: Icons.inventory_2_outlined,
+                  iconColor: const Color(0xFF1E88E5),
                   label: 'Sản phẩm',
-                  onTap: () => Navigator.of(context).pushNamed('/products'),
+                  onTap: () async => Navigator.of(context).pushNamed('/products'),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.people_outline,
+                  iconColor: const Color(0xFF8E24AA),
                   label: 'Khách hàng',
-                  onTap: () => Navigator.of(context).pushNamed('/customers'),
+                  onTap: () async => Navigator.of(context).pushNamed('/customers'),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.store,
+                  iconColor: const Color(0xFFFB8C00),
                   label: 'Cửa hàng',
-                  onTap: () => Navigator.push(
+                  onTap: () async => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const StoreInfoScreen()),
                   ),
@@ -366,8 +376,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildMenuButton(
                   context,
                   icon: Icons.palette_outlined,
+                  iconColor: const Color(0xFFEC407A),
                   label: 'Giao diện',
-                  onTap: () => Navigator.push(
+                  onTap: () async => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const ThemeSelectionScreen()),
                   ),
@@ -375,8 +386,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildMenuButton(
                   context,
                   icon: Icons.description_outlined,
+                  iconColor: const Color(0xFF43A047),
                   label: 'Khai thuế',
-                  onTap: () => Navigator.push(
+                  onTap: () async => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const TaxDeclarationFormScreen()),
                   ),
@@ -384,8 +396,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildMenuButton(
                   context,
                   icon: Icons.qr_code_2_outlined,
+                  iconColor: const Color(0xFF00ACC1),
                   label: 'Ngân hàng',
-                  onTap: () => Navigator.push(
+                  onTap: () async => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const VietQrBankAccountsScreen()),
                   ),
@@ -393,8 +406,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildMenuButton(
                   context,
                   icon: Icons.badge_outlined,
+                  iconColor: const Color(0xFF5E35B1),
                   label: 'Nhân viên',
-                  onTap: () => Navigator.push(
+                  onTap: () async => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()),
                   ),
@@ -404,10 +418,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  crossAxisSpacing: 2,
-                  mainAxisSpacing: 2,
-                  childAspectRatio: childAspectRatio,
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.15,
                 ),
                 itemCount: children.length,
                 itemBuilder: (context, i) => children[i],
@@ -426,13 +440,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final children = <Widget>[
                /*  ListTile(
                   leading: Icon(Icons.cloud_sync_outlined, color: theme.colorScheme.primary),
                   title: const Text('Đồng bộ Online (Backend)'),
@@ -446,11 +456,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(height: 1), */
-                ListTile(
-                  leading: Icon(Icons.cloud_outlined, color: theme.colorScheme.primary),
-                  title: const Text('Quản lý backup Google Drive'),
-                  subtitle: const Text('Xem danh sách / xóa / backup ngay'),
-                  trailing: const Icon(Icons.chevron_right),
+                _buildMenuButton(
+                  context,
+                  icon: Icons.cloud_outlined,
+                  iconColor: const Color(0xFF1E88E5),
+                  label: 'Backup Drive',
                   onTap: auth.isSignedIn
                       ? () async {
                           final hasPremium = await _checkPremiumAccess(context);
@@ -465,12 +475,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }
                       : null,
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(Icons.table_view_outlined, color: theme.colorScheme.primary),
-                  title: const Text('Đồng bộ Google Sheets'),
-                  subtitle: const Text('Tạo sheet / đồng bộ dữ liệu'),
-                  trailing: const Icon(Icons.chevron_right),
+                _buildMenuButton(
+                  context,
+                  icon: Icons.table_view_outlined,
+                  iconColor: const Color(0xFF43A047),
+                  label: 'Google Sheets',
                   onTap: auth.isSignedIn
                       ? () async {
                           final hasPremium = await _checkPremiumAccess(context);
@@ -694,18 +703,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                 const Divider(height: 1), */
-                ListTile(
-                  leading: const Icon(Icons.delete_forever_outlined, color: Colors.redAccent),
-                  title: const Text('Xóa dữ liệu trên máy', style: TextStyle(color: Colors.redAccent)),
-                  subtitle: const Text('Xóa toàn bộ dữ liệu local (không thể hoàn tác)'),
-                  onTap: () {
+                _buildMenuButton(
+                  context,
+                  icon: Icons.delete_forever_outlined,
+                  iconColor: const Color(0xFFE53935),
+                  label: 'Xóa dữ liệu',
+                  onTap: () async {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const LocalDataTablesScreen()),
                     );
                   },
                 ),
-        ]),
+              ];
+
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.15,
+                ),
+                itemCount: children.length,
+                itemBuilder: (context, i) => children[i],
+              );
+            },
           ),
 
           // Premium Status Card

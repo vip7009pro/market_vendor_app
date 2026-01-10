@@ -1952,8 +1952,7 @@ class DebtList extends StatelessWidget {
                               child: Text(
                                 d.sourceType == 'sale' ? 'Bán hàng' : (d.sourceType == 'purchase' ? 'Nhập hàng' : d.sourceType!),
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black54,
+                                  fontSize: 12,                          
                                   fontWeight: FontWeight.w600,
                                 ),
                                 maxLines: 1,
@@ -1969,8 +1968,7 @@ class DebtList extends StatelessWidget {
                       Text(
                         'Nợ ban đầu: ${NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0).format(d.initialAmount)}',
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black87,
+                          fontSize: 12,                          
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1982,8 +1980,7 @@ class DebtList extends StatelessWidget {
                         Text(
                           d.description!,
                           style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.black54,
+                            fontSize: 12,                            
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
