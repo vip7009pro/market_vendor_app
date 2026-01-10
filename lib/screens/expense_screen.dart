@@ -747,46 +747,60 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     final docUploading = _docUploading.contains(expenseId);
 
                     return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.deepPurple.withValues(alpha: 0.12),
-                        foregroundColor: Colors.deepPurple,
-                        child: const Icon(Icons.payments_outlined),
+                      leading: GestureDetector(
+                        onTap: () => _showDocActions(row: r),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: (docUploaded ? Colors.green : Colors.deepPurple).withValues(alpha: 0.12),
+                              foregroundColor: docUploaded ? Colors.green : Colors.deepPurple,
+                              child: Icon(
+                                docUploaded ? Icons.verified_outlined : Icons.description_outlined,
+                              ),
+                            ),
+                            if (docUploading)
+                              const Positioned(
+                                right: -2,
+                                bottom: -2,
+                                child: SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                      title: Text(currency.format(amount), style: const TextStyle(fontWeight: FontWeight.w700)),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              currency.format(amount),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            DateFormat('dd/MM/yyyy HH:mm').format(occurredAt),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.black54, fontSize: 12),
+                          ),
+                        ],
+                      ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('$category | ${DateFormat('dd/MM/yyyy HH:mm').format(occurredAt)}'),
+                          Text(category, maxLines: 1, overflow: TextOverflow.ellipsis),
                           if (note != null && note.isNotEmpty) Text('Ghi chú: $note'),
-                          Row(
-                            children: [
-                              const Text('Chứng từ: '),
-                              Text(
-                                docUploaded ? 'Đã upload' : 'Chưa upload',
-                                style: TextStyle(
-                                  color: docUploaded ? Colors.green : Colors.black54,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (docUploading) ...[
-                                const SizedBox(width: 8),
-                                const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
-                              ],
-                            ],
-                          ),
                         ],
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(
-                            tooltip: 'Chứng từ',
-                            onPressed: () => _showDocActions(row: r),
-                            icon: Icon(
-                              docUploaded ? Icons.verified_outlined : Icons.description_outlined,
-                              color: docUploaded ? Colors.green : null,
-                            ),
-                          ),
                           PopupMenuButton<String>(
                             onSelected: (v) async {
                               if (v == 'edit') {

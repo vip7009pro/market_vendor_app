@@ -224,6 +224,7 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
         si.productId as productId,
         si.name as name,
         si.unit as unit,
+        si.unitPrice as unitPrice,
         si.quantity as quantity,
         si.itemType as itemType,
         si.mixItemsJson as mixItemsJson
@@ -256,6 +257,7 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
                   'productName': (e['rawName']?.toString() ?? '').trim(),
                   'unit': (e['rawUnit']?.toString() ?? '').trim(),
                   'quantity': (e['rawQty'] as num?)?.toDouble() ?? 0.0,
+                  'unitPrice': (e['rawUnitCost'] as num?)?.toDouble() ?? 0.0,
                   'source': 'MIX',
                 });
               }
@@ -274,6 +276,7 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
           'productId': pid,
           'productName': (r['name']?.toString() ?? '').trim(),
           'unit': (r['unit']?.toString() ?? '').trim(),
+          'unitPrice': (r['unitPrice'] as num?)?.toDouble() ?? 0.0,
           'quantity': (r['quantity'] as num?)?.toDouble() ?? 0.0,
           'source': 'RAW',
         });
@@ -326,6 +329,8 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, i) {
                     final p = filtered[i];
+                    final stockText =
+                        'Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}';
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: Colors.blue.withValues(alpha: 0.12),
@@ -365,28 +370,64 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
                           },
                         ),
                       ),
-                      title: Text(p.name),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      title: Row(
                         children: [
-                          Text('Giá bán: ${currency.format(p.price)} / ${p.unit}'),
-                          Text('Giá vốn: ${currency.format(p.costPrice)}'),
-                          Text('Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}'),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                          Expanded(
+                            child: Text(
+                              p.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            stockText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                          ),
+                          const SizedBox(width: 8),
                           IconButton(
-                            icon: const Icon(Icons.edit),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                            icon: const Icon(Icons.edit, size: 18),
                             onPressed: () => _showProductDialog(context, existing: p),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
                             onPressed: () => _confirmDelete(context, p),
                           ),
                         ],
                       ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Giá bán: ${currency.format(p.price)} / ${p.unit}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Giá vốn: ${currency.format(p.costPrice)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      trailing: null,
                     );
                   },
                 ),
@@ -401,6 +442,7 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
 
   Widget _buildTab2ExportHistoryRaw(BuildContext context) {
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
+    final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
     final products = context.watch<ProductProvider>().products;
     final byId = {for (final p in products) p.id: p};
     return Column(
@@ -553,9 +595,12 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
                   final qty = (r['quantity'] as num?)?.toDouble() ?? 0;
                   final unit = (r['unit'] as String?) ?? '';
                   final customerName = (r['customerName'] as String?)?.trim();
+                  final unitPrice = (r['unitPrice'] as num?)?.toDouble() ?? 0.0;
                   final source = (r['source'] as String?) ?? '';
                   final pid = (r['productId'] as String?) ?? '';
                   final prod = pid.isEmpty ? null : byId[pid];
+                  final customerLabel = (customerName == null || customerName.isEmpty) ? 'Khách lẻ' : customerName;
+                  final qtyText = qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2);
 
                   return ListTile(
                     leading: CircleAvatar(
@@ -586,13 +631,34 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
                         },
                       ),
                     ),
-                    title: Text(productName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(productName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          fmtDate.format(createdAt),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.black54, fontSize: 12),
+                        ),
+                      ],
+                    ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('SL xuất: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)} ${unit.isEmpty ? '' : unit}'),
-                        if (customerName != null && customerName.isNotEmpty) Text('KH: $customerName'),
-                        Text(fmtDate.format(createdAt), style: const TextStyle(color: Colors.black54)),
+                        Text(
+                          '$qtyText${unit.isEmpty ? '' : ' $unit'} x ${currency.format(unitPrice)} = ${currency.format(qty * unitPrice)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          customerLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.grey[700]),
+                        ),
                         if (source == 'MIX')
                           const Text(
                             'Xuất từ MIX',

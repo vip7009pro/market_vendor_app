@@ -1171,6 +1171,9 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                     final purchaseOrderId = (r['purchaseOrderId'] as String?)?.trim();
                     final assignedOrder = purchaseOrderId != null && purchaseOrderId.isNotEmpty;
 
+                    final dtText = fmtDate.format(createdAt);
+                    final docBtnColor = docUploaded ? Colors.green : Colors.orange;
+
                     return ListTile(
                       dense: true,
                       visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
@@ -1208,7 +1211,57 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                           },
                         ),
                       ),
-                      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      title: assignedOrder
+                          ? FutureBuilder<_OrderDebtInfo>(
+                              future: _orderDebtInfoFuture(purchaseOrderId),
+                              builder: (context, snap) {
+                                final settled = snap.data?.settled;
+                                final nameColor = settled == null
+                                    ? null
+                                    : (settled ? Colors.green : Colors.redAccent);
+                                return Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontWeight: FontWeight.w700, color: nameColor),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      dtText,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.black54, fontSize: 12),
+                                    ),
+                                  ],
+                                );
+                              },
+                            )
+                          : Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: remainDebt > 0 ? Colors.redAccent : Colors.green,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  dtText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                                ),
+                              ],
+                            ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1216,6 +1269,7 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                             'SL: ${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}  |  Giá: ${currency.format(unitCost)}  |  TT: ${currency.format(totalCost)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           if (assignedOrder)
                             FutureBuilder<_OrderDebtInfo>(
@@ -1280,22 +1334,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                             Text('NCC: $supplierName', maxLines: 1, overflow: TextOverflow.ellipsis),
                           Row(
                             children: [
-                              const Text('Chứng từ: '),
-                              Text(
-                                docUploaded ? 'Đã upload' : 'Chưa upload',
-                                style: TextStyle(
-                                  color: docUploaded ? Colors.green : Colors.black54,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (docUploading) ...[
-                                const SizedBox(width: 8),
-                                const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
-                              ],
-                            ],
-                          ),
-                          Row(
-                            children: [
                               const Text('Đơn: '),
                               Text(
                                 assignedOrder ? 'Đã gán' : 'Chưa gán',
@@ -1306,7 +1344,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                               ),
                             ],
                           ),
-                          Text(fmtDate.format(createdAt), style: const TextStyle(color: Colors.black54)),
                           if (note != null && note.isNotEmpty) Text('Ghi chú: $note'),
                         ],
                       ),
@@ -1360,13 +1397,13 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                                       _orderDebtInfoCache.clear();
                                     });
                                   },
-                            icon: Icon(assignedOrder ? Icons.receipt_long : Icons.receipt_long_outlined),
+                            icon: docUploading
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                : Icon(assignedOrder ? Icons.receipt_long : Icons.receipt_long_outlined),
+                            color: docBtnColor,
                           ),
                           PopupMenuButton<String>(
                             onSelected: (v) async {
-                              if (v == 'doc') {
-                                _showDocActions(row: r);
-                              }
                               if (v == 'edit') {
                                 await _editPurchaseDialog(r);
                               }
@@ -1376,20 +1413,6 @@ class _PurchaseHistoryScreenState extends State<PurchaseHistoryScreen> {
                             },
                             itemBuilder: (_) => [
                               const PopupMenuItem(value: 'edit', child: Text('Sửa')),
-                              PopupMenuItem(
-                                value: 'doc',
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      docUploaded ? Icons.verified_outlined : Icons.description_outlined,
-                                      size: 18,
-                                      color: docUploaded ? Colors.green : null,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text('Chứng từ'),
-                                  ],
-                                ),
-                              ),
                               const PopupMenuItem(value: 'delete', child: Text('Xóa')),
                             ],
                           ),

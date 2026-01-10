@@ -1558,7 +1558,7 @@ class _SaleScreenState extends State<SaleScreen> {
                               crossAxisCount: 4,
                               crossAxisSpacing: 8,
                               mainAxisSpacing: 8,
-                              childAspectRatio: 1.05,
+                              childAspectRatio: 0.82,
                             ),
                             itemCount: filteredProducts.length,
                             itemBuilder: (context, index) {
@@ -1593,45 +1593,59 @@ class _SaleScreenState extends State<SaleScreen> {
                                 return Icon(Icons.shopping_bag, color: iconColor, size: 36);
                               }
 
-                              return Stack(
-                                children: [
-                                  InkWell(
-                                    borderRadius: BorderRadius.circular(10),
-                                    onTap: () async {
-                                      await addProduct(product);
-                                    },
-                                    child: Container(
-                                      decoration: BoxDecoration(
+                              return LayoutBuilder(
+                                builder: (context, box) {
+                                  final w = box.maxWidth;
+                                  // Reserve enough room for worst-case 2-line name + price + spacing (avoid pixel overflow)
+                                  final safeMaxImgH = (box.maxHeight - 52).clamp(36.0, 96.0);
+                                  final imgH = (w * 0.72).clamp(40.0, safeMaxImgH);
+
+                                  return Stack(
+                                    children: [
+                                      InkWell(
                                         borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(color: Theme.of(context).dividerColor),
+                                        onTap: () async {
+                                          await addProduct(product);
+                                        },
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: Theme.of(context).dividerColor),
+                                          ),
+                                          padding: const EdgeInsets.all(5),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                                            children: [
+                                              SizedBox(
+                                                height: imgH,
+                                                child: ClipRRect(
+                                                  borderRadius: BorderRadius.circular(10),
+                                                  child: ColoredBox(
+                                                    color: Colors.black.withValues(alpha: 0.03),
+                                                    child: Center(child: image()),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                product.name,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11, height: 1.05),
+                                              ),
+                                              const SizedBox(height: 0),
+                                              Text(
+                                                product.itemType == ProductItemType.mix
+                                                    ? 'MIX • ${currency.format(product.price)}'
+                                                    : currency.format(product.price),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(color: Colors.grey[700], fontSize: 10, height: 1.0),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
-                                      padding: const EdgeInsets.all(6),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                                        children: [
-                                          Expanded(
-                                            child: Center(child: image()),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            product.name,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
-                                          ),
-                                          const SizedBox(height: 1),
-                                          Text(
-                                            product.itemType == ProductItemType.mix
-                                                ? 'MIX • ${currency.format(product.price)}'
-                                                : currency.format(product.price),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(color: Colors.grey[700], fontSize: 10),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
                                   if (qty > 0)
                                     Positioned(
                                       top: 4,
@@ -1665,7 +1679,9 @@ class _SaleScreenState extends State<SaleScreen> {
                                       onPressed: qty > 0 ? () async => removeOne(product) : null,
                                     ),
                                   ),
-                                ],
+                                    ],
+                                  );
+                                },
                               );
                             },
                           ),
@@ -1794,17 +1810,18 @@ class _SaleScreenState extends State<SaleScreen> {
       appBar: AppBar(
         title: const Text('Bán hàng'),
         actions: [
-          TextButton.icon(
-            onPressed: _pickEmployee,
-            icon: const Icon(Icons.badge_outlined),
-            label: Text((_employeeName ?? '').trim().isEmpty ? 'Nhân viên' : (_employeeName ?? '').trim()),
-          ),
+          
           IconButton(
             tooltip: 'Thêm sản phẩm',
             icon: const Icon(Icons.add_shopping_cart_outlined),
             onPressed: () async {
               await _showProductPickerSheet();
             },
+          ),
+          TextButton.icon(
+            onPressed: _pickEmployee,
+            icon: const Icon(Icons.badge_outlined),
+            label: Text((_employeeName ?? '').trim().isEmpty ? 'Nhân viên' : (_employeeName ?? '').trim()),
           ),
           // Nút đặt hàng bằng giọng nói
           Builder(

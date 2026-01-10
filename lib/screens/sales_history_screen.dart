@@ -1118,7 +1118,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                             );
                           },
                           child: Padding(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(5),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -1148,13 +1148,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
-                                          if (employeeLabel.isNotEmpty)
-                                            Text(
-                                              'NV: $employeeLabel',
-                                              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
                                         ],
                                       ),
                                     ),
@@ -1179,19 +1172,29 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                     ),
                                   ],
                                 ),
-                                // Date and time
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    fmtDate.format(s.createdAt),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        fmtDate.format(s.createdAt),
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                  ),
+                                    if (employeeLabel.isNotEmpty)
+                                      Text(
+                                        'NV: $employeeLabel',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.right,
+                                      ),
+                                  ],
                                 ),
                                 // Items list
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 2),
                                 ...s.items
                                     .map((item) => Padding(
                                           padding: const EdgeInsets.only(bottom: 4),
@@ -1227,7 +1230,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                                 ),
                                               Expanded(
                                                 child: Text(
-                                                  '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} x ${item.quantity} ${item.unit}',
+                                                  '${(((item.itemType ?? '').toUpperCase().trim()) == 'MIX' && (item.displayName?.trim().isNotEmpty == true)) ? item.displayName!.trim() : item.name} ',
                                                   style: const TextStyle(fontSize: 13),
                                                 ),
                                               ),
@@ -1243,14 +1246,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                         ))
                                     .toList(),
                                 // Payment status and actions
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 2),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     if (s.discount > 0)
                                       Container(
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 4),
+                                            horizontal: 1, vertical: 1),
                                         decoration: BoxDecoration(
                                           color: Colors.orange.withOpacity(0.12),
                                           borderRadius: BorderRadius.circular(4),
@@ -1274,7 +1277,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                           builder: (context, snap) {
                                             if (snap.connectionState != ConnectionState.done) {
                                               return Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
                                                 decoration: BoxDecoration(
                                                   color: Colors.red.withOpacity(0.1),
                                                   borderRadius: BorderRadius.circular(4),
@@ -1403,7 +1406,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                               await _showVietQrDebtDialog(s);
                                             },
                                           ),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: 1),
                                         ],
                                         IconButton(
                                           icon: const Icon(Icons.print_outlined,
@@ -1414,7 +1417,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                           onPressed: () => _showPrintPreview(
                                               context, s, currency),
                                         ),
-                                        const SizedBox(width: 8),
+                                        const SizedBox(width: 2),
                                         IconButton(
                                           icon: const Icon(Icons.delete_outline,
                                               color: Colors.redAccent, size: 20),
@@ -1454,7 +1457,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                             }
                                           },
                                         ),
-                                        const SizedBox(width: 8),
+                                        const SizedBox(width: 1),
                                         IconButton(
                                           icon: const Icon(Icons.edit_outlined,
                                               color: Colors.blueAccent, size: 20),

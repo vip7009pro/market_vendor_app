@@ -49,7 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
           child: Row(
             children: [
               Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
@@ -405,8 +405,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: crossAxisCount,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 2,
+                  mainAxisSpacing: 2,
                   childAspectRatio: childAspectRatio,
                 ),
                 itemCount: children.length,
@@ -485,7 +485,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }
                       : null,
                 ),
-                const Divider(height: 1),
+               /*  const Divider(height: 1),
                 ListTile(
                   leading: Icon(Icons.backup, color: theme.colorScheme.primary),
                   title: const Text('Sao lưu dữ liệu'),
@@ -693,7 +693,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         label: const Text('Khôi phục'),
                       ),
                     ),
-                const Divider(height: 1),
+                const Divider(height: 1), */
                 ListTile(
                   leading: const Icon(Icons.delete_forever_outlined, color: Colors.redAccent),
                   title: const Text('Xóa dữ liệu trên máy', style: TextStyle(color: Colors.redAccent)),

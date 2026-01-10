@@ -2017,7 +2017,7 @@ class _ReportScreenState extends State<ReportScreen> {
                             ),
                             const SizedBox(height: 12),                           
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    padding: const EdgeInsets.symmetric(horizontal: 1),
                     child: _buildTopProductsCard(
                       currency: currency,
                       dateRange: _dateRange,
@@ -2032,7 +2032,7 @@ class _ReportScreenState extends State<ReportScreen> {
                                 side: BorderSide(color: Colors.black.withAlpha(8)),
                               ),
                               child: Padding(
-                                padding: const EdgeInsets.all(12),
+                                padding: const EdgeInsets.all(5),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -2104,13 +2104,13 @@ class _ReportScreenState extends State<ReportScreen> {
                                                         Expanded(
                                                           child: Text(
                                                             pieEntries[i].key,
-                                                            style: const TextStyle(fontWeight: FontWeight.w700),
+                                                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12 ),
                                                           ),
                                                         ),
                                                         const SizedBox(width: 8),
                                                         Text(
                                                           currency.format(pieEntries[i].value),
-                                                          style: const TextStyle(fontWeight: FontWeight.w800),
+                                                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                                                         ),
                                                       ],
                                                     ),
@@ -2347,7 +2347,7 @@ class _ReportScreenState extends State<ReportScreen> {
             const SizedBox(height: 10),
             if (rows.isEmpty)
               const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
+                padding: EdgeInsets.symmetric(vertical: 5),
                 child: Center(child: Text('Chưa có dữ liệu')),
               )
             else
