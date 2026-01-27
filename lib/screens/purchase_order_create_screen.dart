@@ -13,6 +13,7 @@ import '../services/database_service.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/contact_serializer.dart';
 import '../utils/text_normalizer.dart';
+import 'voice_order_screen.dart';
 import 'purchase_order_detail_screen.dart';
 
 class PurchaseOrderCreateScreen extends StatefulWidget {
@@ -510,6 +511,7 @@ class _PurchaseOrderCreateScreenState extends State<PurchaseOrderCreateScreen> {
   Future<Product?> _pickProduct() async {
     final products = context.read<ProductProvider>().products;
     String q = '';
+    bool allowMultiPriceLines = false;
 
     return showModalBottomSheet<Product?>(
       context: context,
@@ -547,6 +549,17 @@ class _PurchaseOrderCreateScreenState extends State<PurchaseOrderCreateScreen> {
                           onChanged: (v) => setLocal(() => q = v),
                         ),
                       ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                        child: CheckboxListTile(
+                          value: allowMultiPriceLines,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: const Text('Cho phép nhiều dòng (nhiều giá) cho cùng sản phẩm'),
+                          onChanged: (v) => setLocal(() => allowMultiPriceLines = v == true),
+                        ),
+                      ),
                       ListTile(
                         leading: const Icon(Icons.add),
                         title: const Text('Thêm sản phẩm mới'),
@@ -569,7 +582,10 @@ class _PurchaseOrderCreateScreenState extends State<PurchaseOrderCreateScreen> {
                                   return ListTile(
                                     title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                                     subtitle: Text('${p.unit} | Giá vốn: ${p.costPrice.toStringAsFixed(0)}'),
-                                    onTap: () => Navigator.pop(context, p),
+                                    onTap: () {
+                                      Navigator.pop(context, p);
+                                      _pendingForceNewLineFromPicker = allowMultiPriceLines;
+                                    },
                                   );
                                 },
                               ),
@@ -584,6 +600,8 @@ class _PurchaseOrderCreateScreenState extends State<PurchaseOrderCreateScreen> {
       },
     );
   }
+
+  bool _pendingForceNewLineFromPicker = false;
 
   Future<Product?> _createProductDialog() async {
     final nameCtrl = TextEditingController();
@@ -676,8 +694,8 @@ class _PurchaseOrderCreateScreenState extends State<PurchaseOrderCreateScreen> {
     return p;
   }
 
-  void _addLine(Product p) {
-    final exists = _lines.indexWhere((e) => e.product.id == p.id);
+  void _addLine(Product p, {bool forceNewLine = false}) {
+    final exists = forceNewLine ? -1 : _lines.indexWhere((e) => e.product.id == p.id);
     if (exists != -1) {
       final old = _lines[exists];
       final nextQty = (old.quantity + 1).clamp(0.0, double.infinity).toDouble();
@@ -703,7 +721,9 @@ class _PurchaseOrderCreateScreenState extends State<PurchaseOrderCreateScreen> {
   Future<void> _addProductToOrder() async {
     final p = await _pickProduct();
     if (p == null) return;
-    _addLine(p);
+    final force = _pendingForceNewLineFromPicker;
+    _pendingForceNewLineFromPicker = false;
+    _addLine(p, forceNewLine: force);
   }
 
   Future<void> _pickCreatedAt() async {
@@ -943,6 +963,64 @@ class _PurchaseOrderCreateScreenState extends State<PurchaseOrderCreateScreen> {
       appBar: AppBar(
         title: Text(widget.purchaseOrderId == null ? 'Tạo đơn nhập' : 'Sửa đơn nhập'),
         actions: [
+          IconButton(
+            tooltip: 'Nhập hàng bằng giọng nói',
+            icon: const Icon(Icons.mic),
+            onPressed: _saving
+                ? null
+                : () async {
+                    final result = await Navigator.push<Map<String, dynamic>>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const VoiceOrderScreen(returnDraft: true, forPurchaseOrder: true),
+                      ),
+                    );
+                    if (!context.mounted || result == null) return;
+
+                    final orders = (result['orders'] as List?)?.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() ?? const <Map<String, dynamic>>[];
+                    if (orders.isEmpty) return;
+
+                    final products = context.read<ProductProvider>().products;
+                    final productsById = {for (final p in products) p.id: p};
+
+                    final nextLines = <_PurchaseOrderLine>[];
+                    for (final o in orders) {
+                      final pid = (o['productId']?.toString() ?? '').trim();
+                      if (pid.isEmpty) continue;
+                      final qty = (o['quantity'] as num?)?.toDouble() ?? 0;
+                      if (qty <= 0) continue;
+                      final prod = productsById[pid];
+                      if (prod == null) continue;
+
+                      final unitCost =
+                          (o['unitCost'] as num?)?.toDouble() ?? (o['price'] as num?)?.toDouble() ?? prod.costPrice.toDouble();
+                      nextLines.add(
+                        _PurchaseOrderLine(
+                          product: prod,
+                          quantity: qty,
+                          unitCost: unitCost,
+                        ),
+                      );
+                    }
+
+                    if (nextLines.isEmpty) return;
+
+                    setState(() {
+                      for (final l in _lines) {
+                        l.dispose();
+                      }
+                      _lines
+                        ..clear()
+                        ..addAll(nextLines);
+
+                      final supplierName = (result['customerName']?.toString() ?? '').trim();
+                      if (supplierName.isNotEmpty) {
+                        _supplierNameCtrl.text = supplierName;
+                      }
+                      _syncPaidIfAuto();
+                    });
+                  },
+          ),
           if (_saving)
             const Padding(
               padding: EdgeInsets.only(right: 12),

@@ -33,8 +33,8 @@ class _SaleScreenState extends State<SaleScreen> {
   final TextEditingController _productCtrl = TextEditingController();
   final TextEditingController _customerCtrl = TextEditingController();
   final List<SaleItem> _items = [];
-  final Map<String, TextEditingController> _qtyControllers = {};
-  final Map<String, FocusNode> _qtyFocusNodes = {};
+  final Map<Object, TextEditingController> _qtyControllers = {};
+  final Map<Object, FocusNode> _qtyFocusNodes = {};
   final ScrollController _scrollCtrl = ScrollController();
   final Map<String, TextEditingController> _mixDisplayNameCtrls = {};
   double _discount = 0;
@@ -172,7 +172,7 @@ class _SaleScreenState extends State<SaleScreen> {
 
   TextEditingController _getQtyController(SaleItem it) {
     return _qtyControllers.putIfAbsent(
-      it.productId,
+      it,
       () => TextEditingController(
         text: it.quantity.toStringAsFixed(it.quantity % 1 == 0 ? 0 : 2),
       ),
@@ -377,12 +377,12 @@ class _SaleScreenState extends State<SaleScreen> {
   }
 
   FocusNode _getQtyFocusNode(SaleItem it) {
-    return _qtyFocusNodes.putIfAbsent(it.productId, () => FocusNode());
+    return _qtyFocusNodes.putIfAbsent(it, () => FocusNode());
   }
 
-  void _disposeQtyFieldFor(String productId) {
-    _qtyControllers.remove(productId)?.dispose();
-    _qtyFocusNodes.remove(productId)?.dispose();
+  void _disposeQtyFieldFor(SaleItem it) {
+    _qtyControllers.remove(it)?.dispose();
+    _qtyFocusNodes.remove(it)?.dispose();
   }
 
   // Hàm chuyển đổi tiếng Việt có dấu thành không dấu
@@ -607,6 +607,17 @@ class _SaleScreenState extends State<SaleScreen> {
     super.dispose();
   }
 
+  void _clearSaleDraftControllers() {
+    for (final c in _qtyControllers.values) {
+      c.dispose();
+    }
+    for (final f in _qtyFocusNodes.values) {
+      f.dispose();
+    }
+    _qtyControllers.clear();
+    _qtyFocusNodes.clear();
+  }
+
   bool _isMixItem(SaleItem it) {
     return (it.itemType ?? '').toUpperCase().trim() == 'MIX';
   }
@@ -644,7 +655,7 @@ class _SaleScreenState extends State<SaleScreen> {
     it.unitCost = qty <= 0 ? 0 : (totalCost / qty);
   }
 
-  void _addSelectedProductToSale(Product product) {
+  void _addSelectedProductToSale(Product product, {bool forceNewLine = false}) {
     if (product.itemType == ProductItemType.mix) {
       final exists = _items.any((e) => e.productId == product.id);
       if (exists) {
@@ -669,23 +680,37 @@ class _SaleScreenState extends State<SaleScreen> {
       return;
     }
 
-    final existingItem = _items.firstWhere(
-      (item) => item.productId == product.id,
-      orElse:
-          () => SaleItem(
-            productId: product.id,
-            name: product.name,
-            unitPrice: product.price,
-            unitCost: product.costPrice,
-            quantity: 0,
-            unit: product.unit,
-          ),
-    );
-    if (_items.contains(existingItem)) {
-      existingItem.quantity += 1;
-    } else {
-      _items.add(existingItem..quantity = 1);
+    if (!forceNewLine) {
+      SaleItem? existing;
+      for (final it in _items) {
+        if (it.productId != product.id) continue;
+        if ((it.unitPrice - product.price).abs() < 0.000001) {
+          existing = it;
+          break;
+        }
+      }
+      existing ??= _items.where((it) => it.productId == product.id).cast<SaleItem?>().firstWhere(
+            (e) => e != null,
+            orElse: () => null,
+          );
+
+      if (existing != null) {
+        existing.quantity += 1;
+        _productCtrl.text = product.name;
+        return;
+      }
     }
+
+    _items.add(
+      SaleItem(
+        productId: product.id,
+        name: product.name,
+        unitPrice: product.price,
+        unitCost: product.costPrice,
+        quantity: 1,
+        unit: product.unit,
+      ),
+    );
     _productCtrl.text = product.name;
   }
 
@@ -1274,7 +1299,7 @@ class _SaleScreenState extends State<SaleScreen> {
         );
       }
       setState(() {
-        _addSelectedProductToSale(p);
+        _addSelectedProductToSale(p, forceNewLine: false);
       });
       if (!isMix) {
         await _applyLastUnitTo(
@@ -1414,6 +1439,7 @@ class _SaleScreenState extends State<SaleScreen> {
       builder: (context) {
         final TextEditingController searchController = TextEditingController();
         List<Product> filteredProducts = List.from(baseProducts);
+        bool allowMultiPriceLines = false;
 
         return StatefulBuilder(
           builder: (context, sheetSetState) {
@@ -1449,11 +1475,11 @@ class _SaleScreenState extends State<SaleScreen> {
             Future<void> addProduct(Product product) async {
               if (!mounted) return;
               this.setState(() {
-                _addSelectedProductToSale(product);
+                _addSelectedProductToSale(product, forceNewLine: allowMultiPriceLines);
               });
               if (product.itemType != ProductItemType.mix) {
                 await _applyLastUnitTo(
-                  _items.lastWhere((item) => item.productId == product.id),
+                  _items.last,
                 );
               }
               await _saveRecentProduct(product);
@@ -1483,9 +1509,9 @@ class _SaleScreenState extends State<SaleScreen> {
                 it.quantity = (it.quantity - 1).clamp(0, double.infinity).toDouble();
                 if (it.quantity <= 0) {
                   _items.removeAt(idx);
-                  _disposeQtyFieldFor(product.id);
+                  _disposeQtyFieldFor(it);
                 } else {
-                  final c = _qtyControllers[product.id];
+                  final c = _qtyControllers[it];
                   if (c != null) {
                     c.text = it.quantity.toStringAsFixed(it.quantity % 1 == 0 ? 0 : 2);
                     c.selection = TextSelection.collapsed(offset: c.text.length);
@@ -1546,6 +1572,24 @@ class _SaleScreenState extends State<SaleScreen> {
                         tooltip: 'Đóng',
                         icon: const Icon(Icons.close),
                         onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CheckboxListTile(
+                          value: allowMultiPriceLines,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: const Text('Cho phép nhiều dòng (nhiều giá) cho cùng sản phẩm'),
+                          onChanged: (v) {
+                            sheetSetState(() {
+                              allowMultiPriceLines = v == true;
+                            });
+                          },
+                        ),
                       ),
                     ],
                   ),
@@ -1829,13 +1873,65 @@ class _SaleScreenState extends State<SaleScreen> {
                 (context) => IconButton(
                   tooltip: 'Đặt hàng bằng giọng nói',
                   icon: const Icon(Icons.mic),
-                  onPressed: () {
-                    Navigator.push(
+                  onPressed: () async {
+                    final result = await Navigator.push<Map<String, dynamic>>(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const VoiceOrderScreen(),
+                        builder: (_) => const VoiceOrderScreen(returnDraft: true, forPurchaseOrder: false),
                       ),
                     );
+                    if (!mounted || result == null) return;
+
+                    final orders = (result['orders'] as List?)?.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() ?? const <Map<String, dynamic>>[];
+                    if (orders.isEmpty) return;
+
+                    final products = context.read<ProductProvider>().products;
+                    final productsById = {for (final p in products) p.id: p};
+                    final items = <SaleItem>[];
+                    for (final o in orders) {
+                      final pid = (o['productId']?.toString() ?? '').trim();
+                      if (pid.isEmpty) continue;
+                      final qty = (o['quantity'] as num?)?.toDouble() ?? 0;
+                      if (qty <= 0) continue;
+                      final prod = productsById[pid];
+                      final name = (o['item']?.toString() ?? (prod?.name ?? '')).trim();
+                      final price = (o['price'] as num?)?.toDouble() ?? (prod?.price.toDouble() ?? 0);
+                      final unit = (o['unit']?.toString() ?? (prod?.unit ?? '')).trim();
+                      items.add(
+                        SaleItem(
+                          productId: pid,
+                          name: name,
+                          unitPrice: price,
+                          unitCost: (prod?.costPrice ?? 0).toDouble(),
+                          quantity: qty,
+                          unit: unit,
+                        ),
+                      );
+                    }
+
+                    if (items.isEmpty) return;
+
+                    setState(() {
+                      _clearSaleDraftControllers();
+                      _items
+                        ..clear()
+                        ..addAll(items);
+
+                      _customerId = (result['customerId']?.toString() ?? '').trim().isEmpty ? null : result['customerId']?.toString();
+                      _customerName = (result['customerName']?.toString() ?? '').trim().isEmpty ? null : result['customerName']?.toString();
+                      _customerCtrl.text = _customerName ?? '';
+
+                      final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
+                      _discount = _discount.clamp(0, subtotal2).toDouble();
+                      if (!_paidEdited) {
+                        final rawPaid = (result['paidAmount'] as num?)?.toDouble();
+                        if (rawPaid != null && rawPaid >= 0) {
+                          _paid = rawPaid.clamp(0, (subtotal2 - _discount).clamp(0, double.infinity)).toDouble();
+                        } else {
+                          _paid = (subtotal2 - _discount).clamp(0, double.infinity).toDouble();
+                        }
+                      }
+                    });
                   },
                 ),
           ),
@@ -2212,8 +2308,10 @@ class _SaleScreenState extends State<SaleScreen> {
                                     constraints: const BoxConstraints.tightFor(width: 34, height: 34),
                                     onPressed: () {
                                       setState(() {
-                                        _disposeQtyFieldFor(it.productId);
-                                        _mixDisplayNameCtrls.remove(it.productId)?.dispose();
+                                        _disposeQtyFieldFor(it);
+                                        if (_isMixItem(it)) {
+                                          _mixDisplayNameCtrls.remove(it.productId)?.dispose();
+                                        }
                                         _items.removeAt(i);
                                         if (!_paidEdited) {
                                           final subtotal2 = _items.fold(0.0, (p, e) => p + e.total);
@@ -2259,7 +2357,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                   SizedBox(
                                     width: 74,
                                     child: TextField(
-                                      key: ValueKey('qty_${it.productId}'),
+                                      key: ValueKey(it),
                                       controller: qtyCtrl,
                                       focusNode: qtyFocus,
                                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
