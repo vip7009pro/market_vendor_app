@@ -53,6 +53,9 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   bool _isListening = false;
   String _status = 'Nhấn vào nút micrô để bắt đầu nhận dạng giọng nói';
   String _recognizedText = '';
+  final TextEditingController _recognizedCtrl = TextEditingController();
+
+  bool _autoProcessAi = true;
 
   // State cho đơn hàng tự động
   List<Map<String, dynamic>> _orders = []; // List items: {'item': '', 'quantity': 0, 'price': 0}
@@ -110,6 +113,40 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     }
   }
 
+  IconData get _phaseIcon {
+    switch (_phase) {
+      case _VoiceUiPhase.idle:
+        return Icons.info_outline;
+      case _VoiceUiPhase.listening:
+        return Icons.mic;
+      case _VoiceUiPhase.sending:
+        return Icons.cloud_upload_outlined;
+      case _VoiceUiPhase.waitingAi:
+        return Icons.hourglass_top;
+      case _VoiceUiPhase.aiOk:
+        return Icons.check_circle_outline;
+      case _VoiceUiPhase.aiError:
+        return Icons.error_outline;
+    }
+  }
+
+  String get _phaseTitle {
+    switch (_phase) {
+      case _VoiceUiPhase.idle:
+        return _autoProcessAi ? 'Auto' : 'Manual';
+      case _VoiceUiPhase.listening:
+        return 'Đang nghe';
+      case _VoiceUiPhase.sending:
+        return 'Đang gửi';
+      case _VoiceUiPhase.waitingAi:
+        return 'Đang chờ AI';
+      case _VoiceUiPhase.aiOk:
+        return 'AI OK';
+      case _VoiceUiPhase.aiError:
+        return 'AI NG';
+    }
+  }
+
   Product? _getProductById(String id) {
     final products = context.read<ProductProvider>().products;
     for (final p in products) {
@@ -141,6 +178,11 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   void initState() {
     super.initState();
     _initSpeech();
+    _recognizedCtrl.addListener(() {
+      final next = _recognizedCtrl.text;
+      if (next == _recognizedText) return;
+      _recognizedText = next;
+    });
   }
 
   void _syncPaidCtrlFromPaid() {
@@ -307,6 +349,8 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
       _isListening = true;
       _status = 'Đang nghe...';
       _recognizedText = '';
+      _recognizedCtrl.text = '';
+      _recognizedCtrl.selection = const TextSelection.collapsed(offset: 0);
     });
     _setPhase(_VoiceUiPhase.listening, 'Đang ghi âm');
     await _speech.listen(
@@ -314,12 +358,28 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
         if (!mounted) return;
         setState(() {
           _recognizedText = result.recognizedWords;
+
+          final nextText = result.recognizedWords;
+          if (_recognizedCtrl.text != nextText) {
+            _recognizedCtrl.text = nextText;
+            _recognizedCtrl.selection = TextSelection.collapsed(offset: _recognizedCtrl.text.length);
+          }
+
           if (result.finalResult) {
             _isListening = false;
-            _status = 'Đang gửi AI xử lý...';
-            _phase = _VoiceUiPhase.sending;
-            _phaseLabel = 'Đã ghi âm xong, đang gửi...';
-            _processWithAI(_recognizedText);
+
+            final textToProcess = _recognizedCtrl.text.trim();
+
+            if (_autoProcessAi) {
+              _status = 'Đang gửi AI xử lý...';
+              _phase = _VoiceUiPhase.sending;
+              _phaseLabel = 'Đã ghi âm xong, đang gửi...';
+              _processWithAI(textToProcess);
+            } else {
+              _status = 'Đã ghi âm xong. Nhấn “Xử lý” để gửi AI.';
+              _phase = _VoiceUiPhase.idle;
+              _phaseLabel = 'Chờ bạn xác nhận xử lý';
+            }
           }
         });
       },
@@ -328,6 +388,23 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
       listenOptions: stt.SpeechListenOptions(partialResults: true),
       localeId: 'vi_VN',
     );
+  }
+
+  Future<void> _manualProcessAi() async {
+    if (_isWaitingAi) return;
+    final textToProcess = _recognizedCtrl.text.trim();
+    if (textToProcess.isEmpty) {
+      _setPhase(_VoiceUiPhase.aiError, 'Chưa có nội dung để xử lý');
+      setState(() {
+        _status = 'Bạn chưa có nội dung giọng nói để gửi AI';
+      });
+      return;
+    }
+    _setPhase(_VoiceUiPhase.sending, 'Đang gửi...');
+    setState(() {
+      _status = 'Đang gửi AI xử lý...';
+    });
+    await _processWithAI(textToProcess);
   }
 
   TextEditingController _qtyCtrlFor(Map<String, dynamic> order) {
@@ -456,7 +533,9 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
                                   ),
                                 ),
                                 title: Text(p.name),
-                                subtitle: Text('${currency.format(p.price)} | Vốn: ${currency.format(p.costPrice)}'),
+                                subtitle: Text(
+                                  '${currency.format(p.price)} | Vốn: ${currency.format(p.costPrice)}',
+                                ),
                                 trailing: Text(
                                   'Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}',
                                 ),
@@ -1310,6 +1389,25 @@ Lệnh: $text
       appBar: AppBar(
         title: Text(widget.forPurchaseOrder ? 'Nhập hàng bằng giọng nói' : 'Đặt hàng bằng giọng nói'),
         centerTitle: true,
+        actions: [
+          Row(
+            children: [
+              Text(
+                _autoProcessAi ? 'Auto' : 'Manual',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              Switch(
+                value: _autoProcessAi,
+                onChanged: (v) {
+                  setState(() {
+                    _autoProcessAi = v;
+                  });
+                },
+              ),
+              const SizedBox(width: 6),
+            ],
+          ),
+        ],
       ),
       body: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
@@ -1327,15 +1425,38 @@ Lệnh: $text
                 ),
                 child: Row(
                   children: [
+                    Icon(
+                      _phaseIcon,
+                      size: 18,
+                      color: _phase == _VoiceUiPhase.idle ? Colors.black87 : Colors.white,
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        _phaseLabel,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: _phase == _VoiceUiPhase.idle ? Colors.black87 : Colors.white,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _phaseTitle,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: _phase == _VoiceUiPhase.idle ? Colors.black87 : Colors.white,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            _phaseLabel,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                              color: _phase == _VoiceUiPhase.idle
+                                  ? Colors.black54
+                                  : Colors.white.withValues(alpha: 0.92),
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -1357,24 +1478,56 @@ Lệnh: $text
               const SizedBox(height: 14),
 
               // Recognized text display
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _recognizedText.isNotEmpty
-                      ? _recognizedText
-                      : 'Nội dung đã nhận dạng sẽ hiển thị ở đây...',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: _recognizedText.isNotEmpty
-                        ? Colors.black87
-                        : Colors.grey,
-                  ),
-                ),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _recognizedCtrl,
+                builder: (context, value, _) {
+                  final hasText = value.text.trim().isNotEmpty;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
+                          color: _autoProcessAi ? Colors.grey.withValues(alpha: 0.06) : null,
+                        ),
+                        child: TextField(
+                          controller: _recognizedCtrl,
+                          readOnly: _autoProcessAi,
+                          enabled: !_autoProcessAi,
+                          minLines: 3,
+                          maxLines: null,
+                          keyboardType: TextInputType.multiline,
+                          decoration: InputDecoration(
+                            hintText: _autoProcessAi
+                                ? 'Auto: nội dung nhận dạng sẽ tự cập nhật...'
+                                : 'Manual: bạn có thể sửa nội dung trước khi gửi AI...'
+                            ,
+                            border: InputBorder.none,
+                            isDense: true,
+                          ),
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: value.text.isNotEmpty ? Colors.black87 : Colors.grey,
+                          ),
+                        ),
+                      ),
+                      if (!_autoProcessAi) ...[
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: (_isWaitingAi || !hasText) ? null : _manualProcessAi,
+                            icon: const Icon(Icons.smart_toy_outlined),
+                            label: const Text('Xử lý'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
               ),
 
               const SizedBox(height: 20),
@@ -1402,7 +1555,7 @@ Lệnh: $text
                             size: 18,
                             color: _customer.isEmpty
                                 ? Colors.grey
-                                : (_customerExactMatched ? Colors.green : Colors.orange),
+                                : (_customerExactMatched ? Colors.green : Colors.red),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -1448,7 +1601,7 @@ Lệnh: $text
                             tooltip: 'Thêm khách hàng mới',
                             icon: Icon(
                               Icons.person_add_alt,
-                              color: _customerExactMatched ? Colors.black54 : Colors.orange,
+                              color: _customerExactMatched ? Colors.black54 : Colors.red,
                             ),
                             onPressed: () => _addQuickCustomerDialog(prefillName: _customer),
                           ),
@@ -1515,7 +1668,7 @@ Lệnh: $text
                                           size: 18,
                                           color: pid == null || pid.isEmpty
                                               ? Colors.orange
-                                              : (isExact ? Colors.green : Colors.orange),
+                                              : (isExact ? Colors.green : Colors.red),
                                         ),
                                         const SizedBox(width: 6),
                                         Expanded(
@@ -1560,7 +1713,7 @@ Lệnh: $text
                                           tooltip: 'Thêm sản phẩm mới',
                                           icon: Icon(
                                             Icons.add_box_outlined,
-                                            color: isExact ? Colors.black54 : Colors.orange,
+                                            color: isExact ? Colors.black54 : Colors.red,
                                           ),
                                           onPressed: () => _addQuickProductDialog(
                                             prefillName: name,
@@ -1783,6 +1936,7 @@ Lệnh: $text
   @override
   void dispose() {
     _speech.stop();
+    _recognizedCtrl.dispose();
     _paidCtrl.dispose();
     for (final c in _qtyCtrls.values) {
       c.dispose();
