@@ -1424,11 +1424,11 @@ class _SaleScreenState extends State<SaleScreen> {
                 });
                 return;
               }
-              final query = value.toLowerCase();
+              final query = TextNormalizer.normalize(value);
               sheetSetState(() {
                 filteredProducts = baseProducts.where((product) {
-                  final nameMatch = product.name.toLowerCase().contains(query);
-                  final barcodeMatch = product.barcode?.toLowerCase().contains(query) ?? false;
+                  final nameMatch = TextNormalizer.normalize(product.name).contains(query);
+                  final barcodeMatch = TextNormalizer.normalize(product.barcode ?? '').contains(query);
                   return nameMatch || barcodeMatch;
                 }).toList();
               });

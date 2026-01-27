@@ -351,18 +351,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
-              final children = <Widget>[
-               /*  ListTile(
-                  leading: Icon(Icons.cloud_sync_outlined, color: theme.colorScheme.primary),
-                  title: const Text('Đồng bộ Online (Backend)'),
-                  subtitle: const Text('Cấu hình URL + Sync now + trạng thái'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const OnlineSyncSettingsScreen()),
-                    );
-                  },
+              final children = <Widget>[                
+                /* _buildMenuButton(
+                  context,
+                  icon: Icons.cloud_outlined,
+                  iconColor: const Color(0xFF1E88E5),
+                  label: 'Đồng bộ Online (Backend)',
+                  onTap: auth.isSignedIn
+                      ? () async {
+                          final hasPremium = await _checkPremiumAccess(context);
+                          if (!hasPremium) return;
+                          if (!mounted) return;
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const OnlineSyncSettingsScreen(),
+                            ),
+                          );
+                        }
+                      : null,
                 ),
                 const Divider(height: 1), */
                 _buildMenuButton(

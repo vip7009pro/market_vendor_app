@@ -518,12 +518,12 @@ class _PurchaseOrderCreateScreenState extends State<PurchaseOrderCreateScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setLocal) {
-            final norm = q.trim().toLowerCase();
+            final norm = TextNormalizer.normalize(q);
             final filtered = norm.isEmpty
                 ? products
                 : products.where((p) {
-                    final name = p.name.toLowerCase();
-                    final barcode = (p.barcode ?? '').toLowerCase();
+                    final name = TextNormalizer.normalize(p.name);
+                    final barcode = TextNormalizer.normalize(p.barcode ?? '');
                     return name.contains(norm) || (barcode.isNotEmpty && barcode.contains(norm));
                   }).toList();
 
