@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'inventory_report_screen.dart';
 import 'purchase_history_screen.dart';
 import 'purchase_order_list_screen.dart';
+import '../widgets/voice_product_input_dialog.dart';
 
 class ProductListScreen extends StatefulWidget {
   const ProductListScreen({super.key});
@@ -831,7 +832,30 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
         builder: (dialogContext, setStateDialog) {
           final currentPath = removeImage ? null : existing?.imagePath;
           return AlertDialog(
-            title: Text(existing == null ? 'Thêm sản phẩm' : 'Sửa sản phẩm'),
+            title: Row(
+              children: [
+                Expanded(child: Text(existing == null ? 'Thêm sản phẩm' : 'Sửa sản phẩm')),
+                if (existing == null)
+                  IconButton(
+                    tooltip: 'Nhập bằng giọng nói',
+                    icon: const Icon(Icons.mic),
+                    onPressed: () async {
+                      final result = await VoiceProductInputDialog.show(dialogContext);
+                      if (result == null) return;
+                      setStateDialog(() {
+                        nameCtrl.text = result.name;
+                        priceCtrl.text = result.price.toStringAsFixed(0);
+                        costPriceCtrl.text = result.costPrice.toStringAsFixed(0);
+                        unitCtrl.text = result.unit;
+                        stockCtrl.text = result.currentStock.toStringAsFixed(
+                          result.currentStock % 1 == 0 ? 0 : 2,
+                        );
+                        if (result.barcode.isNotEmpty) barcodeCtrl.text = result.barcode;
+                      });
+                    },
+                  ),
+              ],
+            ),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,

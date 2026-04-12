@@ -21,6 +21,7 @@ import '../utils/number_input_formatter.dart';
 import '../utils/text_normalizer.dart';
 import '../services/database_service.dart';
 import '../services/product_image_service.dart';
+import '../widgets/voice_product_input_dialog.dart';
 
 class SaleScreen extends StatefulWidget {
   const SaleScreen({super.key});
@@ -1092,11 +1093,33 @@ class _SaleScreenState extends State<SaleScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder:
-          (_) => AlertDialog(
-            title: const Text('Thêm sản phẩm'),
-            content: StatefulBuilder(
-              builder: (context, setState) {
-                return Column(
+          (_) => StatefulBuilder(
+            builder: (dialogContext, setStateDialog) {
+              return AlertDialog(
+                title: Row(
+                  children: [
+                    const Expanded(child: Text('Thêm sản phẩm')),
+                    IconButton(
+                      tooltip: 'Nhập bằng giọng nói',
+                      icon: const Icon(Icons.mic),
+                      onPressed: () async {
+                        final result = await VoiceProductInputDialog.show(dialogContext);
+                        if (result == null) return;
+                        setStateDialog(() {
+                          nameCtrl.text = result.name;
+                          priceCtrl.text = result.price.toStringAsFixed(0);
+                          costPriceCtrl.text = result.costPrice.toStringAsFixed(0);
+                          unitCtrl.text = result.unit;
+                          stockCtrl.text = result.currentStock.toStringAsFixed(
+                            result.currentStock % 1 == 0 ? 0 : 2,
+                          );
+                          if (result.barcode.isNotEmpty) barcodeCtrl.text = result.barcode;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
@@ -1132,7 +1155,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                     imageQuality: 85,
                                   );
                                   if (x == null) return;
-                                  setState(() => pickedImage = x);
+                                  setStateDialog(() => pickedImage = x);
                                 },
                                 icon: const Icon(Icons.photo_camera),
                                 label: const Text('Chụp'),
@@ -1144,14 +1167,14 @@ class _SaleScreenState extends State<SaleScreen> {
                                     imageQuality: 85,
                                   );
                                   if (x == null) return;
-                                  setState(() => pickedImage = x);
+                                  setStateDialog(() => pickedImage = x);
                                 },
                                 icon: const Icon(Icons.photo_library_outlined),
                                 label: const Text('Chọn'),
                               ),
                               if (pickedImage != null)
                                 TextButton.icon(
-                                  onPressed: () => setState(() => pickedImage = null),
+                                  onPressed: () => setStateDialog(() => pickedImage = null),
                                   icon: const Icon(Icons.delete_outline),
                                   label: const Text('Bỏ ảnh'),
                                 ),
@@ -1164,7 +1187,7 @@ class _SaleScreenState extends State<SaleScreen> {
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       value: isMix,
-                      onChanged: (v) => setState(() => isMix = v ?? false),
+                      onChanged: (v) => setStateDialog(() => isMix = v ?? false),
                       title: const Text('Hàng MIX'),
                     ),
                     TextField(
@@ -1235,19 +1258,19 @@ class _SaleScreenState extends State<SaleScreen> {
                       ),
                     ],
                   ],
-                );
-              },
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Hủy'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Lưu'),
-              ),
-            ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Hủy'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Lưu'),
+                  ),
+                ],
+              );
+            },
           ),
     );
     if (ok == true && nameCtrl.text.trim().isNotEmpty) {

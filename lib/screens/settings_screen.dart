@@ -18,6 +18,7 @@ import 'tax_declaration_form_screen.dart';
 import 'vietqr_bank_accounts_screen.dart';
 import 'employee_management_screen.dart';
 import 'online_sync_settings_screen.dart';
+import 'ai_provider_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -320,6 +321,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onTap: () async => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()),
+                  ),
+                ),
+                _buildMenuButton(
+                  context,
+                  icon: Icons.smart_toy_outlined,
+                  iconColor: const Color(0xFF00897B),
+                  label: 'Chọn AI',
+                  onTap: () async => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AiProviderSettingsScreen()),
                   ),
                 ),
               ];

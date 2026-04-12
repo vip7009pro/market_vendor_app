@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:http/http.dart' as http;
+import '../services/ai_provider_service.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
@@ -18,17 +18,12 @@ import '../providers/sale_provider.dart';
 import '../services/product_image_service.dart';
 import '../utils/number_input_formatter.dart';
 import '../utils/string_utils.dart';
+import '../utils/text_normalizer.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../utils/contact_serializer.dart';
+import '../widgets/voice_product_input_dialog.dart';
 
-enum _VoiceUiPhase {
-  idle,
-  listening,
-  sending,
-  waitingAi,
-  aiOk,
-  aiError,
-}
+enum _VoiceUiPhase { idle, listening, sending, waitingAi, aiOk, aiError }
 
 class VoiceOrderScreen extends StatefulWidget {
   final bool returnDraft;
@@ -45,7 +40,6 @@ class VoiceOrderScreen extends StatefulWidget {
 }
 
 class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
-
   _VoiceUiPhase _phase = _VoiceUiPhase.idle;
   String _phaseLabel = 'Sẵn sàng';
 
@@ -58,7 +52,8 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   bool _autoProcessAi = true;
 
   // State cho đơn hàng tự động
-  List<Map<String, dynamic>> _orders = []; // List items: {'item': '', 'quantity': 0, 'price': 0}
+  List<Map<String, dynamic>> _orders =
+      []; // List items: {'item': '', 'quantity': 0, 'price': 0}
   String? _customerId;
   String _customer = ''; // Tên khách hàng
   bool _customerExactMatched = false;
@@ -69,7 +64,8 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   final Map<Object, TextEditingController> _qtyCtrls = {};
   final Map<Object, TextEditingController> _priceCtrls = {};
 
-  bool get _isWaitingAi => _phase == _VoiceUiPhase.sending || _phase == _VoiceUiPhase.waitingAi;
+  bool get _isWaitingAi =>
+      _phase == _VoiceUiPhase.sending || _phase == _VoiceUiPhase.waitingAi;
 
   void _setPhase(_VoiceUiPhase phase, String label) {
     if (!mounted) return;
@@ -155,7 +151,11 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     return null;
   }
 
-  String _formatForInput(double v, {required int maxDecimalDigits, bool blankIfZero = false}) {
+  String _formatForInput(
+    double v, {
+    required int maxDecimalDigits,
+    bool blankIfZero = false,
+  }) {
     if (blankIfZero && v == 0) return '';
 
     final abs = v.abs();
@@ -186,14 +186,12 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
   }
 
   void _syncPaidCtrlFromPaid() {
-    final t = _formatForInput(
-      _paid,
-      maxDecimalDigits: 0,
-      blankIfZero: true,
-    );
+    final t = _formatForInput(_paid, maxDecimalDigits: 0, blankIfZero: true);
     if (_paidCtrl.text == t) return;
     _paidCtrl.text = t;
-    _paidCtrl.selection = TextSelection.collapsed(offset: _paidCtrl.text.length);
+    _paidCtrl.selection = TextSelection.collapsed(
+      offset: _paidCtrl.text.length,
+    );
   }
 
   void _syncPaidWithTotalIfNotEdited(double total) {
@@ -259,34 +257,52 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
                         return;
                       }
                       setState(() {
-                        filteredContacts = allContacts.where((contact) {
-                          final nameMatch = contact.displayName.toLowerCase().contains(q);
-                          final phoneMatch = contact.phones.any((phone) => phone.number.contains(q));
-                          return nameMatch || phoneMatch;
-                        }).toList();
+                        filteredContacts =
+                            allContacts.where((contact) {
+                              final nameMatch = contact.displayName
+                                  .toLowerCase()
+                                  .contains(q);
+                              final phoneMatch = contact.phones.any(
+                                (phone) => phone.number.contains(q),
+                              );
+                              return nameMatch || phoneMatch;
+                            }).toList();
                       });
                     },
                   ),
                   const SizedBox(height: 16),
                   Expanded(
-                    child: filteredContacts.isEmpty
-                        ? const Center(child: Text('Không tìm thấy liên hệ nào'))
-                        : ListView.builder(
-                            itemCount: filteredContacts.length,
-                            itemBuilder: (context, index) {
-                              final contact = filteredContacts[index];
-                              return ListTile(
-                                leading: contact.photo != null
-                                    ? CircleAvatar(backgroundImage: MemoryImage(contact.photo!))
-                                    : const CircleAvatar(child: Icon(Icons.person)),
-                                title: Text(contact.displayName),
-                                subtitle: Text(
-                                  contact.phones.isNotEmpty ? contact.phones.first.number : 'Không có SĐT',
-                                ),
-                                onTap: () => Navigator.of(context).pop(contact),
-                              );
-                            },
-                          ),
+                    child:
+                        filteredContacts.isEmpty
+                            ? const Center(
+                              child: Text('Không tìm thấy liên hệ nào'),
+                            )
+                            : ListView.builder(
+                              itemCount: filteredContacts.length,
+                              itemBuilder: (context, index) {
+                                final contact = filteredContacts[index];
+                                return ListTile(
+                                  leading:
+                                      contact.photo != null
+                                          ? CircleAvatar(
+                                            backgroundImage: MemoryImage(
+                                              contact.photo!,
+                                            ),
+                                          )
+                                          : const CircleAvatar(
+                                            child: Icon(Icons.person),
+                                          ),
+                                  title: Text(contact.displayName),
+                                  subtitle: Text(
+                                    contact.phones.isNotEmpty
+                                        ? contact.phones.first.number
+                                        : 'Không có SĐT',
+                                  ),
+                                  onTap:
+                                      () => Navigator.of(context).pop(contact),
+                                );
+                              },
+                            ),
                   ),
                 ],
               ),
@@ -362,7 +378,9 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
           final nextText = result.recognizedWords;
           if (_recognizedCtrl.text != nextText) {
             _recognizedCtrl.text = nextText;
-            _recognizedCtrl.selection = TextSelection.collapsed(offset: _recognizedCtrl.text.length);
+            _recognizedCtrl.selection = TextSelection.collapsed(
+              offset: _recognizedCtrl.text.length,
+            );
           }
 
           if (result.finalResult) {
@@ -428,7 +446,11 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
       builder: (context) {
         final searchController = TextEditingController();
         var filtered = List.of(products);
-        final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+        final currency = NumberFormat.currency(
+          locale: 'vi_VN',
+          symbol: '₫',
+          decimalDigits: 0,
+        );
         return StatefulBuilder(
           builder: (context, setState) {
             return Container(
@@ -452,17 +474,20 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
                             ),
                           ),
                           onChanged: (value) {
-                            final q = value.trim().toLowerCase();
+                            final q = TextNormalizer.normalize(value);
                             if (q.isEmpty) {
                               setState(() => filtered = List.of(products));
                               return;
                             }
                             setState(() {
-                              filtered = products.where((p) {
-                                final nameMatch = p.name.toLowerCase().contains(q);
-                                final barcodeMatch = p.barcode?.toLowerCase().contains(q) ?? false;
-                                return nameMatch || barcodeMatch;
-                              }).toList();
+                              filtered =
+                                  products.where((p) {
+                                    final nameMatch = TextNormalizer.normalize(p.name)
+                                        .contains(q);
+                                    final barcodeMatch =
+                                        TextNormalizer.normalize(p.barcode ?? '').contains(q);
+                                    return nameMatch || barcodeMatch;
+                                  }).toList();
                             });
                           },
                         ),
@@ -496,55 +521,65 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
                   ),
                   const SizedBox(height: 16),
                   Expanded(
-                    child: filtered.isEmpty
-                        ? const Center(child: Text('Không tìm thấy sản phẩm nào'))
-                        : ListView.builder(
-                            itemCount: filtered.length,
-                            itemBuilder: (context, index) {
-                              final p = filtered[index];
-                              return ListTile(
-                                leading: CircleAvatar(
-                                  radius: 20,
-                                  backgroundColor: Colors.blue.withValues(alpha: 0.12),
-                                  child: Builder(
-                                    builder: (_) {
-                                      final img = p.imagePath;
-                                      if (img != null && img.trim().isNotEmpty) {
-                                        return FutureBuilder<String?>(
-                                          future: ProductImageService.instance.resolvePath(img),
-                                          builder: (context, snap) {
-                                            final full = snap.data;
-                                            if (full == null || full.isEmpty) {
-                                              return const Icon(Icons.shopping_bag);
-                                            }
-                                            return ClipOval(
-                                              child: Image.file(
-                                                File(full),
-                                                width: 40,
-                                                height: 40,
-                                                fit: BoxFit.cover,
-                                              ),
-                                            );
-                                          },
-                                        );
-                                      }
-                                      return const Icon(Icons.shopping_bag);
-                                    },
+                    child:
+                        filtered.isEmpty
+                            ? const Center(
+                              child: Text('Không tìm thấy sản phẩm nào'),
+                            )
+                            : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final p = filtered[index];
+                                return ListTile(
+                                  leading: CircleAvatar(
+                                    radius: 20,
+                                    backgroundColor: Colors.blue.withValues(
+                                      alpha: 0.12,
+                                    ),
+                                    child: Builder(
+                                      builder: (_) {
+                                        final img = p.imagePath;
+                                        if (img != null &&
+                                            img.trim().isNotEmpty) {
+                                          return FutureBuilder<String?>(
+                                            future: ProductImageService.instance
+                                                .resolvePath(img),
+                                            builder: (context, snap) {
+                                              final full = snap.data;
+                                              if (full == null ||
+                                                  full.isEmpty) {
+                                                return const Icon(
+                                                  Icons.shopping_bag,
+                                                );
+                                              }
+                                              return ClipOval(
+                                                child: Image.file(
+                                                  File(full),
+                                                  width: 40,
+                                                  height: 40,
+                                                  fit: BoxFit.cover,
+                                                ),
+                                              );
+                                            },
+                                          );
+                                        }
+                                        return const Icon(Icons.shopping_bag);
+                                      },
+                                    ),
                                   ),
-                                ),
-                                title: Text(p.name),
-                                subtitle: Text(
-                                  '${currency.format(p.price)} | Vốn: ${currency.format(p.costPrice)}',
-                                ),
-                                trailing: Text(
-                                  'Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}',
-                                ),
-                                onTap: () {
-                                  Navigator.of(context).pop(p.id);
-                                },
-                              );
-                            },
-                          ),
+                                  title: Text(p.name),
+                                  subtitle: Text(
+                                    '${currency.format(p.price)} | Vốn: ${currency.format(p.costPrice)}',
+                                  ),
+                                  trailing: Text(
+                                    'Tồn: ${p.currentStock.toStringAsFixed(p.currentStock % 1 == 0 ? 0 : 2)} ${p.unit}',
+                                  ),
+                                  onTap: () {
+                                    Navigator.of(context).pop(p.id);
+                                  },
+                                );
+                              },
+                            ),
                   ),
                 ],
               ),
@@ -575,48 +610,59 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     final noteCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Thêm khách hàng mới'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Tên khách hàng'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: phoneCtrl,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(
-                labelText: 'SĐT (tuỳ chọn)',
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.contacts),
-                  tooltip: 'Chọn từ danh bạ',
-                  onPressed: () async {
-                    final contact = await _showContactPicker();
-                    if (contact != null) {
-                      nameCtrl.text = contact.displayName;
-                      if (contact.phones.isNotEmpty) {
-                        phoneCtrl.text = contact.phones.first.number;
-                      }
-                    }
-                  },
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Thêm khách hàng mới'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Tên khách hàng',
+                  ),
                 ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: InputDecoration(
+                    labelText: 'SĐT (tuỳ chọn)',
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.contacts),
+                      tooltip: 'Chọn từ danh bạ',
+                      onPressed: () async {
+                        final contact = await _showContactPicker();
+                        if (contact != null) {
+                          nameCtrl.text = contact.displayName;
+                          if (contact.phones.isNotEmpty) {
+                            phoneCtrl.text = contact.phones.first.number;
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: noteCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Ghi chú (tuỳ chọn)',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Hủy'),
               ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: noteCtrl,
-              decoration: const InputDecoration(labelText: 'Ghi chú (tuỳ chọn)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lưu')),
-        ],
-      ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Lưu'),
+              ),
+            ],
+          ),
     );
     if (ok != true) return;
 
@@ -639,7 +685,10 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     });
   }
 
-  Future<void> _addQuickProductDialog({String? prefillName, required Map<String, dynamic> targetOrder}) async {
+  Future<void> _addQuickProductDialog({
+    String? prefillName,
+    required Map<String, dynamic> targetOrder,
+  }) async {
     final nameCtrl = TextEditingController(text: prefillName ?? '');
     final priceCtrl = TextEditingController(text: '0');
     final costPriceCtrl = TextEditingController(text: '0');
@@ -652,132 +701,193 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     XFile? pickedImage;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (dialogContext, setStateDialog) {
-          return AlertDialog(
-            title: const Text('Thêm sản phẩm'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
+      builder:
+          (_) => StatefulBuilder(
+            builder: (dialogContext, setStateDialog) {
+              return AlertDialog(
+                title: Row(
+                  children: [
+                    const Expanded(child: Text('Thêm sản phẩm')),
+                    IconButton(
+                      tooltip: 'Nhập bằng giọng nói',
+                      icon: const Icon(Icons.mic),
+                      onPressed: () async {
+                        final result = await VoiceProductInputDialog.show(dialogContext);
+                        if (result == null) return;
+                        setStateDialog(() {
+                          nameCtrl.text = result.name;
+                          priceCtrl.text = result.price.toStringAsFixed(0);
+                          costPriceCtrl.text = result.costPrice.toStringAsFixed(0);
+                          unitCtrl.text = result.unit;
+                          stockCtrl.text = result.currentStock.toStringAsFixed(
+                            result.currentStock % 1 == 0 ? 0 : 2,
+                          );
+                          if (result.barcode.isNotEmpty) barcodeCtrl.text = result.barcode;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
-                        width: 56,
-                        height: 56,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: Builder(
-                            builder: (_) {
-                              if (pickedImage != null) {
-                                return Image.file(File(pickedImage!.path), fit: BoxFit.cover);
-                              }
-                              return const ColoredBox(
-                                color: Color(0xFFEFEFEF),
-                                child: Center(child: Icon(Icons.inventory_2_outlined)),
-                              );
-                            },
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 56,
+                            height: 56,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(28),
+                              child: Builder(
+                                builder: (_) {
+                                  if (pickedImage != null) {
+                                    return Image.file(
+                                      File(pickedImage!.path),
+                                      fit: BoxFit.cover,
+                                    );
+                                  }
+                                  return const ColoredBox(
+                                    color: Color(0xFFEFEFEF),
+                                    child: Center(
+                                      child: Icon(Icons.inventory_2_outlined),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
                           ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final x = await ImagePicker().pickImage(
+                                      source: ImageSource.camera,
+                                      imageQuality: 85,
+                                    );
+                                    if (x == null) return;
+                                    setStateDialog(() => pickedImage = x);
+                                  },
+                                  icon: const Icon(Icons.photo_camera),
+                                  label: const Text('Chụp'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final x = await ImagePicker().pickImage(
+                                      source: ImageSource.gallery,
+                                      imageQuality: 85,
+                                    );
+                                    if (x == null) return;
+                                    setStateDialog(() => pickedImage = x);
+                                  },
+                                  icon: const Icon(
+                                    Icons.photo_library_outlined,
+                                  ),
+                                  label: const Text('Chọn'),
+                                ),
+                                if (pickedImage != null)
+                                  TextButton.icon(
+                                    onPressed:
+                                        () => setStateDialog(
+                                          () => pickedImage = null,
+                                        ),
+                                    icon: const Icon(Icons.delete_outline),
+                                    label: const Text('Bỏ ảnh'),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Tên sản phẩm',
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final x = await ImagePicker().pickImage(
-                                  source: ImageSource.camera,
-                                  imageQuality: 85,
-                                );
-                                if (x == null) return;
-                                setStateDialog(() => pickedImage = x);
-                              },
-                              icon: const Icon(Icons.photo_camera),
-                              label: const Text('Chụp'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final x = await ImagePicker().pickImage(
-                                  source: ImageSource.gallery,
-                                  imageQuality: 85,
-                                );
-                                if (x == null) return;
-                                setStateDialog(() => pickedImage = x);
-                              },
-                              icon: const Icon(Icons.photo_library_outlined),
-                              label: const Text('Chọn'),
-                            ),
-                            if (pickedImage != null)
-                              TextButton.icon(
-                                onPressed: () => setStateDialog(() => pickedImage = null),
-                                icon: const Icon(Icons.delete_outline),
-                                label: const Text('Bỏ ảnh'),
-                              ),
-                          ],
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: priceCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        inputFormatters: [
+                          NumberInputFormatter(maxDecimalDigits: 0),
+                        ],
+                        decoration: const InputDecoration(labelText: 'Giá bán'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: costPriceCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        inputFormatters: [
+                          NumberInputFormatter(maxDecimalDigits: 0),
+                        ],
+                        decoration: const InputDecoration(labelText: 'Giá vốn'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: stockCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          NumberInputFormatter(maxDecimalDigits: 2),
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: 'Tồn hiện tại',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: unitCtrl,
+                        decoration: const InputDecoration(labelText: 'Đơn vị'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: barcodeCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Mã vạch (tuỳ chọn)',
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Hủy'),
                   ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: priceCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                    decoration: const InputDecoration(labelText: 'Giá bán'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: costPriceCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
-                    decoration: const InputDecoration(labelText: 'Giá vốn'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: stockCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
-                    decoration: const InputDecoration(labelText: 'Tồn hiện tại'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: unitCtrl,
-                    decoration: const InputDecoration(labelText: 'Đơn vị'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: barcodeCtrl,
-                    decoration: const InputDecoration(labelText: 'Mã vạch (tuỳ chọn)'),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    child: const Text('Lưu'),
                   ),
                 ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Hủy')),
-              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Lưu')),
-            ],
-          );
-        },
-      ),
+              );
+            },
+          ),
     );
     if (ok != true) return;
 
     final name = nameCtrl.text.trim();
     if (name.isEmpty) return;
 
-    final price = (NumberInputFormatter.tryParse(priceCtrl.text) ?? 0).toDouble();
-    final costPrice = (NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0).toDouble();
-    final stock = (NumberInputFormatter.tryParse(stockCtrl.text) ?? 0).toDouble();
+    final price =
+        (NumberInputFormatter.tryParse(priceCtrl.text) ?? 0).toDouble();
+    final costPrice =
+        (NumberInputFormatter.tryParse(costPriceCtrl.text) ?? 0).toDouble();
+    final stock =
+        (NumberInputFormatter.tryParse(stockCtrl.text) ?? 0).toDouble();
     final unit = unitCtrl.text.trim().isEmpty ? 'cái' : unitCtrl.text.trim();
-    final barcode = barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim();
+    final barcode =
+        barcodeCtrl.text.trim().isEmpty ? null : barcodeCtrl.text.trim();
 
     final p = Product(
       name: name,
@@ -810,7 +920,10 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
       targetOrder['item'] = p.name;
       targetOrder['unit'] = p.unit;
       if ((targetOrder['price'] as num?)?.toDouble() == 0) {
-        targetOrder['price'] = widget.forPurchaseOrder ? p.costPrice.toDouble() : p.price.toDouble();
+        targetOrder['price'] =
+            widget.forPurchaseOrder
+                ? p.costPrice.toDouble()
+                : p.price.toDouble();
       }
       targetOrder['dbExactMatched'] = true;
       _priceCtrls.removeWhere((k, _) => true);
@@ -852,32 +965,41 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
                         return;
                       }
                       setState(() {
-                        filtered = customers.where((c) {
-                          final nameMatch = c.name.toLowerCase().contains(q);
-                          final phoneMatch = c.phone?.toLowerCase().contains(q) ?? false;
-                          return nameMatch || phoneMatch;
-                        }).toList();
+                        filtered =
+                            customers.where((c) {
+                              final nameMatch = c.name.toLowerCase().contains(
+                                q,
+                              );
+                              final phoneMatch =
+                                  c.phone?.toLowerCase().contains(q) ?? false;
+                              return nameMatch || phoneMatch;
+                            }).toList();
                       });
                     },
                   ),
                   const SizedBox(height: 16),
                   Expanded(
-                    child: filtered.isEmpty
-                        ? const Center(child: Text('Không tìm thấy khách hàng nào'))
-                        : ListView.builder(
-                            itemCount: filtered.length,
-                            itemBuilder: (context, index) {
-                              final c = filtered[index];
-                              return ListTile(
-                                leading: const CircleAvatar(child: Icon(Icons.person)),
-                                title: Text(c.name),
-                                subtitle: Text(c.phone ?? 'Không có SĐT'),
-                                onTap: () {
-                                  Navigator.of(context).pop(c.id);
-                                },
-                              );
-                            },
-                          ),
+                    child:
+                        filtered.isEmpty
+                            ? const Center(
+                              child: Text('Không tìm thấy khách hàng nào'),
+                            )
+                            : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final c = filtered[index];
+                                return ListTile(
+                                  leading: const CircleAvatar(
+                                    child: Icon(Icons.person),
+                                  ),
+                                  title: Text(c.name),
+                                  subtitle: Text(c.phone ?? 'Không có SĐT'),
+                                  onTap: () {
+                                    Navigator.of(context).pop(c.id);
+                                  },
+                                );
+                              },
+                            ),
                   ),
                 ],
               ),
@@ -888,29 +1010,42 @@ class _VoiceOrderScreenState extends State<VoiceOrderScreen> {
     );
   }
 
-  // Hàm gửi đến OpenRouter AI và xử lý kết quả
+  // Hàm gửi đến AI Provider và xử lý kết quả
   Future<void> _processWithAI(String text) async {
     if (text.isEmpty) return;
 
-    const apiKey = String.fromEnvironment('OPENROUTER_API_KEY');
-    
-    if (apiKey.trim().isEmpty) {
+    final aiService = AiProviderService.instance;
+    await aiService.load();
+
+    // Kiểm tra API key
+    if (aiService.activeApiKey.trim().isEmpty) {
       if (!mounted) return;
       setState(() {
-        _status = 'Thiếu API key (OPENROUTER_API_KEY). Hãy build với --dart-define=OPENROUTER_API_KEY=...';
+        _status = 'Thiếu API key. Vào Cài đặt > Chọn AI để nhập key.';
       });
-
       _setPhase(_VoiceUiPhase.aiError, 'Thiếu API key');
-
       return;
     }
-    const String model = 'nvidia/nemotron-3-nano-30b-a3b:free';
 
-    final productNames = context.read<ProductProvider>().products.map((e) => e.name.trim()).where((e) => e.isNotEmpty).toList();
-    final customerNames = context.read<CustomerProvider>().customers.map((e) => e.name.trim()).where((e) => e.isNotEmpty).toList();
+    final productNames =
+        context
+            .read<ProductProvider>()
+            .products
+            .map((e) => e.name.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+    final customerNames =
+        context
+            .read<CustomerProvider>()
+            .customers
+            .map((e) => e.name.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
 
-    final productListText = productNames.isEmpty ? '(trống)' : productNames.join(' | ');
-    final customerListText = customerNames.isEmpty ? '(trống)' : customerNames.join(' | ');
+    final productListText =
+        productNames.isEmpty ? '(trống)' : productNames.join(' | ');
+    final customerListText =
+        customerNames.isEmpty ? '(trống)' : customerNames.join(' | ');
 
     final String prompt = '''
 Phân tích lệnh giọng nói tiếng Việt này và trả về đúng một JSON object theo schema sau (không thêm text thừa):
@@ -993,135 +1128,130 @@ Lệnh: $text
     try {
       if (mounted) {
         setState(() {
-          _status = 'Đang gửi AI xử lý...';
+          _status = 'Đang gửi ${aiService.provider.label} xử lý...';
         });
       }
 
       _setPhase(_VoiceUiPhase.waitingAi, 'Đang chờ AI trả kết quả...');
-      final response = await http.post(
-        Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
-        headers: {
-          'Authorization': 'Bearer $apiKey',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'model': model,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-        }),
-      );
-      if (response.statusCode == 200) {
-        final jsonResponse = jsonDecode(response.body);
-        final String aiContent = jsonResponse['choices'][0]['message']['content'];
 
-        // Parse JSON từ AI
-        final Map<String, dynamic> schema;
-        try {
-          schema = jsonDecode(aiContent);
-        } catch (_) {
-          if (mounted) {
-            setState(() {
-              _status = 'AI trả về dữ liệu không hợp lệ';
-            });
-          }
-          _setPhase(_VoiceUiPhase.aiError, 'AI lỗi (dữ liệu không hợp lệ)');
-          return;
-        }
-
-        // Lấy providers
-        final productProvider = context.read<ProductProvider>();
-        final customerProvider = context.read<CustomerProvider>();
-
-        // Xử lý khách hàng nếu có
-        if (schema['customer'] != null && schema['customer'].toString().isNotEmpty) {
-          final customerName = schema['customer'].toString().trim();
-          final matchedCustomer = customerProvider.findByName(customerName, threshold: 0.85);
-          final exact = matchedCustomer != null &&
-              StringUtils.normalize(matchedCustomer.name) == StringUtils.normalize(customerName);
-
+      final String aiContent = await aiService.sendChatCompletion(prompt);
+      // Parse JSON từ AI
+      final Map<String, dynamic> schema;
+      try {
+        schema = jsonDecode(aiContent);
+      } catch (_) {
+        if (mounted) {
           setState(() {
-            _customerId = matchedCustomer?.id;
-            _customer = matchedCustomer?.name ?? customerName;
-            _customerExactMatched = exact;
-            if (matchedCustomer == null) {
-              _status = 'Không tìm thấy khách hàng chính xác, đã giữ nguyên tên: $customerName';
-            }
+            _status = 'AI trả về dữ liệu không hợp lệ';
           });
         }
+        _setPhase(_VoiceUiPhase.aiError, 'AI lỗi (dữ liệu không hợp lệ)');
+        return;
+      }
 
-        // Xử lý các mục hàng
-        if (schema['items'] is List) {
-          final List<Map<String, dynamic>> matchedItems = [];
+      // Lấy providers
+      final productProvider = context.read<ProductProvider>();
+      final customerProvider = context.read<CustomerProvider>();
 
-          for (var item in schema['items']) {
-            if (item is Map<String, dynamic> && item['item'] != null) {
-              final productName = item['item'].toString().trim();
-              final matchedProduct = productProvider.findByName(productName, threshold: 0.85);
+      // Xử lý khách hàng nếu có
+      if (schema['customer'] != null &&
+          schema['customer'].toString().isNotEmpty) {
+        final customerName = schema['customer'].toString().trim();
+        final matchedCustomer = customerProvider.findByName(
+          customerName,
+          threshold: 0.85,
+        );
+        final exact =
+            matchedCustomer != null &&
+            StringUtils.normalize(matchedCustomer.name) ==
+                StringUtils.normalize(customerName);
 
-              // Tạo bản sao của item để tránh thay đổi trực tiếp
-              final matchedItem = Map<String, dynamic>.from(item);
+        setState(() {
+          _customerId = matchedCustomer?.id;
+          _customer = matchedCustomer?.name ?? customerName;
+          _customerExactMatched = exact;
+          if (matchedCustomer == null) {
+            _status =
+                'Không tìm thấy khách hàng chính xác, đã giữ nguyên tên: $customerName';
+          }
+        });
+      }
 
-              if (matchedProduct != null) {
-                // Nếu tìm thấy sản phẩm tương tự, sử dụng thông tin từ database
-                matchedItem['item'] = matchedProduct.name;
-                final rawPrice = matchedItem['price'];
-                final double aiPrice = rawPrice is num ? rawPrice.toDouble() : 0;
-                // Nếu AI không nói giá (0 hoặc thiếu) thì lấy giá DB, còn có giá thì dùng giá AI
-                matchedItem['price'] = aiPrice > 0
-                    ? aiPrice
-                    : (widget.forPurchaseOrder
-                        ? matchedProduct.costPrice.toDouble()
-                        : matchedProduct.price.toDouble());
-                matchedItem['unit'] = matchedProduct.unit;
-                matchedItem['productId'] = matchedProduct.id;
-                matchedItem['dbExactMatched'] =
-                    StringUtils.normalize(matchedProduct.name) == StringUtils.normalize(productName);
+      // Xử lý các mục hàng
+      if (schema['items'] is List) {
+        final List<Map<String, dynamic>> matchedItems = [];
 
-                // Thêm thông báo nếu tên không khớp chính xác
-                if (matchedProduct.name.toLowerCase() != productName.toLowerCase()) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Đã tìm thấy sản phẩm tương tự: "${matchedProduct.name}"'),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                }
-              } else {
-                // Nếu không tìm thấy, giữ nguyên tên sản phẩm đã nhận dạng
-                matchedItem['item'] = productName;
-                // Nếu AI không có giá hợp lệ thì để 0
-                final rawPrice = matchedItem['price'];
-                matchedItem['price'] = rawPrice is num ? rawPrice.toDouble() : 0.0;
+        for (var item in schema['items']) {
+          if (item is Map<String, dynamic> && item['item'] != null) {
+            final productName = item['item'].toString().trim();
+            final matchedProduct = productProvider.findByName(
+              productName,
+              threshold: 0.85,
+            );
+
+            // Tạo bản sao của item để tránh thay đổi trực tiếp
+            final matchedItem = Map<String, dynamic>.from(item);
+
+            if (matchedProduct != null) {
+              // Nếu tìm thấy sản phẩm tương tự, sử dụng thông tin từ database
+              matchedItem['item'] = matchedProduct.name;
+              final rawPrice = matchedItem['price'];
+              final double aiPrice = rawPrice is num ? rawPrice.toDouble() : 0;
+              // Nếu AI không nói giá (0 hoặc thiếu) thì lấy giá DB, còn có giá thì dùng giá AI
+              matchedItem['price'] =
+                  aiPrice > 0
+                      ? aiPrice
+                      : (widget.forPurchaseOrder
+                          ? matchedProduct.costPrice.toDouble()
+                          : matchedProduct.price.toDouble());
+              matchedItem['unit'] = matchedProduct.unit;
+              matchedItem['productId'] = matchedProduct.id;
+              matchedItem['dbExactMatched'] =
+                  StringUtils.normalize(matchedProduct.name) ==
+                  StringUtils.normalize(productName);
+
+              // Thêm thông báo nếu tên không khớp chính xác
+              if (matchedProduct.name.toLowerCase() !=
+                  productName.toLowerCase()) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Không tìm thấy sản phẩm: "$productName"'),
+                    content: Text(
+                      'Đã tìm thấy sản phẩm tương tự: "${matchedProduct.name}"',
+                    ),
                     duration: const Duration(seconds: 2),
                   ),
                 );
               }
-
-              matchedItems.add(matchedItem);
+            } else {
+              // Nếu không tìm thấy, giữ nguyên tên sản phẩm đã nhận dạng
+              matchedItem['item'] = productName;
+              // Nếu AI không có giá hợp lệ thì để 0
+              final rawPrice = matchedItem['price'];
+              matchedItem['price'] =
+                  rawPrice is num ? rawPrice.toDouble() : 0.0;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Không tìm thấy sản phẩm: "$productName"'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
             }
-          }
 
-          // Cập nhật schema với các mục đã được so khớp
-          schema['items'] = matchedItems;
+            matchedItems.add(matchedItem);
+          }
         }
 
-        // Cập nhật đơn hàng
-        _updateOrder(schema);
-
-        setState(() {
-          _status = 'Đã xử lý đơn hàng';
-        });
-        _setPhase(_VoiceUiPhase.aiOk, 'AI OK');
-      } else {
-        setState(() {
-          _status = 'Lỗi API: ${response.statusCode}';
-        });
-        _setPhase(_VoiceUiPhase.aiError, 'AI NG (HTTP ${response.statusCode})');
+        // Cập nhật schema với các mục đã được so khớp
+        schema['items'] = matchedItems;
       }
+
+      // Cập nhật đơn hàng
+      _updateOrder(schema);
+
+      setState(() {
+        _status = 'Đã xử lý đơn hàng (${aiService.provider.label})';
+      });
+      _setPhase(_VoiceUiPhase.aiOk, 'AI OK');
     } catch (e) {
       setState(() {
         _status = 'Lỗi: $e';
@@ -1132,11 +1262,18 @@ Lệnh: $text
 
   void _applyDraftToCaller() {
     if (!widget.returnDraft) return;
-    final missing = _orders.where((o) => (o['productId']?.toString() ?? '').isEmpty).toList();
+    final missing =
+        _orders
+            .where((o) => (o['productId']?.toString() ?? '').isEmpty)
+            .toList();
     if (missing.isNotEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng chọn/Thêm sản phẩm để khớp DB trước khi áp dụng')),
+        const SnackBar(
+          content: Text(
+            'Vui lòng chọn/Thêm sản phẩm để khớp DB trước khi áp dụng',
+          ),
+        ),
       );
       return;
     }
@@ -1160,7 +1297,9 @@ Lệnh: $text
       _paidEdited = false;
       _paidCtrl.clear();
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xoá đơn hàng')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Đã xoá đơn hàng')));
   }
 
   double _orderLineTotal(Map<String, dynamic> order) {
@@ -1176,7 +1315,8 @@ Lệnh: $text
   // Hàm phân tích schema và cập nhật state đơn hàng
   void _updateOrder(Map<String, dynamic> schema) {
     // Xử lý thông tin khách hàng nếu có
-    if (schema['customer'] != null && schema['customer'].toString().trim().isNotEmpty) {
+    if (schema['customer'] != null &&
+        schema['customer'].toString().trim().isNotEmpty) {
       _customer = schema['customer'].toString().trim();
     }
 
@@ -1199,8 +1339,12 @@ Lệnh: $text
         if (item is Map<String, dynamic>) {
           final action = item['action']?.toString() ?? '';
           final itemName = item['item']?.toString() ?? '';
-          final quantity = item['quantity'] is num ? (item['quantity'] as num).toDouble() : 0.0;
-          final price = item['price'] is num ? (item['price'] as num).toDouble() : 0.0;
+          final quantity =
+              item['quantity'] is num
+                  ? (item['quantity'] as num).toDouble()
+                  : 0.0;
+          final price =
+              item['price'] is num ? (item['price'] as num).toDouble() : 0.0;
           final unit = item['unit']?.toString();
           final productId = item['productId']?.toString();
 
@@ -1208,7 +1352,8 @@ Lệnh: $text
             bool exists = false;
             for (var order in _orders) {
               if (order['item'] == itemName) {
-                order['quantity'] = ((order['quantity'] as num?)?.toDouble() ?? 0) + quantity;
+                order['quantity'] =
+                    ((order['quantity'] as num?)?.toDouble() ?? 0) + quantity;
 
                 if (price > 0) {
                   order['price'] = price;
@@ -1232,8 +1377,10 @@ Lệnh: $text
                 'quantity': quantity,
                 'price': price,
                 if (unit != null && unit.isNotEmpty) 'unit': unit,
-                if (productId != null && productId.isNotEmpty) 'productId': productId,
-                if (item['dbExactMatched'] != null) 'dbExactMatched': item['dbExactMatched'],
+                if (productId != null && productId.isNotEmpty)
+                  'productId': productId,
+                if (item['dbExactMatched'] != null)
+                  'dbExactMatched': item['dbExactMatched'],
               });
             }
           } else if (action == 'remove' && itemName.isNotEmpty) {
@@ -1244,7 +1391,8 @@ Lệnh: $text
               // Giảm số lượng nếu có chỉ định số lượng
               for (var order in _orders) {
                 if (order['item'] == itemName) {
-                  final newQty = ((order['quantity'] as num?)?.toDouble() ?? 0) - quantity;
+                  final newQty =
+                      ((order['quantity'] as num?)?.toDouble() ?? 0) - quantity;
                   order['quantity'] = newQty;
                   if (newQty <= 0) {
                     _orders.remove(order);
@@ -1268,11 +1416,18 @@ Lệnh: $text
     if (_orders.isEmpty) return;
 
     // Require all items match DB (have productId)
-    final missing = _orders.where((o) => (o['productId']?.toString() ?? '').isEmpty).toList();
+    final missing =
+        _orders
+            .where((o) => (o['productId']?.toString() ?? '').isEmpty)
+            .toList();
     if (missing.isNotEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng chọn hoặc thêm sản phẩm để khớp DB trước khi lưu')),
+        const SnackBar(
+          content: Text(
+            'Vui lòng chọn hoặc thêm sản phẩm để khớp DB trước khi lưu',
+          ),
+        ),
       );
       return;
     }
@@ -1312,12 +1467,17 @@ Lệnh: $text
       customerName: _customer.isEmpty ? null : _customer,
       totalCost: calculatedTotalCost,
     );
-    final debtValue = (sale.total - sale.paidAmount).clamp(0.0, double.infinity).toDouble();
+    final debtValue =
+        (sale.total - sale.paidAmount).clamp(0.0, double.infinity).toDouble();
     if (debtValue > 0) {
       if ((_customerId ?? '').isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cần chọn/Thêm khách hàng (khớp DB) trước khi ghi nợ')),
+          const SnackBar(
+            content: Text(
+              'Cần chọn/Thêm khách hàng (khớp DB) trước khi ghi nợ',
+            ),
+          ),
         );
         return;
       }
@@ -1327,26 +1487,40 @@ Lệnh: $text
     await context.read<ProductProvider>().load();
 
     if (debtValue > 0) {
-      final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
-      final details = StringBuffer()
-        ..writeln('Bán hàng ngày ${DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt)}')
-        ..writeln('Khách: ${sale.customerName ?? 'Khách lẻ'}')
-        ..writeln('Chi tiết:')
-        ..writeln(items.map((it) => '- ${it.name} x ${it.quantity} ${it.unit} = ${currency.format(it.total)}').join('\n'))
-        ..writeln('Khách trả: ${currency.format(sale.paidAmount)}')
-        ..writeln('Còn nợ: ${currency.format(debtValue)}');
+      final currency = NumberFormat.currency(
+        locale: 'vi_VN',
+        symbol: '₫',
+        decimalDigits: 0,
+      );
+      final details =
+          StringBuffer()
+            ..writeln(
+              'Bán hàng ngày ${DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt)}',
+            )
+            ..writeln('Khách: ${sale.customerName ?? 'Khách lẻ'}')
+            ..writeln('Chi tiết:')
+            ..writeln(
+              items
+                  .map(
+                    (it) =>
+                        '- ${it.name} x ${it.quantity} ${it.unit} = ${currency.format(it.total)}',
+                  )
+                  .join('\n'),
+            )
+            ..writeln('Khách trả: ${currency.format(sale.paidAmount)}')
+            ..writeln('Còn nợ: ${currency.format(debtValue)}');
 
       await context.read<DebtProvider>().add(
-            Debt(
-              type: DebtType.othersOweMe,
-              partyId: _customerId ?? 'unknown',
-              partyName: _customer.isEmpty ? 'Khách lẻ' : _customer,
-              amount: debtValue,
-              description: details.toString(),
-              sourceType: 'sale',
-              sourceId: sale.id,
-            ),
-          );
+        Debt(
+          type: DebtType.othersOweMe,
+          partyId: _customerId ?? 'unknown',
+          partyName: _customer.isEmpty ? 'Khách lẻ' : _customer,
+          amount: debtValue,
+          description: details.toString(),
+          sourceType: 'sale',
+          sourceId: sale.id,
+        ),
+      );
     }
 
     if (!mounted) return;
@@ -1359,12 +1533,18 @@ Lệnh: $text
       _paidEdited = false;
       _paidCtrl.clear();
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã lưu đơn hàng')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Đã lưu đơn hàng')));
   }
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+    final currency = NumberFormat.currency(
+      locale: 'vi_VN',
+      symbol: '₫',
+      decimalDigits: 0,
+    );
     final products = context.watch<ProductProvider>().products;
     final productsById = {for (final p in products) p.id: p};
 
@@ -1387,7 +1567,11 @@ Lệnh: $text
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.forPurchaseOrder ? 'Nhập hàng bằng giọng nói' : 'Đặt hàng bằng giọng nói'),
+        title: Text(
+          widget.forPurchaseOrder
+              ? 'Nhập hàng bằng giọng nói'
+              : 'Đặt hàng bằng giọng nói',
+        ),
         centerTitle: true,
         actions: [
           Row(
@@ -1418,7 +1602,10 @@ Lệnh: $text
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: _phaseBannerColor,
                   borderRadius: BorderRadius.circular(12),
@@ -1428,7 +1615,10 @@ Lệnh: $text
                     Icon(
                       _phaseIcon,
                       size: 18,
-                      color: _phase == _VoiceUiPhase.idle ? Colors.black87 : Colors.white,
+                      color:
+                          _phase == _VoiceUiPhase.idle
+                              ? Colors.black87
+                              : Colors.white,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -1439,7 +1629,10 @@ Lệnh: $text
                             _phaseTitle,
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
-                              color: _phase == _VoiceUiPhase.idle ? Colors.black87 : Colors.white,
+                              color:
+                                  _phase == _VoiceUiPhase.idle
+                                      ? Colors.black87
+                                      : Colors.white,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1449,9 +1642,10 @@ Lệnh: $text
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 12,
-                              color: _phase == _VoiceUiPhase.idle
-                                  ? Colors.black54
-                                  : Colors.white.withValues(alpha: 0.92),
+                              color:
+                                  _phase == _VoiceUiPhase.idle
+                                      ? Colors.black54
+                                      : Colors.white.withValues(alpha: 0.92),
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -1464,7 +1658,10 @@ Lệnh: $text
                       const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       ),
                   ],
                 ),
@@ -1491,7 +1688,10 @@ Lệnh: $text
                         decoration: BoxDecoration(
                           border: Border.all(color: Colors.grey.shade300),
                           borderRadius: BorderRadius.circular(12),
-                          color: _autoProcessAi ? Colors.grey.withValues(alpha: 0.06) : null,
+                          color:
+                              _autoProcessAi
+                                  ? Colors.grey.withValues(alpha: 0.06)
+                                  : null,
                         ),
                         child: TextField(
                           controller: _recognizedCtrl,
@@ -1501,16 +1701,19 @@ Lệnh: $text
                           maxLines: null,
                           keyboardType: TextInputType.multiline,
                           decoration: InputDecoration(
-                            hintText: _autoProcessAi
-                                ? 'Auto: nội dung nhận dạng sẽ tự cập nhật...'
-                                : 'Manual: bạn có thể sửa nội dung trước khi gửi AI...'
-                            ,
+                            hintText:
+                                _autoProcessAi
+                                    ? 'Auto: nội dung nhận dạng sẽ tự cập nhật...'
+                                    : 'Manual: bạn có thể sửa nội dung trước khi gửi AI...',
                             border: InputBorder.none,
                             isDense: true,
                           ),
                           style: TextStyle(
                             fontSize: 16,
-                            color: value.text.isNotEmpty ? Colors.black87 : Colors.grey,
+                            color:
+                                value.text.isNotEmpty
+                                    ? Colors.black87
+                                    : Colors.grey,
                           ),
                         ),
                       ),
@@ -1519,7 +1722,10 @@ Lệnh: $text
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton.icon(
-                            onPressed: (_isWaitingAi || !hasText) ? null : _manualProcessAi,
+                            onPressed:
+                                (_isWaitingAi || !hasText)
+                                    ? null
+                                    : _manualProcessAi,
                             icon: const Icon(Icons.smart_toy_outlined),
                             label: const Text('Xử lý'),
                           ),
@@ -1553,9 +1759,12 @@ Lệnh: $text
                           Icon(
                             Icons.check_circle,
                             size: 18,
-                            color: _customer.isEmpty
-                                ? Colors.grey
-                                : (_customerExactMatched ? Colors.green : Colors.red),
+                            color:
+                                _customer.isEmpty
+                                    ? Colors.grey
+                                    : (_customerExactMatched
+                                        ? Colors.green
+                                        : Colors.red),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -1563,8 +1772,12 @@ Lệnh: $text
                               onTap: () async {
                                 final pickedId = await _showCustomerPicker();
                                 if (pickedId == null) return;
-                                final provider = context.read<CustomerProvider>();
-                                final picked = provider.customers.where((c) => c.id == pickedId).toList();
+                                final provider =
+                                    context.read<CustomerProvider>();
+                                final picked =
+                                    provider.customers
+                                        .where((c) => c.id == pickedId)
+                                        .toList();
                                 if (picked.isEmpty) return;
                                 setState(() {
                                   _customerId = picked.first.id;
@@ -1588,7 +1801,10 @@ Lệnh: $text
                               final pickedId = await _showCustomerPicker();
                               if (pickedId == null) return;
                               final provider = context.read<CustomerProvider>();
-                              final picked = provider.customers.where((c) => c.id == pickedId).toList();
+                              final picked =
+                                  provider.customers
+                                      .where((c) => c.id == pickedId)
+                                      .toList();
                               if (picked.isEmpty) return;
                               setState(() {
                                 _customerId = picked.first.id;
@@ -1601,9 +1817,15 @@ Lệnh: $text
                             tooltip: 'Thêm khách hàng mới',
                             icon: Icon(
                               Icons.person_add_alt,
-                              color: _customerExactMatched ? Colors.black54 : Colors.red,
+                              color:
+                                  _customerExactMatched
+                                      ? Colors.black54
+                                      : Colors.red,
                             ),
-                            onPressed: () => _addQuickCustomerDialog(prefillName: _customer),
+                            onPressed:
+                                () => _addQuickCustomerDialog(
+                                  prefillName: _customer,
+                                ),
                           ),
                         ],
                       ),
@@ -1616,7 +1838,9 @@ Lệnh: $text
                           onPressed: () async {
                             final pickedProductId = await _showProductPicker();
                             if (pickedProductId == null) return;
-                            final picked = productsById[pickedProductId] ?? _getProductById(pickedProductId);
+                            final picked =
+                                productsById[pickedProductId] ??
+                                _getProductById(pickedProductId);
                             if (picked == null) return;
                             setState(() {
                               _orders.add({
@@ -1624,7 +1848,10 @@ Lệnh: $text
                                 'item': picked.name,
                                 'quantity': 1.0,
                                 'unit': picked.unit,
-                                'price': widget.forPurchaseOrder ? picked.costPrice.toDouble() : picked.price.toDouble(),
+                                'price':
+                                    widget.forPurchaseOrder
+                                        ? picked.costPrice.toDouble()
+                                        : picked.price.toDouble(),
                                 'dbExactMatched': true,
                               });
                               _syncPaidWithTotalIfNotEdited(_orderTotal);
@@ -1632,8 +1859,7 @@ Lệnh: $text
                           },
                         ),
                       ),
-                      if (_orders.isNotEmpty)
-                        const SizedBox(height: 8),
+                      if (_orders.isNotEmpty) const SizedBox(height: 8),
                       ..._orders.map((order) {
                         final name = order['item']?.toString() ?? '';
                         final unit = order['unit']?.toString();
@@ -1642,7 +1868,9 @@ Lệnh: $text
                         final pid = order['productId']?.toString();
                         final prod = pid == null ? null : productsById[pid];
 
-                        final isExact = (order['dbExactMatched'] == true) && (pid != null && pid.isNotEmpty);
+                        final isExact =
+                            (order['dbExactMatched'] == true) &&
+                            (pid != null && pid.isNotEmpty);
                         final qtyCtrl = _qtyCtrlFor(order);
                         final priceCtrl = _priceCtrlFor(order);
                         return Container(
@@ -1666,36 +1894,61 @@ Lệnh: $text
                                         Icon(
                                           Icons.check_circle,
                                           size: 18,
-                                          color: pid == null || pid.isEmpty
-                                              ? Colors.orange
-                                              : (isExact ? Colors.green : Colors.red),
+                                          color:
+                                              pid == null || pid.isEmpty
+                                                  ? Colors.orange
+                                                  : (isExact
+                                                      ? Colors.green
+                                                      : Colors.red),
                                         ),
                                         const SizedBox(width: 6),
                                         Expanded(
                                           child: InkWell(
                                             onTap: () async {
-                                              final pickedProductId = await _showProductPicker();
-                                              if (pickedProductId == null) return;
-                                              final picked = productsById[pickedProductId] ?? _getProductById(pickedProductId);
+                                              final pickedProductId =
+                                                  await _showProductPicker();
+                                              if (pickedProductId == null)
+                                                return;
+                                              final picked =
+                                                  productsById[pickedProductId] ??
+                                                  _getProductById(
+                                                    pickedProductId,
+                                                  );
                                               if (picked == null) return;
-                                              final nextPrice = widget.forPurchaseOrder ? picked.costPrice.toDouble() : picked.price.toDouble();
+                                              final nextPrice =
+                                                  widget.forPurchaseOrder
+                                                      ? picked.costPrice
+                                                          .toDouble()
+                                                      : picked.price.toDouble();
                                               setState(() {
                                                 order['productId'] = picked.id;
                                                 order['item'] = picked.name;
                                                 order['unit'] = picked.unit;
 
-                                                final curPrice = (order['price'] as num?)?.toDouble() ?? 0;
+                                                final curPrice =
+                                                    (order['price'] as num?)
+                                                        ?.toDouble() ??
+                                                    0;
                                                 if (curPrice <= 0) {
                                                   order['price'] = nextPrice;
                                                 }
                                                 order['dbExactMatched'] = true;
                                               });
-                                              _qtyCtrlFor(order).text = _formatForInput(
-                                                (order['quantity'] as num?)?.toDouble() ?? 0,
+                                              _qtyCtrlFor(
+                                                order,
+                                              ).text = _formatForInput(
+                                                (order['quantity'] as num?)
+                                                        ?.toDouble() ??
+                                                    0,
                                                 maxDecimalDigits: 2,
                                               );
-                                              if (((order['price'] as num?)?.toDouble() ?? 0) <= 0) {
-                                                _priceCtrlFor(order).text = _formatForInput(
+                                              if (((order['price'] as num?)
+                                                          ?.toDouble() ??
+                                                      0) <=
+                                                  0) {
+                                                _priceCtrlFor(
+                                                  order,
+                                                ).text = _formatForInput(
                                                   nextPrice,
                                                   maxDecimalDigits: 0,
                                                 );
@@ -1703,7 +1956,9 @@ Lệnh: $text
                                             },
                                             child: Text(
                                               name,
-                                              style: const TextStyle(fontWeight: FontWeight.w600),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
@@ -1713,12 +1968,16 @@ Lệnh: $text
                                           tooltip: 'Thêm sản phẩm mới',
                                           icon: Icon(
                                             Icons.add_box_outlined,
-                                            color: isExact ? Colors.black54 : Colors.red,
+                                            color:
+                                                isExact
+                                                    ? Colors.black54
+                                                    : Colors.red,
                                           ),
-                                          onPressed: () => _addQuickProductDialog(
-                                            prefillName: name,
-                                            targetOrder: order,
-                                          ),
+                                          onPressed:
+                                              () => _addQuickProductDialog(
+                                                prefillName: name,
+                                                targetOrder: order,
+                                              ),
                                         ),
                                       ],
                                     ),
@@ -1726,7 +1985,10 @@ Lệnh: $text
                                       const SizedBox(height: 2),
                                       Text(
                                         'Tồn: ${prod.currentStock.toStringAsFixed(prod.currentStock % 1 == 0 ? 0 : 2)} ${prod.unit}',
-                                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.black54,
+                                        ),
                                       ),
                                     ],
                                     const SizedBox(height: 6),
@@ -1736,18 +1998,31 @@ Lệnh: $text
                                           width: 90,
                                           child: TextField(
                                             controller: qtyCtrl,
-                                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                            inputFormatters: [NumberInputFormatter(maxDecimalDigits: 2)],
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                            inputFormatters: [
+                                              NumberInputFormatter(
+                                                maxDecimalDigits: 2,
+                                              ),
+                                            ],
                                             decoration: const InputDecoration(
                                               labelText: 'SL',
                                               isDense: true,
                                             ),
                                             onChanged: (v) {
-                                              final val = NumberInputFormatter.tryParse(v);
-                                              if (val == null || val < 0) return;
+                                              final val =
+                                                  NumberInputFormatter.tryParse(
+                                                    v,
+                                                  );
+                                              if (val == null || val < 0)
+                                                return;
                                               setState(() {
                                                 order['quantity'] = val;
-                                                _syncPaidWithTotalIfNotEdited(_orderTotal);
+                                                _syncPaidWithTotalIfNotEdited(
+                                                  _orderTotal,
+                                                );
                                               });
                                             },
                                           ),
@@ -1758,18 +2033,31 @@ Lệnh: $text
                                         Expanded(
                                           child: TextField(
                                             controller: priceCtrl,
-                                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                            inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                            inputFormatters: [
+                                              NumberInputFormatter(
+                                                maxDecimalDigits: 0,
+                                              ),
+                                            ],
                                             decoration: const InputDecoration(
                                               labelText: 'Đơn giá',
                                               isDense: true,
                                             ),
                                             onChanged: (v) {
-                                              final val = NumberInputFormatter.tryParse(v);
-                                              if (val == null || val < 0) return;
+                                              final val =
+                                                  NumberInputFormatter.tryParse(
+                                                    v,
+                                                  );
+                                              if (val == null || val < 0)
+                                                return;
                                               setState(() {
                                                 order['price'] = val;
-                                                _syncPaidWithTotalIfNotEdited(_orderTotal);
+                                                _syncPaidWithTotalIfNotEdited(
+                                                  _orderTotal,
+                                                );
                                               });
                                             },
                                           ),
@@ -1779,13 +2067,18 @@ Lệnh: $text
                                     const SizedBox(height: 4),
                                     Text(
                                       'Thành tiền: ${currency.format(lineTotal)}',
-                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ],
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.redAccent,
+                                ),
                                 tooltip: 'Xóa dòng',
                                 onPressed: () {
                                   setState(() {
@@ -1810,7 +2103,10 @@ Lệnh: $text
                             ),
                             Text(
                               currency.format(_orderTotal),
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
                             ),
                           ],
                         ),
@@ -1821,14 +2117,20 @@ Lệnh: $text
                             SizedBox(
                               width: 160,
                               child: TextField(
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                inputFormatters: [NumberInputFormatter(maxDecimalDigits: 0)],
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                inputFormatters: [
+                                  NumberInputFormatter(maxDecimalDigits: 0),
+                                ],
                                 decoration: const InputDecoration(
                                   hintText: '0',
                                   isDense: true,
                                 ),
                                 onChanged: (v) {
-                                  final val = NumberInputFormatter.tryParse(v) ?? 0;
+                                  final val =
+                                      NumberInputFormatter.tryParse(v) ?? 0;
                                   setState(() {
                                     _paidEdited = true;
                                     _paid = val.clamp(0, total).toDouble();
@@ -1858,17 +2160,25 @@ Lệnh: $text
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton.icon(
-                            onPressed: widget.returnDraft ? _applyDraftToCaller : _saveOrder,
-                            icon: Icon(widget.returnDraft ? Icons.check : Icons.save),
+                            onPressed:
+                                widget.returnDraft
+                                    ? _applyDraftToCaller
+                                    : _saveOrder,
+                            icon: Icon(
+                              widget.returnDraft ? Icons.check : Icons.save,
+                            ),
                             label: Text(
                               widget.returnDraft
                                   ? 'Áp dụng vào đơn'
-                                  : (debt > 0 ? 'Lưu + Ghi nợ (${currency.format(debt)})' : 'Lưu hóa đơn'),
+                                  : (debt > 0
+                                      ? 'Lưu + Ghi nợ (${currency.format(debt)})'
+                                      : 'Lưu hóa đơn'),
                             ),
                           ),
                         ),
                       ],
-                      if (_orders.isEmpty && _customer.isEmpty) const Text('Chưa có đơn hàng'),
+                      if (_orders.isEmpty && _customer.isEmpty)
+                        const Text('Chưa có đơn hàng'),
                       if (_orders.isNotEmpty || _customer.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 12.0),
@@ -1880,9 +2190,14 @@ Lệnh: $text
                                 onPressed: _clearOrder,
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.redAccent,
-                                  side: const BorderSide(color: Colors.redAccent),
+                                  side: const BorderSide(
+                                    color: Colors.redAccent,
+                                  ),
                                 ),
-                                icon: const Icon(Icons.delete_outline, size: 20),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 20,
+                                ),
                                 label: const Text('Xoá đơn hàng'),
                               ),
                             ),
@@ -1912,7 +2227,9 @@ Lệnh: $text
                       Text('• Mua 2 chai nước ngọt giá 15.000 đồng'),
                       Text('• Thêm 1 ký thịt heo giá 120.000 đồng'),
                       Text('• Xoá 1 nước ngọt'),
-                      Text('• Đặt hàng cho khách Nguyễn Văn A: 2 nước ngọt 15000, 1 bánh mì 20000'),
+                      Text(
+                        '• Đặt hàng cho khách Nguyễn Văn A: 2 nước ngọt 15000, 1 bánh mì 20000',
+                      ),
                       Text('• Xoá toàn bộ đơn hàng'),
                     ],
                   ),
@@ -1924,7 +2241,8 @@ Lệnh: $text
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _isWaitingAi ? null : _toggleListening,
-        backgroundColor: _isListening ? Colors.red : Theme.of(context).primaryColor,
+        backgroundColor:
+            _isListening ? Colors.red : Theme.of(context).primaryColor,
         child: Icon(
           _isListening ? Icons.mic_off : Icons.mic,
           color: Colors.white,
