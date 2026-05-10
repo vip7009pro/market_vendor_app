@@ -81,3 +81,12 @@ lib/
 - `firebase_core`, `firebase_auth`, `cloud_firestore` (đăng nhập, sync)
 - `image_picker` (chụp/chọn ảnh sản phẩm)
 - `intl` (format số, ngày)
+
+### Nâng cấp giao diện hóa đơn & Chia sẻ (2026-05-10)
+- **lib/screens/receipt_preview_screen.dart**:
+  - Khắc phục lỗi bố cục bị bóp méo trên màn hình bằng `InteractiveViewer(constrained: false)`.
+  - Khắc phục lỗi chia sẻ ảnh (PNG) bị cắt thiếu khi hóa đơn dài bằng `screenshotController.captureFromWidget()`.
+  - Thiết kế lại file PDF chia sẻ chuẩn chuyên nghiệp sử dụng thư viện `pdf`.
+  - Cải tiến typography và layout cho các khổ in nhiệt hiển thị đẹp mắt, chuyên nghiệp hơn.
+  - Rút gọn mã đơn hàng hiển thị (12 ký tự) trên giao diện nhưng giữ nguyên mã trong QR.
+  - Sửa lỗi share PNG bị bóp chiều ngang và mất nội dung bằng cách đẩy widget Screenshot vào trong InteractiveViewer.
