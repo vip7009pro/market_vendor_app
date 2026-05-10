@@ -90,3 +90,17 @@ lib/
   - Cải tiến typography và layout cho các khổ in nhiệt hiển thị đẹp mắt, chuyên nghiệp hơn.
   - Rút gọn mã đơn hàng hiển thị (12 ký tự) trên giao diện nhưng giữ nguyên mã trong QR.
   - Sửa lỗi share PNG bị bóp chiều ngang và mất nội dung bằng cách đẩy widget Screenshot vào trong InteractiveViewer.
+
+### Sửa lỗi Google Play Store 16KB Page Size (2026-05-10) - Giải pháp triệt để
+- **Flutter SDK**: Nâng cấp lên phiên bản **3.41.9 (Stable)** để đảm bảo engine hỗ trợ 16KB page size.
+- **Android Toolchain**: 
+  - Cài đặt và sử dụng **Android NDK r28 (28.2.13676358)**.
+  - Cập nhật **android/app/build.gradle.kts**:
+    - Thiết lập `ndkVersion = "28.2.13676358"`.
+    - Cấu hình `packaging { jniLibs { useLegacyPackaging = false } }` để căn lề thư viện native đúng chuẩn 16KB trong AAB.
+    - Tăng `minSdk = 23` (yêu cầu bởi các bản Firebase mới).
+- **Dependencies**:
+  - Nâng cấp bộ **Firebase** (`firebase_core`, `firebase_auth`, `cloud_firestore`) lên bản mới nhất hỗ trợ 16KB.
+  - Pin (giữ nguyên) các package khác như `google_sign_in`, `fl_chart`, `flutter_contacts`, `file_picker` ở các phiên bản ổn định để tránh lỗi biên dịch do thay đổi API, nhưng vẫn hưởng lợi từ việc đóng gói (packaging) 16KB của Gradle 8.7+.
+- **Build**: Đã tạo thành công file `app-release.aab` sạch, hỗ trợ Android 15+.
+- **Lưu ý**: Gỡ bỏ hoàn toàn các workaround cũ như `extractNativeLibs="true"` vì không còn được Play Store chấp nhận cho API 35+.
