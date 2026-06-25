@@ -71,13 +71,40 @@ lib/
     └── voice_product_input_dialog.dart
 ```
 
-### Dependencies quan trọng
+### Dependencies quan trọng (Mobile)
 - `flutter` SDK ^3.7.2
 - `provider` ^6.1.1 (state management)
 - `sqflite` (local database)
-- `http` ^1.2.2 (HTTP calls — dùng trong ai_provider_service)
+- `http` ^1.2.2 (HTTP calls)
 - `shared_preferences` ^2.2.2 (local config)
 - `speech_to_text` ^7.3.0 (nhận dạng giọng nói)
 - `firebase_core`, `firebase_auth`, `cloud_firestore` (đăng nhập, sync)
 - `image_picker` (chụp/chọn ảnh sản phẩm)
 - `intl` (format số, ngày)
+
+## Trạng thái Web Migration (2026-06-25)
+
+### 1. Backend API (`backend-api/`)
+- Kiến trúc Node.js + Express + TypeScript + Prisma ORM.
+- Database: PostgreSQL `market_vendor_web` (localhost:3005).
+- Tách biệt hoàn toàn với `backend-node` cũ. Schema khớp 100% với SQLite v33 của mobile.
+- API Endpoints đã hoàn thiện:
+  - Auth (`/auth/register`, `/auth/login`, `/auth/me`, `/auth/google`) hỗ trợ Email/Password, Google OAuth thực tế và Mock Google Login cho môi trường phát triển local (đã sửa lỗi Unique constraint failed khi trùng email).
+  - CRUD sản phẩm, khách hàng, đơn hàng, công nợ, chi phí, báo cáo dashboard.
+  - Tự động hóa logic kho hàng (trừ thô/phối trộn) và tự động ghi nợ khi thanh toán thiếu.
+
+### 2. Web App Next.js (`web-app/`)
+- Thiết kế bằng Next.js 16 (App Router), React 19, TypeScript và CSS Variables (tối ưu hóa HSL Dark/Light theme, glassmorphism, micro-animations).
+- Trang đã triển khai & tối ưu hóa compile:
+  - **Landing Page (`/`)**: Trình diễn tính năng chuyên nghiệp, bảng giá gói dịch vụ, kêu gọi hành động.
+  - **Auth (`/login`)**: Tích hợp Login/Register với trạng thái lưu token qua LocalStorage, bảo mật bằng Suspense boundary cho pre-render. Tích hợp Google Sign-In thực tế (Google Identity Services) hiển thị popup chọn tài khoản Google của thiết bị.
+  - **Dashboard layout & Home (`/dashboard`)**: Sidebar/Header responsive, hiển thị các chỉ số KPIs (Doanh thu, số đơn, chi phí, nợ khách hàng) cùng bảng giao dịch gần đây.
+  - **POS Bán hàng (`/pos`)**: Thao tác tạo đơn, chọn khách hàng, giảm giá trực tiếp, tính toán và in hóa đơn/ghi nợ tự động.
+  - **Quản lý sản phẩm (`/products`)**: CRUD đầy đủ phân loại RAW/MIX, giá vốn, giá bán, số lượng tồn kho.
+  - **Khách hàng (`/customers`)**: Danh bạ đối tác lọc riêng Khách hàng & Nhà cung cấp.
+  - **Lịch sử bán hàng (`/sales`)**: Chi tiết hóa đơn và hủy/hoàn trả đơn hàng.
+  - **Sổ ghi nợ (`/debts`)**: Quản lý thu nợ (khách nợ) và trả nợ (nợ nhà cung cấp).
+  - **Chi phí (`/expenses`)**: Ghi chép và lọc các loại chi phí hoạt động.
+  - **Báo cáo (`/reports`)**: Biểu đồ doanh thu/lợi nhuận động theo Tuần/Tháng/Năm, danh sách mặt hàng bán chạy.
+  - **Cài đặt (`/settings`)**: Thiết lập thông tin cửa hàng, tài khoản ngân hàng VietQR, quản lý tài khoản nhân viên.
+- Biên dịch: Build tĩnh Next.js hoạt động hoàn hảo 100% không có lỗi type-checking.

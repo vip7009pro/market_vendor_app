@@ -1,0 +1,487 @@
+// Prisma schema — 100% khớp với mobile SQLite v33
+// Chuyển đổi từ database_service.dart onCreate (line 2500-2806)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── AUTH ─────────────────────────────────────────────
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String?  // null if Google-only auth
+  googleSub String?  @unique @map("google_sub")
+  name      String?
+  photoUrl  String?  @map("photo_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  products            Product[]
+  customers           Customer[]
+  sales               Sale[]
+  saleItems           SaleItem[]
+  debts               Debt[]
+  debtPayments        DebtPayment[]
+  purchaseOrders      PurchaseOrder[]
+  purchaseHistories   PurchaseHistory[]
+  expenses            Expense[]
+  employees           Employee[]
+  vietqrBankAccounts  VietqrBankAccount[]
+  storeInfo           StoreInfo[]
+  productOpeningStocks ProductOpeningStock[]
+  debtReminderSettings DebtReminderSetting[]
+  deletedEntities     DeletedEntity[]
+  auditLogs           AuditLog[]
+  syncLogs            SyncLog[]
+  outboxEntries       Outbox[]
+  syncStates          SyncState[]
+  appliedSyncEvents   AppliedSyncEvent[]
+  syncEvents          SyncEvent[]
+
+  @@map("users")
+}
+
+// ─── PRODUCTS ─────────────────────────────────────────
+// Mobile: products table (database_service.dart:2503-2520)
+model Product {
+  userId       Int      @map("user_id")
+  id           String   // UUID from mobile
+  name         String
+  price        Decimal
+  costPrice    Decimal  @default(0) @map("cost_price")
+  currentStock Decimal  @default(0) @map("current_stock")
+  unit         String
+  barcode      String?
+  isActive     Boolean  @default(true) @map("is_active")
+  itemType     String   @default("RAW") @map("item_type")  // RAW | MIX
+  isStocked    Boolean  @default(true) @map("is_stocked")
+  imagePath    String?  @map("image_path")
+  updatedAt    DateTime @map("updated_at")
+  deviceId     String?  @map("device_id")
+  deletedAt    DateTime? @map("deleted_at")
+  isSynced     Boolean  @default(false) @map("is_synced")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, id])
+  @@map("products")
+}
+
+// ─── CUSTOMERS ────────────────────────────────────────
+// Mobile: customers table (database_service.dart:2523-2534)
+model Customer {
+  userId     Int      @map("user_id")
+  id         String
+  name       String
+  phone      String?
+  note       String?
+  isSupplier Boolean  @default(false) @map("is_supplier")
+  updatedAt  DateTime @map("updated_at")
+  deviceId   String?  @map("device_id")
+  deletedAt  DateTime? @map("deleted_at")
+  isSynced   Boolean  @default(false) @map("is_synced")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, id])
+  @@map("customers")
+}
+
+// ─── SALES ────────────────────────────────────────────
+// Mobile: sales table (database_service.dart:2537-2554)
+model Sale {
+  userId       Int      @map("user_id")
+  id           String
+  createdAt    DateTime @map("created_at")
+  customerId   String?  @map("customer_id")
+  customerName String?  @map("customer_name")
+  employeeId   String?  @map("employee_id")
+  employeeName String?  @map("employee_name")
+  discount     Decimal  @default(0)
+  paidAmount   Decimal  @default(0) @map("paid_amount")
+  paymentType  String?  @map("payment_type")  // cash | bank
+  totalCost    Decimal  @default(0) @map("total_cost")
+  note         String?
+  updatedAt    DateTime @map("updated_at")
+  deviceId     String?  @map("device_id")
+  deletedAt    DateTime? @map("deleted_at")
+  isSynced     Boolean  @default(false) @map("is_synced")
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items SaleItem[]
+
+  @@id([userId, id])
+  @@map("sales")
+}
+
+// ─── SALE ITEMS ───────────────────────────────────────
+// Mobile: sale_items table (database_service.dart:2557-2574)
+// Note: Mobile uses INTEGER AUTOINCREMENT for id, web uses TEXT UUID
+model SaleItem {
+  userId       Int      @map("user_id")
+  id           String   @default(uuid())
+  saleId       String   @map("sale_id")
+  productId    String?  @map("product_id")
+  name         String
+  unitPrice    Decimal  @map("unit_price")
+  unitCost     Decimal  @default(0) @map("unit_cost")
+  quantity     Decimal
+  unit         String
+  itemType     String?  @map("item_type")     // RAW | MIX
+  displayName  String?  @map("display_name")
+  mixItemsJson String?  @map("mix_items_json")
+  updatedAt    DateTime @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  isSynced     Boolean  @default(false) @map("is_synced")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sale Sale @relation(fields: [userId, saleId], references: [userId, id], onDelete: Cascade)
+
+  @@id([userId, id])
+  @@index([userId, saleId])
+  @@map("sale_items")
+}
+
+// ─── DEBTS ────────────────────────────────────────────
+// Mobile: debts table (database_service.dart:2577-2595)
+model Debt {
+  userId        Int      @map("user_id")
+  id            String
+  createdAt     DateTime @map("created_at")
+  type          Int      // 0 = oweOthers, 1 = othersOweMe
+  partyId       String   @map("party_id")
+  partyName     String   @map("party_name")
+  initialAmount Decimal  @default(0) @map("initial_amount")
+  amount        Decimal
+  description   String?
+  dueDate       DateTime? @map("due_date")
+  settled       Boolean  @default(false)
+  sourceType    String?  @map("source_type")  // sale | purchase
+  sourceId      String?  @map("source_id")
+  updatedAt     DateTime @map("updated_at")
+  deviceId      String?  @map("device_id")
+  deletedAt     DateTime? @map("deleted_at")
+  isSynced      Boolean  @default(false) @map("is_synced")
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments DebtPayment[]
+
+  @@id([userId, id])
+  @@map("debts")
+}
+
+// ─── DEBT PAYMENTS ────────────────────────────────────
+// Mobile: debt_payments table (database_service.dart:2609-2622)
+model DebtPayment {
+  userId      Int      @map("user_id")
+  uuid        String   @default(uuid())
+  debtId      String   @map("debt_id")
+  amount      Decimal
+  note        String?
+  paymentType String?  @map("payment_type")
+  createdAt   DateTime @map("created_at")
+  updatedAt   DateTime @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  isSynced    Boolean  @default(false) @map("is_synced")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  debt Debt @relation(fields: [userId, debtId], references: [userId, id], onDelete: Cascade)
+
+  @@id([userId, uuid])
+  @@index([userId, debtId])
+  @@map("debt_payments")
+}
+
+// ─── PURCHASE ORDERS ──────────────────────────────────
+// Mobile: purchase_orders table (database_service.dart:2682-2698)
+model PurchaseOrder {
+  userId             Int      @map("user_id")
+  id                 String
+  createdAt          DateTime @map("created_at")
+  supplierName       String?  @map("supplier_name")
+  supplierPhone      String?  @map("supplier_phone")
+  discountType       String   @default("AMOUNT") @map("discount_type") // AMOUNT | PERCENT
+  discountValue      Decimal  @default(0) @map("discount_value")
+  paidAmount         Decimal  @default(0) @map("paid_amount")
+  note               String?
+  purchaseDocUploaded Boolean @default(false) @map("purchase_doc_uploaded")
+  purchaseDocFileId  String?  @map("purchase_doc_file_id")
+  purchaseDocUpdatedAt DateTime? @map("purchase_doc_updated_at")
+  updatedAt          DateTime @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+  isSynced           Boolean  @default(false) @map("is_synced")
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items   PurchaseHistory[]
+
+  @@id([userId, id])
+  @@map("purchase_orders")
+}
+
+// ─── PURCHASE HISTORY ─────────────────────────────────
+// Mobile: purchase_history table (database_service.dart:2659-2679)
+model PurchaseHistory {
+  userId             Int      @map("user_id")
+  id                 String
+  createdAt          DateTime @map("created_at")
+  productId          String   @map("product_id")
+  productName        String   @map("product_name")
+  quantity           Decimal
+  unitCost           Decimal  @default(0) @map("unit_cost")
+  totalCost          Decimal  @default(0) @map("total_cost")
+  paidAmount         Decimal  @default(0) @map("paid_amount")
+  supplierName       String?  @map("supplier_name")
+  supplierPhone      String?  @map("supplier_phone")
+  note               String?
+  purchaseDocUploaded Boolean @default(false) @map("purchase_doc_uploaded")
+  purchaseDocFileId  String?  @map("purchase_doc_file_id")
+  purchaseDocUpdatedAt DateTime? @map("purchase_doc_updated_at")
+  purchaseOrderId    String?  @map("purchase_order_id")
+  updatedAt          DateTime @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+  isSynced           Boolean  @default(false) @map("is_synced")
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order PurchaseOrder? @relation(fields: [userId, purchaseOrderId], references: [userId, id])
+
+  @@id([userId, id])
+  @@map("purchase_history")
+}
+
+// ─── EXPENSES ─────────────────────────────────────────
+// Mobile: expenses table (database_service.dart:2701-2714)
+model Expense {
+  userId             Int      @map("user_id")
+  id                 String
+  occurredAt         DateTime @map("occurred_at")
+  amount             Decimal
+  category           String
+  note               String?
+  expenseDocUploaded Boolean  @default(false) @map("expense_doc_uploaded")
+  expenseDocFileId   String?  @map("expense_doc_file_id")
+  expenseDocUpdatedAt DateTime? @map("expense_doc_updated_at")
+  updatedAt          DateTime @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+  isSynced           Boolean  @default(false) @map("is_synced")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, id])
+  @@map("expenses")
+}
+
+// ─── EMPLOYEES ────────────────────────────────────────
+// Mobile: employees table (database_service.dart:2763-2770)
+model Employee {
+  userId    Int      @map("user_id")
+  id        String
+  name      String
+  updatedAt DateTime @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  isSynced  Boolean  @default(false) @map("is_synced")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, id])
+  @@map("employees")
+}
+
+// ─── VIETQR BANK ACCOUNTS ─────────────────────────────
+// Mobile: vietqr_bank_accounts table (database_service.dart:2739-2760)
+model VietqrBankAccount {
+  userId            Int      @map("user_id")
+  id                String
+  bankApiId         Int?     @map("bank_api_id")
+  name              String?
+  code              String?
+  bin               String?
+  shortName         String?  @map("short_name")
+  logo              String?
+  transferSupported Boolean? @map("transfer_supported")
+  lookupSupported   Boolean? @map("lookup_supported")
+  support           Int?
+  isTransfer        Boolean? @map("is_transfer")
+  swiftCode         String?  @map("swift_code")
+  accountNo         String   @map("account_no")
+  accountName       String   @map("account_name")
+  isDefault         Boolean  @default(false) @map("is_default")
+  updatedAt         DateTime @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+  isSynced          Boolean  @default(false) @map("is_synced")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, id])
+  @@map("vietqr_bank_accounts")
+}
+
+// ─── STORE INFO ───────────────────────────────────────
+// Mobile: store_info table (database_service.dart:2717-2728)
+model StoreInfo {
+  userId      Int      @map("user_id")
+  id          Int      @default(1)
+  name        String
+  address     String
+  phone       String
+  taxCode     String?  @map("tax_code")
+  email       String?
+  bankName    String?  @map("bank_name")
+  bankAccount String?  @map("bank_account")
+  updatedAt   DateTime @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, id])
+  @@map("store_info")
+}
+
+// ─── PRODUCT OPENING STOCKS ──────────────────────────
+// Mobile: product_opening_stocks table (database_service.dart:2648-2656)
+model ProductOpeningStock {
+  userId       Int      @map("user_id")
+  productId    String   @map("product_id")
+  year         Int
+  month        Int
+  openingStock Decimal  @default(0) @map("opening_stock")
+  updatedAt    DateTime @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, productId, year, month])
+  @@map("product_opening_stocks")
+}
+
+// ─── DEBT REMINDER SETTINGS ──────────────────────────
+// Mobile: debt_reminder_settings table (database_service.dart:2731-2736)
+model DebtReminderSetting {
+  userId         Int      @map("user_id")
+  debtId         String   @map("debt_id")
+  muted          Boolean  @default(false)
+  lastNotifiedAt DateTime? @map("last_notified_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, debtId])
+  @@map("debt_reminder_settings")
+}
+
+// ─── DELETED ENTITIES ─────────────────────────────────
+// Mobile: deleted_entities table (database_service.dart:2598-2606)
+model DeletedEntity {
+  userId     Int      @map("user_id")
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  deletedAt  DateTime @map("deleted_at")
+  deviceId   String   @map("device_id")
+  isSynced   Boolean  @default(false) @map("is_synced")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, entityType, entityId])
+  @@map("deleted_entities")
+}
+
+// ─── AUDIT LOGS ───────────────────────────────────────
+// Mobile: audit_logs table (database_service.dart:2625-2633)
+model AuditLog {
+  id       Int    @id @default(autoincrement())
+  userId   Int    @map("user_id")
+  entity   String
+  entityId String @map("entity_id")
+  action   String
+  at       DateTime
+  payload  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("audit_logs")
+}
+
+// ─── SYNC LOGS ────────────────────────────────────────
+// Mobile: sync_logs table (database_service.dart:2636-2645)
+model SyncLog {
+  id         Int    @id @default(autoincrement())
+  userId     Int    @map("user_id")
+  action     String
+  entityType String @map("entity_type")
+  entityId   String? @map("entity_id")
+  deviceId   String @map("device_id")
+  timestamp  DateTime
+  details    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sync_logs")
+}
+
+// ─── OUTBOX ───────────────────────────────────────────
+// Mobile: outbox table (database_service.dart:2773-2784)
+model Outbox {
+  id              Int    @id @default(autoincrement())
+  userId          Int    @map("user_id")
+  eventUuid       String @map("event_uuid")
+  entity          String
+  entityId        String @map("entity_id")
+  op              String // upsert | delete
+  payloadJson     String? @map("payload_json")
+  clientUpdatedAt DateTime @map("client_updated_at")
+  status          Int    @default(0) // 0 = pending, 1 = sent
+  createdAt       DateTime @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("outbox")
+}
+
+// ─── SYNC STATE ───────────────────────────────────────
+// Mobile: sync_state table (database_service.dart:2787-2791)
+model SyncState {
+  userId Int    @map("user_id")
+  key    String
+  value  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+  @@map("sync_state")
+}
+
+// ─── APPLIED SYNC EVENTS ─────────────────────────────
+// Mobile: applied_sync_events table (database_service.dart:2794-2798)
+model AppliedSyncEvent {
+  userId    Int      @map("user_id")
+  eventUuid String   @map("event_uuid")
+  appliedAt DateTime @map("applied_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, eventUuid])
+  @@map("applied_sync_events")
+}
+
+// ─── SYNC EVENTS (Server-side, from backend-node) ────
+model SyncEvent {
+  eventId          Int      @id @default(autoincrement()) @map("event_id")
+  userId           Int      @map("user_id")
+  deviceId         String   @map("device_id")
+  entity           String
+  entityId         String   @map("entity_id")
+  op               String   // upsert | delete
+  payload          Json?
+  clientUpdatedAt  DateTime @map("client_updated_at")
+  serverReceivedAt DateTime @default(now()) @map("server_received_at")
+  eventUuid        String?  @map("event_uuid")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventUuid])
+  @@index([userId, eventId])
+  @@index([userId, entity])
+  @@map("sync_events")
+}
