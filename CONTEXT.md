@@ -107,6 +107,14 @@ lib/
 
 ## Trạng thái Web Migration (2026-06-25)
 
+### Sửa lỗi & cải tiến Web (2026-06-25)
+- **Dialog/Modal căn giữa**: Tạo component `Modal` dùng React Portal (`document.body`) — khắc phục dialog bị đẩy lên cao/che khuất do render trong container scroll của layout dashboard.
+- **POS (`/pos`)**: Hiển thị ô **Số tiền khách trả** trực tiếp trên giỏ hàng (mặc định = tổng đơn), nút nhanh **Nợ tất / Trả hết**, tự động ghi công nợ khi trả thiếu. Preview **VietQR** khi chọn Chuyển khoản.
+- **Nhập hàng (`/purchases`)**: Mặc định số tiền đã trả = tổng đơn, nút **Nợ tất / Trả hết**, tự động ghi nợ nhà cung cấp.
+- **Sản phẩm (`/products`)**: Sửa lỗi không nhập được giá vốn (binding sai `price`). Dropdown đơn vị tính với localStorage lưu đơn vị gần nhất + tùy chọn thêm đơn vị mới.
+- **VietQR**: Thư viện `lib/vietqr.ts` + component `VietQrDisplay`. Cài đặt hiển thị QR preview (có mã BIN ngân hàng). Lịch sử bán hiển thị QR thu nợ/chuyển khoản.
+- **Seed data**: Script `backend-api/prisma/seed.ts` — tài khoản `demo@marketvendor.com` / `demo123456`, 20 SP, 8 KH, 4 NCC, ~102 đơn bán, 15 đơn nhập, 30 chi phí.
+
 ### 1. Backend API (`backend-api/`)
 - Kiến trúc Node.js + Express + TypeScript + Prisma ORM.
 - Database: PostgreSQL `market_vendor_web` (localhost:3005).

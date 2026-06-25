@@ -3,6 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import VoiceOrderModal from '@/components/pos/VoiceOrderModal';
+import Modal from '@/components/ui/Modal';
+import VietQrDisplay from '@/components/ui/VietQrDisplay';
+import { buildVietQrAddInfoFromItems } from '@/lib/vietqr';
 
 interface Product {
   id: string;
@@ -60,6 +63,7 @@ export default function PosPage() {
   // Checkout Modal State
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState<number>(0);
+  const [debtMode, setDebtMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   
   // Success Receipt Modal
@@ -142,10 +146,26 @@ export default function PosPage() {
     loadData();
   }, []);
 
+  // Auto-sync paid amount with order total unless in debt mode
+  useEffect(() => {
+    if (!debtMode) {
+      setPaidAmount(getTotal());
+    }
+  }, [cart, discount, debtMode]);
+
+  const getSubtotal = () => {
+    return cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+  };
+
+  const getTotal = () => {
+    const sub = getSubtotal();
+    return Math.max(0, sub - discount);
+  };
+
   const addToCart = (product: Product) => {
     const existing = cart.find(item => item.product.id === product.id);
     if (existing) {
-      if (product.itemType === 'MIX') return; // MIX items added only once to configure raw materials
+      if (product.itemType === 'MIX') return;
       setCart(cart.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
     } else {
       if (product.itemType === 'MIX') {
@@ -193,7 +213,7 @@ export default function PosPage() {
   const updateRawQtyInMix = (mixProductId: string, rawProductId: string, qty: number) => {
     setCart(cart.map(item => {
       if (item.product.id !== mixProductId) return item;
-      const mixItems = (item.mixItems || []).map(m => 
+      const mixItems = (item.mixItems || []).map(m =>
         m.rawProductId === rawProductId ? { ...m, rawQty: Math.max(0, qty) } : m
       );
       const totalQty = mixItems.reduce((sum, m) => sum + m.rawQty, 0);
@@ -222,19 +242,8 @@ export default function PosPage() {
     }));
   };
 
-  const getSubtotal = () => {
-    return cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-  };
-
-  const getTotal = () => {
-    const sub = getSubtotal();
-    return Math.max(0, sub - discount);
-  };
-
   const validateBeforeCheckout = () => {
     if (cart.length === 0) return;
-
-    // 1. Check stock
     const neededRaw: Record<string, { name: string; unit: string; currentStock: number; required: number }> = {};
     for (const item of cart) {
       if (item.product.itemType === 'MIX') {
@@ -301,8 +310,7 @@ export default function PosPage() {
   };
 
   const openCheckout = () => {
-    const total = getTotal();
-    setPaidAmount(total);
+    if (!debtMode) setPaidAmount(getTotal());
     setCheckoutModalOpen(true);
   };
 
@@ -371,6 +379,7 @@ export default function PosPage() {
       setCart([]);
       setDiscount(0);
       setNote('');
+      setDebtMode(false);
       setSelectedCustomerId('walk-in');
       setCheckoutModalOpen(false);
       setReceiptModalOpen(true);
@@ -381,26 +390,13 @@ export default function PosPage() {
     }
   };
 
-  const getVietQrUrl = (amount: number, saleId: string, cartItems: CartItem[]) => {
-    if (!bankAccount) return '';
-    const bankId = bankAccount.bin || bankAccount.code || '';
-    const accountNo = bankAccount.accountNo || '';
-    const accountName = encodeURIComponent(bankAccount.accountName || '');
-    
-    const parts = cartItems.map(it => {
-      const name = it.product.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      return `${name} x${it.quantity}=${Math.round(it.product.price * it.quantity)}`;
-    });
-    const tail = saleId.replace(/\D/g, '').slice(-5) || saleId.slice(-5);
-    const rawDesc = `${tail} Noi dung: ${parts.join('; ')}`;
-    let safeDesc = rawDesc
-      .replace(/[^a-zA-Z0-9\s=xX\-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (safeDesc.length > 50) safeDesc = safeDesc.slice(0, 47) + '...';
-    
-    const addInfo = encodeURIComponent(safeDesc);
-    return `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${amount}&addInfo=${addInfo}&accountName=${accountName}`;
+  const getVietQrDescription = (saleId: string, items: Array<{ name: string; quantity: number; unitPrice: number }>) => {
+    return buildVietQrAddInfoFromItems(saleId, items);
+  };
+
+  const getPosQrAmount = () => {
+    const total = getTotal();
+    return paidAmount > 0 ? paidAmount : total;
   };
 
   const filteredProducts = products.filter(p =>
@@ -414,7 +410,7 @@ export default function PosPage() {
   const rawProductsOnly = products.filter(p => p.itemType === 'RAW');
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col lg:flex-row gap-6 animate-fade-in-up">
+    <div className="h-[calc(100vh-140px)] min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-6 overflow-hidden">
       {/* Left side: Product catalog */}
       <div className="flex-1 flex flex-col bg-slate-900 border border-white/5 rounded-2xl p-6 overflow-hidden">
         {/* Search & Voice Order */}
@@ -472,7 +468,7 @@ export default function PosPage() {
       </div>
 
       {/* Right side: Cart / Invoice Checkout */}
-      <div className="w-full lg:w-96 flex flex-col bg-slate-900 border border-white/5 rounded-2xl p-6 overflow-hidden">
+      <div className="w-full lg:w-[min(100%,28rem)] lg:shrink-0 flex flex-col bg-slate-900 border border-white/5 rounded-2xl p-4 lg:p-5 min-h-0 overflow-y-auto">
         <h3 className="font-bold text-white text-base mb-4 flex items-center gap-2">
           <span>🛒</span> Giỏ hàng ({cart.reduce((sum, item) => sum + item.quantity, 0)})
         </h3>
@@ -646,6 +642,71 @@ export default function PosPage() {
             </div>
           </div>
 
+          {/* Paid Amount */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Số tiền khách trả (VNĐ)</label>
+            <input
+              type="number"
+              className="input text-xs"
+              value={paidAmount === 0 && debtMode ? 0 : paidAmount || ''}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setPaidAmount(val);
+                setDebtMode(val < getTotal());
+              }}
+            />
+            <div className="flex flex-wrap gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => { setDebtMode(true); setPaidAmount(0); }}
+                className="btn py-1 px-2.5 text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-all rounded-lg"
+              >
+                Nợ tất
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDebtMode(false); setPaidAmount(getTotal()); }}
+                className="btn py-1 px-2.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all rounded-lg"
+              >
+                Trả hết
+              </button>
+              {[50000, 100000, 200000, 500000].map(val => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => { setPaidAmount(val); setDebtMode(val < getTotal()); }}
+                  className="btn py-1 px-2.5 text-[10px] font-semibold bg-slate-800 text-slate-300 border border-white/5 hover:bg-slate-700 transition-all rounded-lg"
+                >
+                  {val / 1000}k
+                </button>
+              ))}
+            </div>
+            {paidAmount < getTotal() && (
+              <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] leading-relaxed">
+                Còn nợ: <strong>{formatCurrency(getTotal() - paidAmount)}</strong>
+                {selectedCustomerId === 'walk-in' && (
+                  <span className="block mt-1 text-rose-400 font-bold">* Phải chọn khách hàng cụ thể để ghi nợ!</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* VietQR live preview when bank transfer selected */}
+          {paymentType === 'BANK' && cart.length > 0 && getPosQrAmount() > 0 && (
+            <div className="bg-slate-950/30 p-3 rounded-xl border border-white/5">
+              <VietQrDisplay
+                bank={bankAccount}
+                amount={getPosQrAmount()}
+                description={getVietQrDescription('pos-preview', cart.map(c => ({
+                  name: c.displayName || c.product.name,
+                  quantity: c.quantity,
+                  unitPrice: c.product.price,
+                })))}
+                size="pos"
+              />
+            </div>
+          )}
+
           {/* Summary pricing */}
           <div className="bg-slate-950/30 p-3.5 rounded-xl space-y-2 border border-white/5">
             <div className="flex justify-between text-xs text-slate-400">
@@ -664,7 +725,7 @@ export default function PosPage() {
 
           <button
             onClick={validateBeforeCheckout}
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || (paidAmount < getTotal() && selectedCustomerId === 'walk-in')}
             className="btn btn-primary w-full btn-lg font-bold shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Thanh toán
@@ -672,264 +733,181 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* Raw Product Picker Modal for MIX */}
-      {mixProductSelectOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-          <div className="glass w-full max-w-sm rounded-2xl border border-white/10 shadow-2xl p-5 relative animate-fade-in-up">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-white">Chọn nguyên liệu RAW</h3>
-              <button onClick={() => setMixProductSelectOpen(null)} className="text-slate-400 hover:text-white">✕</button>
-            </div>
-            <div className="max-h-60 overflow-y-auto space-y-2">
-              {rawProductsOnly.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => addRawToMix(mixProductSelectOpen, p)}
-                  className="w-full text-left p-2.5 rounded-xl border border-white/5 hover:border-indigo-500/30 bg-slate-950/40 text-xs font-semibold text-white flex justify-between items-center"
-                >
-                  <span>{p.name}</span>
-                  <span className="text-[10px] text-slate-400">Tồn: {p.currentStock} {p.unit}</span>
-                </button>
-              ))}
-              {rawProductsOnly.length === 0 && (
-                <p className="text-center text-xs text-slate-500 py-4">Chưa có sản phẩm RAW nào</p>
-              )}
-            </div>
-          </div>
+      <Modal
+        open={!!mixProductSelectOpen}
+        onClose={() => setMixProductSelectOpen(null)}
+        title="Chọn nguyên liệu RAW"
+        maxWidth="max-w-sm"
+      >
+        <div className="max-h-60 overflow-y-auto space-y-2">
+          {rawProductsOnly.map(p => (
+            <button
+              key={p.id}
+              onClick={() => mixProductSelectOpen && addRawToMix(mixProductSelectOpen, p)}
+              className="w-full text-left p-2.5 rounded-xl border border-white/5 hover:border-indigo-500/30 bg-slate-950/40 text-xs font-semibold text-white flex justify-between items-center"
+            >
+              <span>{p.name}</span>
+              <span className="text-[10px] text-slate-400">Tồn: {p.currentStock} {p.unit}</span>
+            </button>
+          ))}
+          {rawProductsOnly.length === 0 && (
+            <p className="text-center text-xs text-slate-500 py-4">Chưa có sản phẩm RAW nào</p>
+          )}
         </div>
-      )}
+      </Modal>
 
-      {/* Stock warning modal */}
-      {stockWarningOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
-            <h3 className="text-lg font-bold text-rose-400 mb-4 flex items-center gap-2">
-              ⚠️ Tồn kho không đủ
-            </h3>
-            <div className="space-y-4 text-xs text-slate-300">
-              <p>Một số sản phẩm hoặc nguyên liệu có số lượng tồn kho thấp hơn lượng cần xuất đơn hàng:</p>
-              <div className="space-y-3 max-h-48 overflow-y-auto">
-                {outOfStockItems.map((item, idx) => (
-                  <div key={idx} className="p-3 bg-slate-950/40 rounded-xl border border-white/5 flex justify-between items-center">
-                    <div>
-                      <p className="font-semibold text-white">{item.name}</p>
-                      <p className="text-[10px] text-slate-500 mt-1">
-                        Cần: {item.required} {item.unit} | Tồn hiện tại: {item.currentStock} {item.unit}
-                      </p>
-                    </div>
-                    {/* Fast stock adjustment */}
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        defaultValue={item.required}
-                        id={`oos-adjust-${item.id}`}
-                        className="input h-7 w-16 text-center text-xs"
-                      />
-                      <button
-                        onClick={() => {
-                          const input = document.getElementById(`oos-adjust-${item.id}`) as HTMLInputElement;
-                          if (input) {
-                            handleUpdateStockQuick(item.id, Number(input.value));
-                          }
-                        }}
-                        className="btn btn-primary h-7 px-2 text-[10px]"
-                      >
-                        Cập nhật
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setStockWarningOpen(false)}
-                  className="btn btn-secondary text-xs"
-                >
-                  Hủy đơn
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStockWarningOpen(false);
-                    openCheckout();
-                  }}
-                  className="btn btn-primary text-xs bg-amber-500 hover:bg-amber-600 shadow-glow"
-                >
-                  Bỏ qua & Tiếp tục
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Mix Price below RAW cost warning modal */}
-      {mixWarningOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
-            <h3 className="text-lg font-bold text-amber-500 mb-4 flex items-center gap-2">
-              ⚠️ Cảnh báo giá bán MIX
-            </h3>
-            <div className="space-y-4 text-xs text-slate-300">
-              <p>Có sản phẩm MIX có giá bán thấp hơn tổng giá bán lẻ của nguyên liệu cấu thành:</p>
-              <div className="space-y-2">
-                {mixPriceWarnings.map((w, idx) => (
-                  <div key={idx} className="p-3 bg-slate-950/40 rounded-xl border border-white/5 flex justify-between text-slate-300">
-                    <span className="font-semibold text-white">{w.name}</span>
-                    <span>
-                      {formatCurrency(w.price)} &lt; {formatCurrency(w.rawSellTotal)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p>Bạn vẫn muốn lưu hóa đơn?</p>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setMixWarningOpen(false)}
-                  className="btn btn-secondary text-xs"
-                >
-                  Quay lại
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMixWarningOpen(false);
-                    openCheckout();
-                  }}
-                  className="btn btn-primary text-xs shadow-glow"
-                >
-                  Vẫn lưu
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Checkout Dialog Modal */}
-      {checkoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">Xác nhận thanh toán</h3>
-              <button onClick={() => setCheckoutModalOpen(false)} className="text-slate-400 hover:text-white text-lg">✕</button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="bg-slate-950/40 p-4 rounded-xl space-y-2 text-sm">
-                <div className="flex justify-between text-slate-400">
-                  <span>Khách hàng:</span>
-                  <span className="text-white font-semibold">
-                    {selectedCustomerId === 'walk-in' ? 'Khách vãng lai' : customers.find(c => c.id === selectedCustomerId)?.name}
-                  </span>
+      <Modal
+        open={stockWarningOpen}
+        onClose={() => setStockWarningOpen(false)}
+        title={<span className="text-rose-400">⚠️ Tồn kho không đủ</span>}
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4 text-xs text-slate-300">
+          <p>Một số sản phẩm hoặc nguyên liệu có số lượng tồn kho thấp hơn lượng cần xuất đơn hàng:</p>
+          <div className="space-y-3 max-h-48 overflow-y-auto">
+            {outOfStockItems.map((item, idx) => (
+              <div key={idx} className="p-3 bg-slate-950/40 rounded-xl border border-white/5 flex justify-between items-center">
+                <div>
+                  <p className="font-semibold text-white">{item.name}</p>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Cần: {item.required} {item.unit} | Tồn hiện tại: {item.currentStock} {item.unit}
+                  </p>
                 </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>Tổng tiền đơn:</span>
-                  <span className="text-white font-semibold">{formatCurrency(getTotal())}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Số tiền khách trả (VNĐ)</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={paidAmount === 0 ? '' : paidAmount}
-                  onChange={(e) => setPaidAmount(Number(e.target.value))}
-                />
-                
-                {/* Fast PaidAmount buttons */}
-                <div className="flex flex-wrap gap-2 mt-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    defaultValue={item.required}
+                    id={`oos-adjust-${item.id}`}
+                    className="input h-7 w-16 text-center text-xs"
+                  />
                   <button
-                    type="button"
-                    onClick={() => setPaidAmount(0)}
-                    className="btn py-1 px-2.5 text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-all rounded-lg"
+                    onClick={() => {
+                      const input = document.getElementById(`oos-adjust-${item.id}`) as HTMLInputElement;
+                      if (input) handleUpdateStockQuick(item.id, Number(input.value));
+                    }}
+                    className="btn btn-primary h-7 px-2 text-[10px]"
                   >
-                    Khách nợ tất
+                    Cập nhật
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaidAmount(getTotal())}
-                    className="btn py-1 px-2.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all rounded-lg"
-                  >
-                    Trả hết
-                  </button>
-                  {[50000, 100000, 200000, 500000].map(val => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setPaidAmount(val)}
-                      className="btn py-1 px-2.5 text-[10px] font-semibold bg-slate-800 text-slate-300 border border-white/5 hover:bg-slate-700 transition-all rounded-lg"
-                    >
-                      {val / 1000}k
-                    </button>
-                  ))}
                 </div>
               </div>
-
-              {paidAmount < getTotal() && (
-                <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs leading-relaxed">
-                  ⚠️ <strong>Ghi nhận công nợ:</strong> Khách hàng còn thiếu{' '}
-                  <strong>{formatCurrency(getTotal() - paidAmount)}</strong>. Số tiền này sẽ tự động lưu vào sổ nợ của{' '}
-                  <strong>{selectedCustomerId === 'walk-in' ? 'Khách vãng lai' : customers.find(c => c.id === selectedCustomerId)?.name}</strong>.
-                  {selectedCustomerId === 'walk-in' && (
-                    <div className="mt-1.5 text-rose-400 font-bold">
-                      * Cảnh báo: Có nợ thì bắt buộc phải chọn khách hàng cụ thể! Khách vãng lai không được ghi nợ.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Ghi chú đơn hàng</label>
-                <textarea
-                  className="input min-h-[60px]"
-                  placeholder="Ghi chú thêm thông tin..."
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setCheckoutModalOpen(false)}
-                  className="btn btn-secondary text-xs"
-                  disabled={submitting}
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={handleCheckoutSubmit}
-                  className="btn btn-primary text-xs shadow-glow"
-                  disabled={submitting || (paidAmount < getTotal() && selectedCustomerId === 'walk-in')}
-                >
-                  {submitting ? 'Đang tạo đơn...' : 'Xác nhận tạo đơn'}
-                </button>
-              </div>
-            </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+            <button type="button" onClick={() => setStockWarningOpen(false)} className="btn btn-secondary text-xs">Hủy đơn</button>
+            <button
+              type="button"
+              onClick={() => { setStockWarningOpen(false); openCheckout(); }}
+              className="btn btn-primary text-xs bg-amber-500 hover:bg-amber-600 shadow-glow"
+            >
+              Bỏ qua & Tiếp tục
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
 
-      {/* Success Receipt Modal (Double column: Receipt + VietQR if bank method and no debt) */}
-      {receiptModalOpen && completedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className={`glass w-full ${
-            completedOrder.paymentType === 'BANK' && completedOrder.paidAmount > 0 && completedOrder.total - completedOrder.paidAmount <= 0
-              ? 'max-w-2xl'
-              : 'max-w-sm'
-          } rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up`}>
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-white">Hóa đơn thanh toán</h3>
-              <button onClick={() => setReceiptModalOpen(false)} className="text-slate-400 hover:text-white text-lg">✕</button>
+      <Modal
+        open={mixWarningOpen}
+        onClose={() => setMixWarningOpen(false)}
+        title={<span className="text-amber-500">⚠️ Cảnh báo giá bán MIX</span>}
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4 text-xs text-slate-300">
+          <p>Có sản phẩm MIX có giá bán thấp hơn tổng giá bán lẻ của nguyên liệu cấu thành:</p>
+          <div className="space-y-2">
+            {mixPriceWarnings.map((w, idx) => (
+              <div key={idx} className="p-3 bg-slate-950/40 rounded-xl border border-white/5 flex justify-between text-slate-300">
+                <span className="font-semibold text-white">{w.name}</span>
+                <span>{formatCurrency(w.price)} &lt; {formatCurrency(w.rawSellTotal)}</span>
+              </div>
+            ))}
+          </div>
+          <p>Bạn vẫn muốn lưu hóa đơn?</p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+            <button type="button" onClick={() => setMixWarningOpen(false)} className="btn btn-secondary text-xs">Quay lại</button>
+            <button
+              type="button"
+              onClick={() => { setMixWarningOpen(false); openCheckout(); }}
+              className="btn btn-primary text-xs shadow-glow"
+            >
+              Vẫn lưu
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={checkoutModalOpen}
+        onClose={() => setCheckoutModalOpen(false)}
+        title="Xác nhận thanh toán"
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4">
+          <div className="bg-slate-950/40 p-4 rounded-xl space-y-2 text-sm">
+            <div className="flex justify-between text-slate-400">
+              <span>Khách hàng:</span>
+              <span className="text-white font-semibold">
+                {selectedCustomerId === 'walk-in' ? 'Khách vãng lai' : customers.find(c => c.id === selectedCustomerId)?.name}
+              </span>
             </div>
+            <div className="flex justify-between text-slate-400">
+              <span>Tổng tiền đơn:</span>
+              <span className="text-white font-semibold">{formatCurrency(getTotal())}</span>
+            </div>
+            <div className="flex justify-between text-slate-400">
+              <span>Khách trả:</span>
+              <span className="text-emerald-400 font-semibold">{formatCurrency(paidAmount)}</span>
+            </div>
+            {paidAmount < getTotal() && (
+              <div className="flex justify-between text-amber-400 font-bold">
+                <span>Còn nợ:</span>
+                <span>{formatCurrency(getTotal() - paidAmount)}</span>
+              </div>
+            )}
+          </div>
 
-            {/* Content body split in 2 columns if VietQR active */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-              {/* Receipt template */}
+          {paidAmount < getTotal() && selectedCustomerId === 'walk-in' && (
+            <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+              * Có nợ thì bắt buộc phải chọn khách hàng cụ thể! Khách vãng lai không được ghi nợ.
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Ghi chú đơn hàng</label>
+            <textarea
+              className="input min-h-[60px]"
+              placeholder="Ghi chú thêm thông tin..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+            <button type="button" onClick={() => setCheckoutModalOpen(false)} className="btn btn-secondary text-xs" disabled={submitting}>Hủy</button>
+            <button
+              onClick={handleCheckoutSubmit}
+              className="btn btn-primary text-xs shadow-glow"
+              disabled={submitting || (paidAmount < getTotal() && selectedCustomerId === 'walk-in')}
+            >
+              {submitting ? 'Đang tạo đơn...' : 'Xác nhận tạo đơn'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={receiptModalOpen && !!completedOrder}
+        onClose={() => setReceiptModalOpen(false)}
+        title="Hóa đơn thanh toán"
+        maxWidth={
+          completedOrder?.paymentType === 'BANK' && completedOrder.paidAmount > 0 && completedOrder.total - completedOrder.paidAmount <= 0
+            ? 'max-w-2xl'
+            : 'max-w-sm'
+        }
+      >
+        {completedOrder && (
+          <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
               <div className="bg-white text-black p-5 rounded-lg font-mono text-xs space-y-4 shadow-inner">
                 <div className="text-center space-y-1">
                   <h4 className="font-bold text-sm">MARKET VENDOR APPS</h4>
@@ -998,50 +976,28 @@ export default function PosPage() {
                 </div>
               </div>
 
-              {/* VietQR Column (Only for bank payments with full payment) */}
-              {completedOrder.paymentType === 'BANK' && completedOrder.paidAmount > 0 && completedOrder.total - completedOrder.paidAmount <= 0 && (
-                <div className="flex flex-col items-center justify-center p-4 bg-slate-950/40 rounded-xl border border-white/5 text-center space-y-4">
-                  <p className="text-xs font-bold text-white uppercase tracking-wider">Quét QR chuyển khoản</p>
-                  
-                  {bankAccount ? (
-                    <>
-                      <img
-                        src={getVietQrUrl(completedOrder.paidAmount, completedOrder.id, completedOrder.items)}
-                        alt="VietQR code"
-                        className="w-64 h-64 object-contain rounded-lg border border-white/10 bg-white p-2"
-                      />
-                      <div className="text-xs text-slate-300">
-                        <p className="font-semibold">{bankAccount.name}</p>
-                        <p>STK: <strong className="text-indigo-400 font-mono">{bankAccount.accountNo}</strong></p>
-                        <p className="text-[10px] text-slate-500 mt-1 uppercase">Chủ TK: {bankAccount.accountName}</p>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="py-12 text-xs text-slate-500">
-                      ⚠️ Chưa cấu hình tài khoản ngân hàng mặc định. Vào Cài đặt để thiết lập VietQR.
-                    </div>
-                  )}
+              {completedOrder.paymentType === 'BANK' && completedOrder.paidAmount > 0 && (
+                <div className="p-4 bg-slate-950/40 rounded-xl border border-white/5">
+                  <VietQrDisplay
+                    bank={bankAccount}
+                    amount={completedOrder.paidAmount}
+                    description={getVietQrDescription(completedOrder.id, completedOrder.items.map((item: any) => ({
+                      name: item.name,
+                      quantity: item.quantity,
+                      unitPrice: item.unitPrice,
+                    })))}
+                  />
                 </div>
               )}
             </div>
 
             <div className="flex justify-end gap-3 pt-6 border-t border-slate-800 mt-6">
-              <button
-                onClick={() => window.print()}
-                className="btn btn-secondary text-xs"
-              >
-                🖨️ In hóa đơn
-              </button>
-              <button
-                onClick={() => setReceiptModalOpen(false)}
-                className="btn btn-primary text-xs shadow-glow"
-              >
-                Hoàn thành
-              </button>
+              <button onClick={() => window.print()} className="btn btn-secondary text-xs">🖨️ In hóa đơn</button>
+              <button onClick={() => setReceiptModalOpen(false)} className="btn btn-primary text-xs shadow-glow">Hoàn thành</button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
 
       {/* Voice Order Modal */}
       <VoiceOrderModal

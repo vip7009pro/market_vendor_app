@@ -1,7 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { GridColDef } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import Modal from '@/components/ui/Modal';
+import AppDataGrid from '@/components/ui/AppDataGrid';
 
 interface Customer {
   id: string;
@@ -121,6 +124,36 @@ export default function CustomersPage() {
     return matchesSearch && matchesTab;
   });
 
+  const customerRows = useMemo(() => filteredCustomers.map((c) => ({
+    id: c.id,
+    name: c.name,
+    phone: c.phone || '—',
+    role: c.isSupplier ? 'Nhà cung cấp' : 'Khách hàng',
+    note: c.note || '—',
+  })), [filteredCustomers]);
+
+  const customerColumns: GridColDef[] = useMemo(() => [
+    { field: 'name', headerName: 'Tên', flex: 1, minWidth: 160 },
+    { field: 'phone', headerName: 'SĐT', width: 120 },
+    { field: 'role', headerName: 'Vai trò', width: 120 },
+    { field: 'note', headerName: 'Ghi chú', flex: 1, minWidth: 140 },
+    {
+      field: 'actions',
+      headerName: '',
+      width: 90,
+      sortable: false,
+      renderCell: (params) => {
+        const c = customers.find((x) => x.id === params.id);
+        if (!c) return null;
+        return (
+          <button onClick={() => openEditModal(c)} className="text-indigo-400 text-xs font-semibold h-full">
+            Sửa
+          </button>
+        );
+      },
+    },
+  ], [customers]);
+
   return (
     <div className="space-y-8 animate-fade-in-up">
       {/* Header */}
@@ -176,78 +209,14 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* Partners List */}
-      <div className="card bg-slate-900 border-white/5 overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800 text-slate-500 font-bold text-xs uppercase tracking-wider bg-slate-950/20">
-                <th className="py-4 px-6">Tên hiển thị</th>
-                <th className="py-4 px-6">Số điện thoại</th>
-                <th className="py-4 px-6">Vai trò</th>
-                <th className="py-4 px-6">Ghi chú thêm</th>
-                <th className="py-4 px-6 text-right">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800 text-slate-300">
-              {loading ? (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-500">
-                    Đang tải danh sách đối tác...
-                  </td>
-                </tr>
-              ) : filteredCustomers.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-500">
-                    Không tìm thấy dữ liệu nào
-                  </td>
-                </tr>
-              ) : (
-                filteredCustomers.map((c) => (
-                  <tr key={c.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-slate-800 text-slate-400 font-bold flex items-center justify-center text-xs">
-                          {c.name.charAt(0).toUpperCase()}
-                        </div>
-                        <p className="font-semibold text-white">{c.name}</p>
-                      </div>
-                    </td>
-                    <td className="py-4 px-6 text-slate-300 font-mono text-xs">{c.phone || '-'}</td>
-                    <td className="py-4 px-6">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        c.isSupplier ? 'bg-amber-500/10 text-amber-400' : 'bg-indigo-500/10 text-indigo-400'
-                      }`}>
-                        {c.isSupplier ? 'Nhà cung cấp' : 'Khách hàng'}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 text-slate-400 text-xs italic max-w-xs truncate">{c.note || '-'}</td>
-                    <td className="py-4 px-6 text-right">
-                      <button
-                        onClick={() => openEditModal(c)}
-                        className="text-indigo-400 hover:text-indigo-300 text-xs font-semibold"
-                      >
-                        Sửa đổi
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <AppDataGrid rows={customerRows} columns={customerColumns} loading={loading} height={520} />
 
-      {/* Modal drawer */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">
-                {editingCustomer ? 'Sửa thông tin đối tác' : 'Thêm đối tác mới'}
-              </h3>
-              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-white text-lg">✕</button>
-            </div>
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingCustomer ? 'Sửa thông tin đối tác' : 'Thêm đối tác mới'}
+        maxWidth="max-w-md"
+      >
 
             {errorMsg && (
               <div className="mb-4 p-3 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
@@ -316,9 +285,7 @@ export default function CustomersPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

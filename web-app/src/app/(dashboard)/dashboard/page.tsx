@@ -1,8 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { GridColDef } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import AppDataGrid from '@/components/ui/AppDataGrid';
+import { formatCurrency } from '@/lib/format';
 
 interface DashboardStats {
   todayRevenue: number;
@@ -69,9 +72,36 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, []);
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
-  };
+  const recentSaleRows = useMemo(() => {
+    if (!stats?.recentSales) return [];
+    return stats.recentSales.map((sale: any) => {
+      const discount = Number(sale.discount || 0);
+      const subtotal = Array.isArray(sale.items)
+        ? sale.items.reduce((sum: number, item: any) => sum + Number(item.unitPrice) * Number(item.quantity), 0)
+        : 0;
+      const total = Math.max(0, subtotal - discount);
+      const paid = Number(sale.paidAmount || 0);
+      const debt = Math.max(0, total - paid);
+      return {
+        id: sale.id,
+        orderId: `#${String(sale.id).slice(-6).toUpperCase()}`,
+        customer: sale.customerName || sale.customer?.name || 'Khách vãng lai',
+        payment: sale.paymentType === 'CASH' || sale.paymentType === 'cash' ? 'Tiền mặt' : 'Chuyển khoản',
+        total,
+        debt,
+      };
+    });
+  }, [stats]);
+
+  const recentSaleColumns: GridColDef[] = useMemo(() => [
+    { field: 'orderId', headerName: 'Mã đơn', width: 90 },
+    { field: 'customer', headerName: 'Khách hàng', flex: 1, minWidth: 120 },
+    { field: 'payment', headerName: 'Thanh toán', width: 110 },
+    { field: 'total', headerName: 'Tổng', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+    { field: 'debt', headerName: 'Còn nợ', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => Number(v) > 0 ? formatCurrency(Number(v)) : '—' },
+  ], []);
+
+  const formatCurrencyLocal = formatCurrency;
 
   if (loading) {
     return (
@@ -90,7 +120,7 @@ export default function DashboardPage() {
     );
   }
 
-  const { todayRevenue, todaySalesCount, totalDebtsOwedToMe, todayExpenses, recentSales } = stats!;
+  const { todayRevenue, todaySalesCount, totalDebtsOwedToMe, todayExpenses } = stats!;
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -121,7 +151,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Doanh thu hôm nay</p>
-            <h3 className="text-xl font-bold text-white mt-1">{formatCurrency(todayRevenue)}</h3>
+            <h3 className="text-xl font-bold text-white mt-1">{formatCurrencyLocal(todayRevenue)}</h3>
           </div>
         </div>
 
@@ -145,7 +175,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Nợ cần thu (Khách)</p>
-            <h3 className="text-xl font-bold text-amber-500 mt-1">{formatCurrency(totalDebtsOwedToMe)}</h3>
+            <h3 className="text-xl font-bold text-amber-500 mt-1">{formatCurrencyLocal(totalDebtsOwedToMe)}</h3>
           </div>
         </div>
 
@@ -157,7 +187,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Chi phí hôm nay</p>
-            <h3 className="text-xl font-bold text-white mt-1">{formatCurrency(todayExpenses)}</h3>
+            <h3 className="text-xl font-bold text-white mt-1">{formatCurrencyLocal(todayExpenses)}</h3>
           </div>
         </div>
       </div>
@@ -173,62 +203,7 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-500 font-bold text-xs uppercase tracking-wider">
-                  <th className="py-3 px-4">Mã đơn</th>
-                  <th className="py-3 px-4">Khách hàng</th>
-                  <th className="py-3 px-4">Thanh toán</th>
-                  <th className="py-3 px-4 text-right">Tổng cộng</th>
-                  <th className="py-3 px-4 text-right">Còn nợ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
-                {recentSales.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-500 text-xs">
-                      Chưa có đơn hàng nào được tạo hôm nay
-                    </td>
-                  </tr>
-                ) : (
-                  recentSales.map((sale) => {
-                    const discount = Number(sale.discount || 0);
-                    const subtotal = Array.isArray(sale.items) 
-                      ? sale.items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice) * Number(item.quantity)), 0)
-                      : 0;
-                    const total = Math.max(0, subtotal - discount);
-                    const paid = Number(sale.paidAmount || 0);
-                    const debt = Math.max(0, total - paid);
-
-                    return (
-                      <tr key={sale.id} className="hover:bg-white/5 transition-colors">
-                        <td className="py-3 px-4 font-mono text-xs text-indigo-400">
-                          #{sale.id.slice(-6).toUpperCase()}
-                        </td>
-                        <td className="py-3 px-4 font-medium text-white">
-                          {sale.customerName || (sale.customer?.name) || 'Khách vãng lai'}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            sale.paymentType === 'CASH' || sale.paymentType === 'cash' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-cyan-500/10 text-cyan-400'
-                          }`}>
-                            {sale.paymentType === 'CASH' || sale.paymentType === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-semibold text-white">
-                          {formatCurrency(total)}
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold text-amber-500">
-                          {debt > 0 ? formatCurrency(debt) : '-'}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+          <AppDataGrid rows={recentSaleRows} columns={recentSaleColumns} height={320} disableRowSelectionOnClick />
         </div>
 
         {/* Right card: Quick Actions */}

@@ -1,7 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { GridColDef } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import Modal from '@/components/ui/Modal';
+import AppDataGrid from '@/components/ui/AppDataGrid';
+import { formatCurrency, formatDateTime } from '@/lib/format';
 
 interface Expense {
   id: string;
@@ -10,6 +14,20 @@ interface Expense {
   category: string;
   createdAt: string;
   note?: string;
+}
+
+function normalizeExpense(raw: any): Expense {
+  const createdAt = raw.occurredAt || raw.createdAt || new Date().toISOString();
+  const note = raw.note || '';
+  const category = raw.category || 'OTHER';
+  return {
+    id: raw.id,
+    name: raw.name || note || category || 'Chi phí',
+    amount: Number(raw.amount) || 0,
+    category,
+    createdAt: typeof createdAt === 'string' ? createdAt : new Date(createdAt).toISOString(),
+    note: note || undefined,
+  };
 }
 
 const EXPENSE_CATEGORIES = [
@@ -40,7 +58,7 @@ export default function ExpensesPage() {
     try {
       setLoading(true);
       const data = await api.getExpenses();
-      setExpenses(data);
+      setExpenses((Array.isArray(data) ? data : []).map(normalizeExpense));
     } catch (err) {
       console.warn('Could not fetch expenses, using demo data', err);
       // Demo expenses
@@ -69,23 +87,26 @@ export default function ExpensesPage() {
 
     setSubmitting(true);
     const payload = {
-      name,
+      occurredAt: new Date().toISOString(),
       amount: Number(amount),
       category,
-      note: note || undefined,
-      createdAt: new Date().toISOString(),
+      note: name.trim() || note || undefined,
       updatedAt: new Date().toISOString(),
     };
 
     try {
       try {
         const newExp = await api.createExpense(payload);
-        setExpenses([newExp, ...expenses]);
+        setExpenses([normalizeExpense(newExp), ...expenses]);
       } catch (err) {
         console.warn('API error creating expense, applying local fallback', err);
         const mockNew: Expense = {
           id: 'mock-exp-' + Math.random().toString(36).substr(2, 9),
-          ...payload
+          name: name.trim() || category,
+          amount: Number(amount),
+          category,
+          createdAt: payload.occurredAt,
+          note: note || undefined,
         };
         setExpenses([mockNew, ...expenses]);
       }
@@ -102,18 +123,32 @@ export default function ExpensesPage() {
   };
 
   const getCategoryLabel = (val: string) => {
-    return EXPENSE_CATEGORIES.find(c => c.value === val)?.label || 'Khác';
-  };
-
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
+    return EXPENSE_CATEGORIES.find(c => c.value === val)?.label || val || 'Khác';
   };
 
   const filteredExpenses = expenses.filter(e => {
-    const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase());
+    const searchText = (e.name || e.note || e.category || '').toLowerCase();
+    const matchesSearch = searchText.includes(search.toLowerCase());
     const matchesCategory = categoryFilter === 'ALL' || e.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
+
+  const expenseRows = useMemo(() => filteredExpenses.map((e) => ({
+    id: e.id,
+    createdAt: e.createdAt,
+    categoryLabel: getCategoryLabel(e.category),
+    name: e.name,
+    note: e.note || '—',
+    amount: e.amount,
+  })), [filteredExpenses]);
+
+  const expenseColumns: GridColDef[] = useMemo(() => [
+    { field: 'createdAt', headerName: 'Thời gian', width: 140, valueFormatter: (v) => formatDateTime(String(v)) },
+    { field: 'categoryLabel', headerName: 'Hạng mục', width: 150 },
+    { field: 'name', headerName: 'Tên chi phí', flex: 1, minWidth: 140 },
+    { field: 'note', headerName: 'Ghi chú', flex: 1, minWidth: 120 },
+    { field: 'amount', headerName: 'Số tiền', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+  ], []);
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -190,62 +225,9 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      {/* Expenses Table */}
-      <div className="card bg-slate-900 border-white/5 overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800 text-slate-500 font-bold text-xs uppercase tracking-wider bg-slate-950/20">
-                <th className="py-4 px-6">Thời gian</th>
-                <th className="py-4 px-6">Hạng mục chi</th>
-                <th className="py-4 px-6">Tên chi phí</th>
-                <th className="py-4 px-6">Ghi chú</th>
-                <th className="py-4 px-6 text-right">Số tiền chi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800 text-slate-300">
-              {loading ? (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-500">
-                    Đang tải danh sách chi phí...
-                  </td>
-                </tr>
-              ) : filteredExpenses.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-500">
-                    Không tìm thấy khoản chi nào
-                  </td>
-                </tr>
-              ) : (
-                filteredExpenses.map((e) => (
-                  <tr key={e.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-4 px-6 text-slate-400 text-xs">
-                      {new Date(e.createdAt).toLocaleDateString('vi-VN')} {new Date(e.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                    </td>
-                    <td className="py-4 px-6">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 uppercase">
-                        {getCategoryLabel(e.category)}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 font-semibold text-white">{e.name}</td>
-                    <td className="py-4 px-6 text-slate-400 text-xs max-w-xs truncate">{e.note || '-'}</td>
-                    <td className="py-4 px-6 text-right font-bold text-rose-400">{formatCurrency(e.amount)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <AppDataGrid rows={expenseRows} columns={expenseColumns} loading={loading} height={480} />
 
-      {/* Add Expense Modal Drawer */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">Ghi nhận khoản chi mới</h3>
-              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-white text-lg">✕</button>
-            </div>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Ghi nhận khoản chi mới" maxWidth="max-w-md">
 
             {errorMsg && (
               <div className="mb-4 p-3 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
@@ -316,9 +298,7 @@ export default function ExpensesPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

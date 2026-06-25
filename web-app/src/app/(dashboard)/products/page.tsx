@@ -1,7 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { GridColDef } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import Modal from '@/components/ui/Modal';
+import AppDataGrid from '@/components/ui/AppDataGrid';
+import { getAllUnitOptions, getLastUsedUnit, saveCustomUnit, saveLastUsedUnit } from '@/lib/units';
+import { formatCurrency } from '@/lib/format';
 
 interface Product {
   id: string;
@@ -37,6 +42,9 @@ export default function ProductsPage() {
   const [isStocked, setIsStocked] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+  const [unitMode, setUnitMode] = useState<'select' | 'custom'>('select');
+  const [customUnit, setCustomUnit] = useState('');
+  const [unitOptions, setUnitOptions] = useState<string[]>([]);
 
   const fetchProducts = async () => {
     try {
@@ -60,6 +68,7 @@ export default function ProductsPage() {
 
   useEffect(() => {
     fetchProducts();
+    setUnitOptions(getAllUnitOptions());
   }, []);
 
   const openAddModal = () => {
@@ -68,7 +77,10 @@ export default function ProductsPage() {
     setPrice(0);
     setCostPrice(0);
     setCurrentStock(0);
-    setUnit('cái');
+    const lastUnit = getLastUsedUnit();
+    setUnit(lastUnit);
+    setUnitMode('select');
+    setCustomUnit('');
     setBarcode('');
     setItemType('RAW');
     setIsStocked(true);
@@ -83,7 +95,16 @@ export default function ProductsPage() {
     setPrice(p.price);
     setCostPrice(p.costPrice);
     setCurrentStock(p.currentStock);
-    setUnit(p.unit);
+    const opts = getAllUnitOptions();
+    setUnitOptions(opts);
+    if (opts.includes(p.unit)) {
+      setUnit(p.unit);
+      setUnitMode('select');
+    } else {
+      setUnit(p.unit);
+      setUnitMode('custom');
+      setCustomUnit(p.unit);
+    }
     setBarcode(p.barcode || '');
     setItemType(p.itemType);
     setIsStocked(p.isStocked);
@@ -101,12 +122,25 @@ export default function ProductsPage() {
       return;
     }
 
+    const finalUnit = unitMode === 'custom' ? customUnit.trim() : unit;
+    if (!finalUnit) {
+      setErrorMsg('Vui lòng chọn hoặc nhập đơn vị tính');
+      return;
+    }
+
+    if (unitMode === 'custom') {
+      saveCustomUnit(finalUnit);
+    } else {
+      saveLastUsedUnit(finalUnit);
+    }
+    setUnitOptions(getAllUnitOptions());
+
     const payload = {
       name,
       price: Number(price),
       costPrice: Number(costPrice),
       currentStock: Number(currentStock),
-      unit,
+      unit: finalUnit,
       barcode: barcode || undefined,
       itemType,
       isStocked,
@@ -157,9 +191,7 @@ export default function ProductsPage() {
     }
   };
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
-  };
+  const formatCurrencyLocal = formatCurrency;
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -167,6 +199,43 @@ export default function ProductsPage() {
     const matchesType = typeFilter === 'ALL' || p.itemType === typeFilter;
     return matchesSearch && matchesType;
   });
+
+  const productRows = useMemo(() => filteredProducts.map((p) => ({
+    id: p.id,
+    name: p.name,
+    barcode: p.barcode || '',
+    itemType: p.itemType === 'RAW' ? 'Hàng thô' : 'Pha chế',
+    costPrice: Number(p.costPrice),
+    price: Number(p.price),
+    currentStock: Number(p.currentStock),
+    unit: p.unit,
+    isActive: p.isActive,
+  })), [filteredProducts]);
+
+  const productColumns: GridColDef[] = useMemo(() => [
+    { field: 'name', headerName: 'Tên SP', flex: 1, minWidth: 160 },
+    { field: 'itemType', headerName: 'Loại', width: 90 },
+    { field: 'costPrice', headerName: 'Giá vốn', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrencyLocal(Number(v)) },
+    { field: 'price', headerName: 'Giá bán', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrencyLocal(Number(v)) },
+    { field: 'currentStock', headerName: 'Tồn', width: 70, align: 'center', headerAlign: 'center' },
+    { field: 'unit', headerName: 'ĐVT', width: 60 },
+    {
+      field: 'actions',
+      headerName: '',
+      width: 120,
+      sortable: false,
+      renderCell: (params) => {
+        const p = products.find((x) => x.id === params.id);
+        if (!p) return null;
+        return (
+          <div className="flex gap-2 h-full items-center">
+            <button onClick={() => openEditModal(p)} className="text-indigo-400 text-xs font-semibold">Sửa</button>
+            <button onClick={() => handleDelete(p.id)} className="text-rose-400 text-xs font-semibold">Xóa</button>
+          </div>
+        );
+      },
+    },
+  ], [products]);
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -216,100 +285,22 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Products Table */}
-      <div className="card bg-slate-900 border-white/5 overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800 text-slate-500 font-bold text-xs uppercase tracking-wider bg-slate-950/20">
-                <th className="py-4 px-6">Tên sản phẩm</th>
-                <th className="py-4 px-6">Phân loại</th>
-                <th className="py-4 px-6 text-right">Giá vốn</th>
-                <th className="py-4 px-6 text-right">Giá bán</th>
-                <th className="py-4 px-6 text-center">Tồn kho</th>
-                <th className="py-4 px-6 text-center">Đơn vị</th>
-                <th className="py-4 px-6 text-center">Trạng thái</th>
-                <th className="py-4 px-6 text-right">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800 text-slate-300">
-              {loading ? (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-500">
-                    Đang tải danh sách sản phẩm...
-                  </td>
-                </tr>
-              ) : filteredProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-500">
-                    Không tìm thấy sản phẩm nào
-                  </td>
-                </tr>
-              ) : (
-                filteredProducts.map((p) => (
-                  <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-4 px-6">
-                      <div>
-                        <p className="font-semibold text-white">{p.name}</p>
-                        {p.barcode && <p className="text-[10px] font-mono text-indigo-400 mt-0.5">{p.barcode}</p>}
-                      </div>
-                    </td>
-                    <td className="py-4 px-6">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        p.itemType === 'RAW' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-purple-500/10 text-purple-400'
-                      }`}>
-                        {p.itemType === 'RAW' ? 'Hàng thô' : 'Pha chế'}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 text-right font-medium">{formatCurrency(p.costPrice)}</td>
-                    <td className="py-4 px-6 text-right font-bold text-emerald-400">{formatCurrency(p.price)}</td>
-                    <td className="py-4 px-6 text-center">
-                      <span className={`font-semibold ${p.currentStock <= 5 ? 'text-rose-400 font-bold' : 'text-slate-300'}`}>
-                        {p.currentStock}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 text-center text-slate-400 text-xs">{p.unit}</td>
-                    <td className="py-4 px-6 text-center">
-                      <span className={`w-2 h-2 rounded-full inline-block ${p.isActive ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-slate-600'}`}></span>
-                    </td>
-                    <td className="py-4 px-6 text-right space-x-2">
-                      <button
-                        onClick={() => openEditModal(p)}
-                        className="text-indigo-400 hover:text-indigo-300 text-xs font-semibold"
-                      >
-                        Sửa
-                      </button>
-                      <button
-                        onClick={() => handleDelete(p.id)}
-                        className="text-rose-400 hover:text-rose-300 text-xs font-semibold"
-                      >
-                        Xóa
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <AppDataGrid rows={productRows} columns={productColumns} loading={loading} height={560} />
 
-      {/* Add / Edit Modal Drawer */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">{editingProduct ? 'Sửa sản phẩm' : 'Thêm sản phẩm mới'}</h3>
-              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-white text-lg">✕</button>
-            </div>
+      {/* Add / Edit Modal */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingProduct ? 'Sửa sản phẩm' : 'Thêm sản phẩm mới'}
+        maxWidth="max-w-lg"
+      >
+        {errorMsg && (
+          <div className="mb-4 p-3 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+            ⚠️ {errorMsg}
+          </div>
+        )}
 
-            {errorMsg && (
-              <div className="mb-4 p-3 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
-                ⚠️ {errorMsg}
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tên sản phẩm</label>
                 <input
@@ -327,7 +318,7 @@ export default function ProductsPage() {
                   <input
                     type="number"
                     className="input"
-                    value={price === 0 ? '' : costPrice}
+                    value={costPrice === 0 ? '' : costPrice}
                     onChange={(e) => setCostPrice(Number(e.target.value))}
                   />
                 </div>
@@ -354,13 +345,47 @@ export default function ProductsPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Đơn vị tính</label>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="ly, cái, lon..."
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                  />
+                  {unitMode === 'select' ? (
+                    <div className="space-y-2">
+                      <select
+                        className="input"
+                        value={unit}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setUnitMode('custom');
+                            setCustomUnit('');
+                          } else {
+                            setUnit(e.target.value);
+                          }
+                        }}
+                      >
+                        {unitOptions.map((u) => (
+                          <option key={u} value={u}>{u}</option>
+                        ))}
+                        <option value="__custom__">+ Thêm đơn vị mới...</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="input flex-1"
+                        placeholder="Nhập đơn vị mới..."
+                        value={customUnit}
+                        onChange={(e) => setCustomUnit(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUnitMode('select');
+                          setCustomUnit('');
+                        }}
+                        className="btn btn-secondary text-xs shrink-0"
+                      >
+                        Chọn có sẵn
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -417,9 +442,7 @@ export default function ProductsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

@@ -1,7 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import Modal from '@/components/ui/Modal';
+import AppDataGrid, { toRowSelectionModel } from '@/components/ui/AppDataGrid';
+import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
+import ProductSearchSelect from '@/components/ui/ProductSearchSelect';
+import { formatCurrency, formatDateTime } from '@/lib/format';
 
 interface PurchaseItem {
   id: string;
@@ -42,6 +48,14 @@ interface Customer {
   isSupplier: boolean;
 }
 
+type CartItem = { product: Product; quantity: number; unitCost: number };
+
+function calcOrderTotal(o: PurchaseOrder): number {
+  const sub = (o.items || []).reduce((s, i) => s + Number(i.totalCost || i.quantity * i.unitCost), 0);
+  if (o.discountType === 'PERCENT') return Math.max(0, sub * (1 - Number(o.discountValue) / 100));
+  return Math.max(0, sub - Number(o.discountValue));
+}
+
 export default function PurchasesPage() {
   const [activeTab, setActiveTab] = useState<'orders' | 'history'>('orders');
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -49,34 +63,26 @@ export default function PurchasesPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Search and filters
   const [search, setSearch] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState('2020-01-01');
+  const [endDate, setEndDate] = useState(todayStr);
+  const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
 
-  // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Form State
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('new');
+  const [selectedSupplierId, setSelectedSupplierId] = useState('new');
   const [supplierName, setSupplierName] = useState('');
   const [supplierPhone, setSupplierPhone] = useState('');
   const [discountType, setDiscountType] = useState<'AMOUNT' | 'PERCENT'>('AMOUNT');
   const [discountValue, setDiscountValue] = useState(0);
   const [paidAmount, setPaidAmount] = useState(0);
+  const [debtMode, setDebtMode] = useState(false);
   const [note, setNote] = useState('');
-  
-  // Purchase Cart State
-  const [purchaseCart, setPurchaseCart] = useState<Array<{
-    product: Product;
-    quantity: number;
-    unitCost: number;
-  }>>([]);
-  
-  // Product Selector inside Cart State
+  const [purchaseCart, setPurchaseCart] = useState<CartItem[]>([]);
+
   const [addingProductId, setAddingProductId] = useState('');
   const [addingQty, setAddingQty] = useState(1);
   const [addingCost, setAddingCost] = useState(0);
@@ -85,88 +91,37 @@ export default function PurchasesPage() {
     try {
       setLoading(true);
       const [prodData, custData] = await Promise.all([
-        api.getProducts().catch(() => null),
-        api.getCustomers().catch(() => null),
+        api.getProducts().catch(() => []),
+        api.getCustomers().catch(() => []),
       ]);
-
-      if (prodData) {
-        setProducts(prodData.filter((p: any) => p.itemType === 'RAW')); // RAW items are stocked items
-      }
-      
-      if (custData) {
-        setSuppliers(custData.filter((c: any) => c.isSupplier));
-      }
-
+      setProducts((prodData || []).filter((p: Product) => p.itemType === 'RAW'));
+      setSuppliers((custData || []).filter((c: Customer) => c.isSupplier));
       await fetchOrdersAndHistory();
-    } catch (err) {
-      console.error('Error loading foundation data:', err);
     } finally {
       setLoading(false);
     }
   };
 
   const fetchOrdersAndHistory = async () => {
-    try {
-      const params: Record<string, string> = {};
-      if (startDate) params.startDate = startDate;
-      if (endDate) params.endDate = endDate;
-      if (search) params.search = search;
+    const params: Record<string, string> = {};
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
+    if (search) params.search = search;
 
-      if (activeTab === 'orders') {
-        const orderData = await api.getPurchases(params).catch(() => null);
-        if (orderData) {
-          setOrders(orderData);
-        } else {
-          // Demo fallback
-          setOrders([
-            {
-              id: 'po-1',
-              createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-              supplierName: 'Nhà cung cấp Hạt Cà Phê Trung Nguyên',
-              supplierPhone: '0281234567',
-              discountType: 'AMOUNT',
-              discountValue: 100000,
-              paidAmount: 2000000,
-              note: 'Nhập hạt cafe Arabica đợt cuối tháng',
-              items: [
-                { id: 'pi-1', productId: '3', productName: 'Nước ngọt Coca Cola', quantity: 100, unitCost: 10500, totalCost: 1050000 }
-              ]
-            }
-          ]);
-        }
-      } else {
-        const histData = await api.getPurchaseHistory(params).catch(() => null);
-        if (histData) {
-          setHistoryItems(histData);
-        } else {
-          // Demo fallback
-          setHistoryItems([
-            {
-              id: 'pi-1',
-              createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-              productId: '3',
-              productName: 'Nước ngọt Coca Cola',
-              quantity: 100,
-              unitCost: 10500,
-              totalCost: 1050000,
-              supplierName: 'Nhà cung cấp Hạt Cà Phê Trung Nguyên',
-              note: 'Lô hàng lon nhôm',
-            }
-          ]);
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching data:', err);
+    if (activeTab === 'orders') {
+      const orderData = await api.getPurchases(params).catch(() => []);
+      setOrders(orderData || []);
+    } else {
+      const histData = await api.getPurchaseHistory(params).catch(() => []);
+      setHistoryItems(histData || []);
     }
   };
 
+  useEffect(() => { loadData(); }, []);
+  useEffect(() => { fetchOrdersAndHistory(); }, [activeTab, search, startDate, endDate]);
   useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
-    fetchOrdersAndHistory();
-  }, [activeTab, search, startDate, endDate]);
+    if (!debtMode && modalOpen) setPaidAmount(getTotal());
+  }, [purchaseCart, discountType, discountValue, debtMode, modalOpen]);
 
   const handleSupplierChange = (val: string) => {
     setSelectedSupplierId(val);
@@ -174,7 +129,7 @@ export default function PurchasesPage() {
       setSupplierName('');
       setSupplierPhone('');
     } else {
-      const s = suppliers.find(x => x.id === val);
+      const s = suppliers.find((x) => x.id === val);
       if (s) {
         setSupplierName(s.name);
         setSupplierPhone(s.phone || '');
@@ -182,53 +137,47 @@ export default function PurchasesPage() {
     }
   };
 
-  const handleProductSelectForAdd = (val: string) => {
-    setAddingProductId(val);
-    const p = products.find(x => x.id === val);
-    if (p) {
-      setAddingCost(Number(p.costPrice));
-    }
-  };
-
   const addToCart = () => {
-    if (!addingProductId) return;
-    const p = products.find(x => x.id === addingProductId);
+    if (!addingProductId || addingQty <= 0) return;
+    const p = products.find((x) => x.id === addingProductId);
     if (!p) return;
-
-    // Check if already in cart
-    const existing = purchaseCart.find(item => item.product.id === addingProductId);
+    const existing = purchaseCart.find((item) => item.product.id === addingProductId);
     if (existing) {
-      setPurchaseCart(purchaseCart.map(item => 
-        item.product.id === addingProductId 
-          ? { ...item, quantity: item.quantity + addingQty } 
+      setPurchaseCart(purchaseCart.map((item) =>
+        item.product.id === addingProductId
+          ? { ...item, quantity: item.quantity + addingQty, unitCost: addingCost || item.unitCost }
           : item
       ));
     } else {
-      setPurchaseCart([...purchaseCart, {
-        product: p,
-        quantity: addingQty,
-        unitCost: addingCost,
-      }]);
+      setPurchaseCart([...purchaseCart, { product: p, quantity: addingQty, unitCost: addingCost || p.costPrice }]);
     }
-
     setAddingProductId('');
     setAddingQty(1);
     setAddingCost(0);
   };
 
+  const updateCartQty = (pid: string, delta: number) => {
+    setPurchaseCart(purchaseCart.map((item) => {
+      if (item.product.id !== pid) return item;
+      const qty = Math.max(0, item.quantity + delta);
+      return { ...item, quantity: qty };
+    }).filter((item) => item.quantity > 0));
+  };
+
+  const updateCartField = (pid: string, field: 'quantity' | 'unitCost', value: number) => {
+    setPurchaseCart(purchaseCart.map((item) =>
+      item.product.id === pid ? { ...item, [field]: Math.max(field === 'quantity' ? 1 : 0, value) } : item
+    ));
+  };
+
   const removeFromCart = (pid: string) => {
-    setPurchaseCart(purchaseCart.filter(item => item.product.id !== pid));
+    setPurchaseCart(purchaseCart.filter((item) => item.product.id !== pid));
   };
 
-  const getSubtotal = () => {
-    return purchaseCart.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0);
-  };
-
+  const getSubtotal = () => purchaseCart.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
   const getTotal = () => {
     const sub = getSubtotal();
-    if (discountType === 'PERCENT') {
-      return Math.max(0, sub * (1 - discountValue / 100));
-    }
+    if (discountType === 'PERCENT') return Math.max(0, sub * (1 - discountValue / 100));
     return Math.max(0, sub - discountValue);
   };
 
@@ -239,6 +188,7 @@ export default function PurchasesPage() {
     setDiscountType('AMOUNT');
     setDiscountValue(0);
     setPaidAmount(0);
+    setDebtMode(false);
     setNote('');
     setPurchaseCart([]);
     setErrorMsg('');
@@ -247,36 +197,24 @@ export default function PurchasesPage() {
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg('');
-
-    if (purchaseCart.length === 0) {
-      setErrorMsg('Vui lòng thêm sản phẩm vào đơn nhập hàng');
-      return;
-    }
-
-    if (!supplierName.trim()) {
-      setErrorMsg('Vui lòng nhập tên nhà cung cấp');
-      return;
-    }
-
+    if (purchaseCart.length === 0) { setErrorMsg('Vui lòng thêm sản phẩm'); return; }
+    if (!supplierName.trim()) { setErrorMsg('Vui lòng nhập tên nhà cung cấp'); return; }
     setSubmitting(true);
-    const orderData = {
-      supplierName,
-      supplierPhone: supplierPhone || null,
-      discountType,
-      discountValue: Number(discountValue),
-      paidAmount: Number(paidAmount),
-      note: note || null,
-      items: purchaseCart.map(item => ({
-        productId: item.product.id,
-        productName: item.product.name,
-        quantity: Number(item.quantity),
-        unitCost: Number(item.unitCost),
-      })),
-    };
-
     try {
-      const res = await api.createPurchase(orderData);
+      const res = await api.createPurchase({
+        supplierName,
+        supplierPhone: supplierPhone || null,
+        discountType,
+        discountValue: Number(discountValue),
+        paidAmount: Number(paidAmount),
+        note: note || null,
+        items: purchaseCart.map((item) => ({
+          productId: item.product.id,
+          productName: item.product.name,
+          quantity: Number(item.quantity),
+          unitCost: Number(item.unitCost),
+        })),
+      });
       setOrders([res, ...orders]);
       setModalOpen(false);
       fetchOrdersAndHistory();
@@ -288,457 +226,259 @@ export default function PurchasesPage() {
   };
 
   const handleDeleteOrder = async (id: string) => {
-    if (!confirm('Bạn có chắc chắn muốn xóa đơn nhập hàng này? Hành động này sẽ hoàn trả (trừ) số lượng tồn kho sản phẩm tương ứng và xóa các khoản công nợ phát sinh liên quan!')) return;
+    if (!confirm('Xóa đơn nhập hàng này? Tồn kho và công nợ liên quan sẽ được hoàn trả.')) return;
     try {
       await api.deletePurchase(id);
-      setOrders(orders.filter(o => o.id !== id));
+      setOrders(orders.filter((o) => o.id !== id));
+      if (selectedOrder?.id === id) setSelectedOrder(null);
       fetchOrdersAndHistory();
-    } catch (err) {
+    } catch {
       alert('Không thể xóa đơn nhập hàng');
     }
   };
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
+  const orderRows = useMemo(() => orders.map((o) => {
+    const total = calcOrderTotal(o);
+    return {
+      id: o.id,
+      createdAt: o.createdAt,
+      supplierName: o.supplierName || '—',
+      total,
+      paidAmount: Number(o.paidAmount),
+      debt: Math.max(0, total - Number(o.paidAmount)),
+      note: o.note || '—',
+    };
+  }), [orders]);
+
+  const orderColumns: GridColDef[] = [
+    { field: 'id', headerName: 'Mã đơn', width: 100, valueFormatter: (v) => `#${String(v).slice(-6).toUpperCase()}` },
+    { field: 'createdAt', headerName: 'Ngày nhập', width: 130, valueFormatter: (v) => formatDateTime(String(v)) },
+    { field: 'supplierName', headerName: 'Nhà cung cấp', flex: 1, minWidth: 160 },
+    { field: 'total', headerName: 'Tổng', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+    { field: 'paidAmount', headerName: 'Đã trả', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+    { field: 'debt', headerName: 'Còn nợ', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+  ];
+
+  const historyRows = useMemo(() => historyItems.map((h) => ({
+    id: h.id,
+    createdAt: h.createdAt,
+    productName: h.productName,
+    supplierName: h.supplierName || '—',
+    quantity: Number(h.quantity),
+    unitCost: Number(h.unitCost),
+    totalCost: Number(h.totalCost),
+  })), [historyItems]);
+
+  const historyColumns: GridColDef[] = [
+    { field: 'createdAt', headerName: 'Ngày', width: 110, valueFormatter: (v) => new Date(String(v)).toLocaleDateString('vi-VN') },
+    { field: 'productName', headerName: 'Sản phẩm', flex: 1, minWidth: 140 },
+    { field: 'supplierName', headerName: 'NCC', width: 140 },
+    { field: 'quantity', headerName: 'SL', width: 70, align: 'center', headerAlign: 'center' },
+    { field: 'unitCost', headerName: 'Đơn giá', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+    { field: 'totalCost', headerName: 'Thành tiền', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+  ];
+
+  const onOrderRowClick = (params: GridRowParams) => {
+    const o = orders.find((x) => x.id === params.id);
+    if (o) setSelectedOrder(o);
   };
 
   return (
-    <div className="space-y-8 animate-fade-in-up">
-      {/* Header */}
+    <div className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-white font-sans">Nhập hàng & Kho vận</h2>
-          <p className="text-sm text-slate-400">Theo dõi nhập kho sản phẩm và công nợ với nhà cung cấp</p>
+          <h2 className="text-2xl font-bold text-white">Nhập hàng & Kho vận</h2>
+          <p className="text-sm text-slate-400">Quản lý đơn nhập, chỉnh sửa giá từng lô hàng</p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="btn btn-primary shadow-glow flex items-center gap-2"
-        >
-          📥 Tạo đơn nhập hàng
-        </button>
+        <button onClick={openAddModal} className="btn btn-primary shadow-glow">📥 Tạo đơn nhập hàng</button>
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-slate-800">
-        <button
-          onClick={() => setActiveTab('orders')}
-          className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors cursor-pointer ${
-            activeTab === 'orders'
-              ? 'border-indigo-500 text-indigo-400'
-              : 'border-transparent text-slate-500 hover:text-slate-300'
-          }`}
-        >
-          📜 Đơn nhập hàng
-        </button>
-        <button
-          onClick={() => setActiveTab('history')}
-          className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors cursor-pointer ${
-            activeTab === 'history'
-              ? 'border-indigo-500 text-indigo-400'
-              : 'border-transparent text-slate-500 hover:text-slate-300'
-          }`}
-        >
-          📦 Lịch sử mặt hàng
-        </button>
+        <button onClick={() => { setActiveTab('orders'); setSelectedOrder(null); }} className={`px-6 py-3 text-sm font-bold border-b-2 ${activeTab === 'orders' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-500'}`}>📜 Đơn nhập hàng</button>
+        <button onClick={() => setActiveTab('history')} className={`px-6 py-3 text-sm font-bold border-b-2 ${activeTab === 'history' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-500'}`}>📦 Lịch sử mặt hàng</button>
       </div>
 
-      {/* Filter and Search */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
         <div className="md:col-span-6 relative">
-          <input
-            type="text"
-            className="input pl-10"
-            placeholder={activeTab === 'orders' ? 'Tìm theo tên nhà cung cấp, ghi chú...' : 'Tìm theo tên sản phẩm, nhà cung cấp...'}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <input className="input pl-10" placeholder={activeTab === 'orders' ? 'Tìm NCC, ghi chú...' : 'Tìm sản phẩm, NCC...'} value={search} onChange={(e) => setSearch(e.target.value)} />
           <span className="absolute left-3.5 top-3.5 text-slate-500">🔍</span>
         </div>
-        <div className="md:col-span-3">
-          <input
-            type="date"
-            className="input"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
-        </div>
-        <div className="md:col-span-3">
-          <input
-            type="date"
-            className="input"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-          />
-        </div>
+        <div className="md:col-span-3"><input type="date" className="input" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
+        <div className="md:col-span-3"><input type="date" className="input" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></div>
       </div>
 
-      {/* Content */}
-      <div className="card bg-slate-900 border-white/5 overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          {activeTab === 'orders' ? (
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-500 font-bold text-xs uppercase tracking-wider bg-slate-950/20">
-                  <th className="py-4 px-6">Mã đơn</th>
-                  <th className="py-4 px-6">Ngày nhập</th>
-                  <th className="py-4 px-6">Nhà cung cấp</th>
-                  <th className="py-4 px-6 text-right">Tổng giá trị</th>
-                  <th className="py-4 px-6 text-right">Đã trả</th>
-                  <th className="py-4 px-6 text-right">Còn nợ</th>
-                  <th className="py-4 px-6">Ghi chú</th>
-                  <th className="py-4 px-6 text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
-                {loading ? (
-                  <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-500">
-                      Đang tải danh sách đơn nhập...
-                    </td>
-                  </tr>
-                ) : orders.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-500">
-                      Không có đơn nhập hàng nào
-                    </td>
-                  </tr>
-                ) : (
-                  orders.map((o) => {
-                    const subtotal = o.items ? o.items.reduce((s, i) => s + Number(i.totalCost), 0) : 0;
-                    const total = o.discountType === 'PERCENT' 
-                      ? subtotal * (1 - Number(o.discountValue) / 100) 
-                      : Math.max(0, subtotal - Number(o.discountValue));
-                    const debt = Math.max(0, total - Number(o.paidAmount));
-
-                    return (
-                      <tr key={o.id} className="hover:bg-white/5 transition-colors">
-                        <td className="py-4 px-6 font-mono text-xs text-indigo-400">
-                          {o.id.startsWith('po-') ? o.id.toUpperCase() : o.id.slice(-6).toUpperCase()}
-                        </td>
-                        <td className="py-4 px-6 text-xs text-slate-400">
-                          {new Date(o.createdAt).toLocaleDateString('vi-VN')} {new Date(o.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                        <td className="py-4 px-6">
-                          <div>
-                            <p className="font-semibold text-white">{o.supplierName || 'N/A'}</p>
-                            {o.supplierPhone && <p className="text-[10px] text-slate-500">{o.supplierPhone}</p>}
-                          </div>
-                        </td>
-                        <td className="py-4 px-6 text-right font-medium text-white">{formatCurrency(total)}</td>
-                        <td className="py-4 px-6 text-right text-emerald-400 font-semibold">{formatCurrency(o.paidAmount)}</td>
-                        <td className="py-4 px-6 text-right">
-                          <span className={`font-semibold ${debt > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
-                            {debt > 0 ? formatCurrency(debt) : 'Thanh toán hết'}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6 text-slate-400 max-w-xs truncate text-xs">{o.note || '—'}</td>
-                        <td className="py-4 px-6 text-right">
-                          <button
-                            onClick={() => handleDeleteOrder(o.id)}
-                            className="text-rose-400 hover:text-rose-300 text-xs font-semibold"
-                          >
-                            Xóa đơn
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          ) : (
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-500 font-bold text-xs uppercase tracking-wider bg-slate-950/20">
-                  <th className="py-4 px-6">Ngày nhập</th>
-                  <th className="py-4 px-6">Tên mặt hàng</th>
-                  <th className="py-4 px-6">Nhà cung cấp</th>
-                  <th className="py-4 px-6 text-center">Số lượng</th>
-                  <th className="py-4 px-6 text-right">Đơn giá nhập</th>
-                  <th className="py-4 px-6 text-right">Thành tiền</th>
-                  <th className="py-4 px-6">Ghi chú</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
-                {loading ? (
-                  <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
-                      Đang tải lịch sử nhập...
-                    </td>
-                  </tr>
-                ) : historyItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
-                      Không có lịch sử nhập mặt hàng nào
-                    </td>
-                  </tr>
-                ) : (
-                  historyItems.map((h) => (
-                    <tr key={h.id} className="hover:bg-white/5 transition-colors">
-                      <td className="py-4 px-6 text-xs text-slate-400">
-                        {new Date(h.createdAt).toLocaleDateString('vi-VN')}
-                      </td>
-                      <td className="py-4 px-6 font-semibold text-white">{h.productName}</td>
-                      <td className="py-4 px-6 text-slate-300">{h.supplierName || '—'}</td>
-                      <td className="py-4 px-6 text-center font-semibold text-white">{h.quantity}</td>
-                      <td className="py-4 px-6 text-right text-slate-400">{formatCurrency(h.unitCost)}</td>
-                      <td className="py-4 px-6 text-right font-medium text-emerald-400">{formatCurrency(h.totalCost)}</td>
-                      <td className="py-4 px-6 text-slate-500 text-xs">{h.note || '—'}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {/* New Purchase Order Drawer Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass w-full max-w-2xl rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
-              <h3 className="text-xl font-bold text-white">📦 Nhập hàng vào kho</h3>
-              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-white text-lg">✕</button>
-            </div>
-
-            {errorMsg && (
-              <div className="mb-4 p-3 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
-                ⚠️ {errorMsg}
+      {activeTab === 'orders' ? (
+        <MasterDetailLayout
+          detailTitle={selectedOrder ? `Đơn #${selectedOrder.id.slice(-6).toUpperCase()}` : 'Chi tiết đơn nhập'}
+          showDetail={!!selectedOrder}
+          list={<AppDataGrid rows={orderRows} columns={orderColumns} loading={loading} height={520} onRowClick={onOrderRowClick} rowSelectionModel={toRowSelectionModel(selectedOrder ? [selectedOrder.id] : [])} />}
+          detail={selectedOrder && (
+            <div className="space-y-4 text-sm">
+              <div className="space-y-1 text-xs text-slate-400">
+                <p><span className="text-slate-500">NCC:</span> <strong className="text-white">{selectedOrder.supplierName}</strong></p>
+                <p><span className="text-slate-500">Ngày:</span> {formatDateTime(selectedOrder.createdAt)}</p>
+                {selectedOrder.note && <p><span className="text-slate-500">Ghi chú:</span> {selectedOrder.note}</p>}
               </div>
-            )}
-
-            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-              {/* Supplier info */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Chọn nhà cung cấp</label>
-                  <select
-                    className="input text-xs"
-                    value={selectedSupplierId}
-                    onChange={(e) => handleSupplierChange(e.target.value)}
-                  >
-                    <option value="new">+ Thêm nhà cung cấp mới</option>
-                    {suppliers.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
+              <div className="border border-white/5 rounded-xl overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead><tr className="bg-slate-950/50 text-slate-500"><th className="py-2 px-3 text-left">SP</th><th className="py-2 px-2 text-center">SL</th><th className="py-2 px-2 text-right">Giá nhập</th><th className="py-2 px-3 text-right">T.Tiền</th></tr></thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {(selectedOrder.items || []).map((it) => (
+                      <tr key={it.id}>
+                        <td className="py-2 px-3 text-white">{it.productName}</td>
+                        <td className="py-2 px-2 text-center">{it.quantity}</td>
+                        <td className="py-2 px-2 text-right">{formatCurrency(Number(it.unitCost))}</td>
+                        <td className="py-2 px-3 text-right text-emerald-400">{formatCurrency(Number(it.totalCost || it.quantity * it.unitCost))}</td>
+                      </tr>
                     ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tên nhà cung cấp</label>
-                  <input
-                    type="text"
-                    className="input text-xs"
-                    placeholder="Tên nhà cung cấp..."
-                    value={supplierName}
-                    onChange={(e) => setSupplierName(e.target.value)}
-                    disabled={selectedSupplierId !== 'new'}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Số điện thoại</label>
-                  <input
-                    type="text"
-                    className="input text-xs"
-                    placeholder="SĐT (nếu có)..."
-                    value={supplierPhone}
-                    onChange={(e) => setSupplierPhone(e.target.value)}
-                    disabled={selectedSupplierId !== 'new'}
-                  />
-                </div>
-              </div>
-
-              {/* Add item to PO */}
-              <div className="border border-white/5 bg-slate-950/20 p-4 rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Thêm sản phẩm nhập</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                  <div className="sm:col-span-5">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Sản phẩm</label>
-                    <select
-                      className="input text-xs"
-                      value={addingProductId}
-                      onChange={(e) => handleProductSelectForAdd(e.target.value)}
-                    >
-                      <option value="">-- Chọn sản phẩm --</option>
-                      {products.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} (Tồn: {p.currentStock} {p.unit})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-3 col-span-6">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Đơn giá nhập</label>
-                    <input
-                      type="number"
-                      className="input text-xs"
-                      value={addingCost}
-                      onChange={(e) => setAddingCost(Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="sm:col-span-2 col-span-6">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Số lượng</label>
-                    <input
-                      type="number"
-                      className="input text-xs"
-                      value={addingQty}
-                      onChange={(e) => setAddingQty(Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <button
-                      type="button"
-                      onClick={addToCart}
-                      disabled={!addingProductId || addingQty <= 0}
-                      className="btn btn-primary w-full text-xs font-bold cursor-pointer"
-                    >
-                      Thêm
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Items Table */}
-              <div className="border border-white/5 rounded-xl overflow-hidden bg-slate-950/20">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-500 font-bold uppercase tracking-wider bg-slate-900/50">
-                      <th className="py-2.5 px-4">Tên sản phẩm</th>
-                      <th className="py-2.5 px-4 text-center">Số lượng</th>
-                      <th className="py-2.5 px-4 text-right">Đơn giá nhập</th>
-                      <th className="py-2.5 px-4 text-right">Thành tiền</th>
-                      <th className="py-2.5 px-4 text-center">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 text-slate-300">
-                    {purchaseCart.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="py-6 text-center text-slate-500 italic">
-                          Chưa có sản phẩm nào được chọn
-                        </td>
-                      </tr>
-                    ) : (
-                      purchaseCart.map((item) => (
-                        <tr key={item.product.id} className="hover:bg-white/5 transition-colors">
-                          <td className="py-2.5 px-4 font-semibold text-white">{item.product.name}</td>
-                          <td className="py-2.5 px-4 text-center">{item.quantity} {item.product.unit}</td>
-                          <td className="py-2.5 px-4 text-right">{formatCurrency(item.unitCost)}</td>
-                          <td className="py-2.5 px-4 text-right font-semibold text-emerald-400">
-                            {formatCurrency(item.quantity * item.unitCost)}
-                          </td>
-                          <td className="py-2.5 px-4 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeFromCart(item.product.id)}
-                              className="text-rose-400 hover:text-rose-300 font-bold"
-                            >
-                              Xóa
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
                   </tbody>
                 </table>
               </div>
-
-              {/* Total calculations & paid status */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-800 pt-4">
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Chiết khấu / Giảm giá</label>
-                    <div className="flex gap-2">
-                      <select
-                        className="input text-xs w-1/3"
-                        value={discountType}
-                        onChange={(e) => setDiscountType(e.target.value as any)}
-                      >
-                        <option value="AMOUNT">VNĐ</option>
-                        <option value="PERCENT">%</option>
-                      </select>
-                      <input
-                        type="number"
-                        className="input text-xs w-2/3"
-                        value={discountValue}
-                        onChange={(e) => setDiscountValue(Number(e.target.value))}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Thực tế đã thanh toán (VNĐ)</label>
-                    <input
-                      type="number"
-                      className="input text-xs"
-                      value={paidAmount}
-                      onChange={(e) => setPaidAmount(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-
-                <div className="bg-slate-950/20 border border-white/5 rounded-xl p-4 flex flex-col justify-between text-xs space-y-2">
-                  <div className="flex justify-between text-slate-400">
-                    <span>Tổng tiền hàng:</span>
-                    <span className="text-white font-bold">{formatCurrency(getSubtotal())}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>Chiết khấu:</span>
-                    <span className="text-rose-400 font-bold">
-                      {discountType === 'PERCENT' ? `${discountValue}%` : `-${formatCurrency(discountValue)}`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-slate-400 font-bold border-t border-slate-800 pt-2 text-sm">
-                    <span>Tổng cần thanh toán:</span>
-                    <span className="text-indigo-400">{formatCurrency(getTotal())}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>Đã trả:</span>
-                    <span className="text-emerald-400 font-bold">{formatCurrency(paidAmount)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-400 font-bold border-t border-slate-800 pt-2">
-                    <span>Còn nợ nhà cung cấp:</span>
-                    <span className={getTotal() - paidAmount > 0 ? 'text-rose-400 font-bold' : 'text-slate-400'}>
-                      {formatCurrency(Math.max(0, getTotal() - paidAmount))}
-                    </span>
-                  </div>
-
-                  {getTotal() - paidAmount > 0 && (
-                    <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-400 mt-2 leading-relaxed">
-                      * Chú ý: Khoản nợ {formatCurrency(getTotal() - paidAmount)} sẽ tự động ghi vào sổ nợ đối tác của nhà cung cấp này.
-                    </div>
-                  )}
-                </div>
+              <div className="text-xs space-y-1">
+                <div className="flex justify-between"><span className="text-slate-500">Tổng đơn</span><span className="text-white font-bold">{formatCurrency(calcOrderTotal(selectedOrder))}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Đã trả</span><span className="text-emerald-400">{formatCurrency(Number(selectedOrder.paidAmount))}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Còn nợ</span><span className="text-rose-400">{formatCurrency(Math.max(0, calcOrderTotal(selectedOrder) - Number(selectedOrder.paidAmount)))}</span></div>
               </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Ghi chú đơn nhập</label>
-                <textarea
-                  className="input min-h-[50px] text-xs"
-                  placeholder="Ghi chú thêm thông tin (lô hàng, hạn sử dụng, v.v.)..."
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-              </div>
+              <button onClick={() => handleDeleteOrder(selectedOrder.id)} className="btn btn-secondary text-xs text-rose-400 border-rose-500/20">🗑️ Xóa đơn nhập</button>
             </div>
+          )}
+        />
+      ) : (
+        <AppDataGrid rows={historyRows} columns={historyColumns} loading={loading} height={520} />
+      )}
 
-            <div className="flex justify-end gap-3 pt-3 border-t border-slate-800 mt-4">
-              <button
-                type="button"
-                onClick={() => setModalOpen(false)}
-                className="btn btn-secondary text-xs"
-                disabled={submitting}
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleCheckoutSubmit}
-                className="btn btn-primary text-xs shadow-glow"
-                disabled={submitting || purchaseCart.length === 0}
-              >
-                {submitting ? 'Đang tạo đơn nhập...' : 'Xác nhận nhập hàng'}
-              </button>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="📦 Nhập hàng vào kho" maxWidth="max-w-3xl" closeOnBackdrop={false} contentClassName="max-h-[90vh] overflow-y-auto">
+        {errorMsg && <div className="mb-4 p-3 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">⚠️ {errorMsg}</div>}
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nhà cung cấp</label>
+              <select className="input text-xs" value={selectedSupplierId} onChange={(e) => handleSupplierChange(e.target.value)}>
+                <option value="new">+ Thêm mới</option>
+                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Tên NCC</label>
+              <input className="input text-xs" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} disabled={selectedSupplierId !== 'new'} />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">SĐT</label>
+              <input className="input text-xs" value={supplierPhone} onChange={(e) => setSupplierPhone(e.target.value)} disabled={selectedSupplierId !== 'new'} />
             </div>
           </div>
+
+          <div className="border border-white/5 bg-slate-950/20 p-4 rounded-xl space-y-3">
+            <h4 className="text-xs font-bold text-indigo-400 uppercase">Thêm sản phẩm</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div className="sm:col-span-5">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tìm sản phẩm (Enter để chọn)</label>
+                <ProductSearchSelect
+                  products={products}
+                  value={addingProductId}
+                  onChange={setAddingProductId}
+                  onSelect={(p) => setAddingCost(Number(p.costPrice) || 0)}
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Đơn giá nhập</label>
+                <input type="number" className="input text-xs" value={addingCost || ''} onChange={(e) => setAddingCost(Number(e.target.value))} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">SL</label>
+                <input type="number" className="input text-xs" value={addingQty} onChange={(e) => setAddingQty(Number(e.target.value))} />
+              </div>
+              <div className="sm:col-span-2">
+                <button type="button" onClick={addToCart} disabled={!addingProductId || addingQty <= 0} className="btn btn-primary w-full text-xs">Thêm</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-white/5 rounded-xl overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-950/50 text-slate-500 uppercase">
+                  <th className="py-2.5 px-3 text-left">Sản phẩm</th>
+                  <th className="py-2.5 px-2 text-center w-36">Số lượng</th>
+                  <th className="py-2.5 px-2 text-right w-32">Đơn giá</th>
+                  <th className="py-2.5 px-3 text-right">Thành tiền</th>
+                  <th className="py-2.5 px-2 w-12"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {purchaseCart.length === 0 ? (
+                  <tr><td colSpan={5} className="py-6 text-center text-slate-500 italic">Chưa có sản phẩm</td></tr>
+                ) : purchaseCart.map((item) => (
+                  <tr key={item.product.id}>
+                    <td className="py-2 px-3 font-semibold text-white">{item.product.name}</td>
+                    <td className="py-2 px-2">
+                      <div className="flex items-center justify-center gap-1">
+                        <button type="button" onClick={() => updateCartQty(item.product.id, -1)} className="w-7 h-7 rounded bg-slate-800 text-slate-300 text-sm">−</button>
+                        <input
+                          type="number"
+                          className="input h-7 w-14 text-center text-xs px-1"
+                          value={item.quantity}
+                          onChange={(e) => updateCartField(item.product.id, 'quantity', Number(e.target.value))}
+                        />
+                        <button type="button" onClick={() => updateCartQty(item.product.id, 1)} className="w-7 h-7 rounded bg-slate-800 text-slate-300 text-sm">+</button>
+                      </div>
+                    </td>
+                    <td className="py-2 px-2">
+                      <input
+                        type="number"
+                        className="input h-7 text-xs text-right"
+                        value={item.unitCost || ''}
+                        onChange={(e) => updateCartField(item.product.id, 'unitCost', Number(e.target.value))}
+                      />
+                    </td>
+                    <td className="py-2 px-3 text-right text-emerald-400 font-semibold">{formatCurrency(item.quantity * item.unitCost)}</td>
+                    <td className="py-2 px-2 text-center">
+                      <button type="button" onClick={() => removeFromCart(item.product.id)} className="text-rose-400 text-sm">✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Chiết khấu</label>
+                <div className="flex gap-2">
+                  <select className="input text-xs w-1/3" value={discountType} onChange={(e) => setDiscountType(e.target.value as any)}>
+                    <option value="AMOUNT">VNĐ</option>
+                    <option value="PERCENT">%</option>
+                  </select>
+                  <input type="number" className="input text-xs w-2/3" value={discountValue} onChange={(e) => setDiscountValue(Number(e.target.value))} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Đã thanh toán</label>
+                <input type="number" className="input text-xs" value={paidAmount} onChange={(e) => { setPaidAmount(Number(e.target.value)); setDebtMode(Number(e.target.value) < getTotal()); }} />
+                <div className="flex gap-2 mt-2">
+                  <button type="button" onClick={() => { setDebtMode(true); setPaidAmount(0); }} className="btn py-1 px-2 text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg">Nợ tất</button>
+                  <button type="button" onClick={() => { setDebtMode(false); setPaidAmount(getTotal()); }} className="btn py-1 px-2 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg">Trả hết</button>
+                </div>
+              </div>
+              <textarea className="input min-h-[50px] text-xs" placeholder="Ghi chú đơn nhập..." value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <div className="bg-slate-950/20 border border-white/5 rounded-xl p-4 text-xs space-y-2">
+              <div className="flex justify-between"><span>Tổng hàng</span><span className="font-bold">{formatCurrency(getSubtotal())}</span></div>
+              <div className="flex justify-between border-t border-slate-800 pt-2"><span>Tổng thanh toán</span><span className="text-indigo-400 font-bold">{formatCurrency(getTotal())}</span></div>
+              <div className="flex justify-between"><span>Còn nợ NCC</span><span className="text-rose-400 font-bold">{formatCurrency(Math.max(0, getTotal() - paidAmount))}</span></div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+            <button type="button" onClick={() => setModalOpen(false)} className="btn btn-secondary text-xs" disabled={submitting}>Hủy</button>
+            <button type="button" onClick={handleCheckoutSubmit} className="btn btn-primary text-xs shadow-glow" disabled={submitting || purchaseCart.length === 0}>
+              {submitting ? 'Đang tạo...' : 'Xác nhận nhập hàng'}
+            </button>
+          </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

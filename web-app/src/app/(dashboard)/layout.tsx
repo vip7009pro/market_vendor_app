@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import MuiProvider from '@/components/providers/MuiProvider';
 
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Tổng quan', icon: '📊' },
@@ -48,6 +49,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const activeItem = NAV_ITEMS.find((item) => pathname.startsWith(item.path)) || NAV_ITEMS[0];
 
   return (
+    <MuiProvider>
     <div className="min-h-screen bg-[#0f172a] text-[#f1f5f9] font-sans flex flex-col md:flex-row">
       {/* Sidebar for Desktop */}
       <aside className="hidden md:flex flex-col w-64 border-r border-white/5 bg-[#0f172a] shrink-0">
@@ -184,5 +186,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </main>
     </div>
+    </MuiProvider>
   );
 }

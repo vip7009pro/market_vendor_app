@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { sendChatCompletion } from '@/lib/ai';
+import Modal from '@/components/ui/Modal';
 
 interface Product {
   id: string;
@@ -263,18 +264,14 @@ Lệnh giọng nói cần phân tích:
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-      <div className="glass w-full max-w-2xl rounded-2xl border border-white/10 shadow-2xl p-6 relative flex flex-col max-h-[85vh] animate-fade-in-up">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800">
-          <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <span>🎤</span> Lên đơn hàng bằng giọng nói (AI)
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer">✕</button>
-        </div>
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title={<span className="flex items-center gap-2"><span>🎤</span> Lên đơn hàng bằng giọng nói (AI)</span>}
+      maxWidth="max-w-2xl"
+      contentClassName="flex flex-col max-h-[85vh]"
+    >
 
         {/* Text prompt status */}
         <div className="p-3 bg-slate-950/40 rounded-xl border border-slate-800 mb-4 text-xs text-slate-300">
@@ -399,7 +396,6 @@ Lệnh giọng nói cần phân tích:
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

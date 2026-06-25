@@ -137,6 +137,18 @@ class ApiClient {
     return this.fetch(`/api/debts/${debtId}/payments`, { method: 'POST', body: data });
   }
 
+  async createDebt(data: any) {
+    return this.fetch('/api/debts', { method: 'POST', body: data });
+  }
+
+  async updateDebt(id: string, data: any) {
+    return this.fetch(`/api/debts/${id}`, { method: 'PUT', body: data });
+  }
+
+  async getDebt(id: string) {
+    return this.fetch(`/api/debts/${id}`);
+  }
+
   // Reports
   async getDashboard(params?: Record<string, string>) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';

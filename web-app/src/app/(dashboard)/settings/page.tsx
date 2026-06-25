@@ -1,7 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { GridColDef } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import Modal from '@/components/ui/Modal';
+import VietQrDisplay from '@/components/ui/VietQrDisplay';
+import AppDataGrid from '@/components/ui/AppDataGrid';
+import { VIETQR_BANKS } from '@/lib/vietqr';
 
 interface Employee {
   id: string;
@@ -29,6 +34,8 @@ export default function SettingsPage() {
   const [banks, setBanks] = useState<BankAccount[]>([]);
   const [bankModalOpen, setBankModalOpen] = useState(false);
   const [bankName, setBankName] = useState('Vietcombank');
+  const [bankCode, setBankCode] = useState('VCB');
+  const [bankBin, setBankBin] = useState('970436');
   const [accountNo, setAccountNo] = useState('');
   const [accountName, setAccountName] = useState('');
 
@@ -119,6 +126,8 @@ export default function SettingsPage() {
       await api.createBankAccount({
         name: bankName,
         shortName: bankName,
+        code: bankCode,
+        bin: bankBin,
         accountNo,
         accountName: accountName.toUpperCase(),
         isDefault: banks.length === 0,
@@ -177,6 +186,35 @@ export default function SettingsPage() {
     setAiSaveSuccess(true);
     setTimeout(() => setAiSaveSuccess(false), 3000);
   };
+
+  const employeeRows = useMemo(() => employees.map((e) => ({
+    id: e.id,
+    code: e.id,
+    name: e.name,
+    position: 'Nhân viên bán hàng',
+    status: 'Đang hoạt động',
+  })), [employees]);
+
+  const employeeColumns: GridColDef[] = useMemo(() => [
+    { field: 'code', headerName: 'Mã NV', width: 100 },
+    { field: 'name', headerName: 'Tên', flex: 1, minWidth: 140 },
+    { field: 'position', headerName: 'Vị trí', width: 160 },
+    { field: 'status', headerName: 'Trạng thái', width: 120 },
+    {
+      field: 'actions',
+      headerName: '',
+      width: 80,
+      sortable: false,
+      renderCell: (params) => (
+        <button
+          onClick={() => handleDeleteEmployee(String(params.id))}
+          className="text-rose-400 text-xs font-semibold h-full"
+        >
+          Xóa
+        </button>
+      ),
+    },
+  ], []);
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -311,7 +349,7 @@ export default function SettingsPage() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 {banks.map((b) => (
-                  <div key={b.id} className="card bg-slate-950/40 border-white/5 relative p-5 flex flex-col justify-between group">
+                  <div key={b.id} className="card bg-slate-950/40 border-white/5 relative p-5 flex flex-col gap-4 group">
                     {b.isDefault && (
                       <span className="absolute top-4 right-4 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">
                         Mặc định
@@ -324,7 +362,16 @@ export default function SettingsPage() {
                       <p className="text-xs text-slate-300 font-semibold">{b.accountName}</p>
                     </div>
 
-                    <div className="flex justify-end items-center mt-5 pt-3 border-t border-slate-800 text-xs">
+                    <div className="border-t border-slate-800 pt-4">
+                      <VietQrDisplay
+                        bank={b}
+                        staticQr
+                        size="xl"
+                        showBankInfo={false}
+                      />
+                    </div>
+
+                    <div className="flex justify-end items-center pt-1 border-t border-slate-800 text-xs">
                       <button
                         onClick={() => handleDeleteBank(b.id)}
                         className="text-rose-400 hover:text-rose-300 font-semibold cursor-pointer"
@@ -353,41 +400,7 @@ export default function SettingsPage() {
                 Chưa có nhân viên nào. Tạo nhân viên để phân công và ghi nhận hóa đơn bán hàng theo người bán.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-500 font-bold text-xs uppercase tracking-wider bg-slate-950/20">
-                      <th className="py-4 px-6">Mã nhân viên</th>
-                      <th className="py-4 px-6">Tên nhân viên</th>
-                      <th className="py-4 px-6">Vị trí / Ca làm việc</th>
-                      <th className="py-4 px-6 text-center">Trạng thái</th>
-                      <th className="py-4 px-6 text-right">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 text-slate-300">
-                    {employees.map((e) => (
-                      <tr key={e.id} className="hover:bg-white/5 transition-colors">
-                        <td className="py-4 px-6 font-mono text-xs text-indigo-400 font-bold">{e.id}</td>
-                        <td className="py-4 px-6 font-semibold text-white">{e.name}</td>
-                        <td className="py-4 px-6 text-slate-400 text-xs">Nhân viên bán hàng</td>
-                        <td className="py-4 px-6 text-center">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400">
-                            Đang hoạt động
-                          </span>
-                        </td>
-                        <td className="py-4 px-6 text-right">
-                          <button
-                            onClick={() => handleDeleteEmployee(e.id)}
-                            className="text-xs font-semibold text-rose-400 hover:text-rose-300 cursor-pointer"
-                          >
-                            Xóa
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <AppDataGrid rows={employeeRows} columns={employeeColumns} height={360} />
             )}
           </div>
         )}
@@ -495,30 +508,25 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Add Bank Modal */}
-      {bankModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">Thêm tài khoản ngân hàng</h3>
-              <button onClick={() => setBankModalOpen(false)} className="text-slate-400 hover:text-white text-lg cursor-pointer">✕</button>
-            </div>
-
+      <Modal open={bankModalOpen} onClose={() => setBankModalOpen(false)} title="Thêm tài khoản ngân hàng" maxWidth="max-w-md">
             <form onSubmit={handleAddBank} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tên ngân hàng</label>
                 <select
                   className="input"
                   value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
+                  onChange={(e) => {
+                    const selected = VIETQR_BANKS.find(b => b.shortName === e.target.value);
+                    if (selected) {
+                      setBankName(selected.shortName);
+                      setBankCode(selected.code);
+                      setBankBin(selected.bin);
+                    }
+                  }}
                 >
-                  <option value="Vietcombank">Vietcombank</option>
-                  <option value="Techcombank">Techcombank</option>
-                  <option value="MB Bank">MB Bank</option>
-                  <option value="Vietinbank">Vietinbank</option>
-                  <option value="ACB">ACB</option>
-                  <option value="BIDV">BIDV</option>
-                  <option value="Agribank">Agribank</option>
+                  {VIETQR_BANKS.map((b) => (
+                    <option key={b.code} value={b.shortName}>{b.shortName}</option>
+                  ))}
                 </select>
               </div>
 
@@ -562,19 +570,9 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
 
-      {/* Add Employee Modal */}
-      {empModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">Thêm nhân viên mới</h3>
-              <button onClick={() => setEmpModalOpen(false)} className="text-slate-400 hover:text-white text-lg cursor-pointer">✕</button>
-            </div>
-
+      <Modal open={empModalOpen} onClose={() => setEmpModalOpen(false)} title="Thêm nhân viên mới" maxWidth="max-w-md">
             <form onSubmit={handleAddEmployee} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tên nhân viên</label>
@@ -604,9 +602,7 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }
