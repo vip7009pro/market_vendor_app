@@ -10,7 +10,7 @@ android {
     // Đọc file key.properties
     
     
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
     namespace = "com.marketvendor.market_vendor_app"
     compileSdk = 36
 
@@ -27,8 +27,8 @@ android {
         create("release") {
             keyAlias = "ghinoflutter"
             keyPassword = "Anhtaday_87"
-            //storeFile = file("D:/ghinoflutter.jks")
-            storeFile = file("G:/NODEJS/ghinoflutter.jks")
+            storeFile = file("D:/ghinoflutter.jks")
+            //storeFile = file("G:/NODEJS/ghinoflutter.jks")
             storePassword = "Anhtaday_87"
         }
     }
@@ -53,7 +53,16 @@ android {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-        
+            
+            ndk {
+                debugSymbolLevel = "none"
+            }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 }
