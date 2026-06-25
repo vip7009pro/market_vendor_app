@@ -170,7 +170,11 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       });
     }
 
-    // Transaction: create sale + items + deduct stock
+    const totalSelling = items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice) * Number(item.quantity)), 0);
+    const netSellingPrice = Math.max(0, totalSelling - Number(discount));
+    const debtAmount = netSellingPrice - Number(paidAmount);
+
+    // Transaction: create sale + items + deduct stock + create debt
     await prisma.$transaction(async (tx) => {
       // Create sale
       await tx.sale.create({
@@ -200,6 +204,26 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
           where: { userId_id: { userId, id: productId } },
           data: {
             currentStock: { decrement: qty },
+            updatedAt: now,
+          },
+        });
+      }
+
+      // Auto-create debt if paidAmount < netSellingPrice and customerId is provided
+      if (debtAmount > 0 && customerId) {
+        await tx.debt.create({
+          data: {
+            userId,
+            id: uuidv4(),
+            createdAt: saleCreatedAt,
+            type: 1, // othersOweMe
+            partyId: customerId,
+            partyName: customerName || 'Khách hàng',
+            initialAmount: debtAmount,
+            amount: debtAmount,
+            description: `Nợ tự động từ đơn hàng ${saleId.slice(0, 8).toUpperCase()}`,
+            sourceType: 'sale',
+            sourceId: saleId,
             updatedAt: now,
           },
         });
@@ -275,6 +299,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
       // Soft delete sale
       await tx.sale.update({
         where: { userId_id: { userId, id: saleId } },
+        data: { deletedAt: now, updatedAt: now },
+      });
+
+      // Soft delete corresponding debt
+      await tx.debt.updateMany({
+        where: { userId, sourceType: 'sale', sourceId: saleId, deletedAt: null },
         data: { deletedAt: now, updatedAt: now },
       });
 

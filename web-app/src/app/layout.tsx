@@ -14,6 +14,8 @@ export const metadata: Metadata = {
   keywords: ["quản lý bán hàng", "POS", "tiểu thương", "tồn kho", "công nợ", "market vendor"],
 };
 
+import PWARegister from "@/components/PWARegister";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -23,6 +25,7 @@ export default function RootLayout({
     <html lang="vi" className="dark">
       <body className={`${inter.variable} font-sans antialiased`}>
         <AuthProvider>
+          <PWARegister />
           {children}
         </AuthProvider>
       </body>

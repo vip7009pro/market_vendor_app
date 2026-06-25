@@ -82,34 +82,6 @@ lib/
 - `image_picker` (chụp/chọn ảnh sản phẩm)
 - `intl` (format số, ngày)
 
-<<<<<<< HEAD
-## Trạng thái Web Migration (2026-06-25)
-
-### 1. Backend API (`backend-api/`)
-- Kiến trúc Node.js + Express + TypeScript + Prisma ORM.
-- Database: PostgreSQL `market_vendor_web` (localhost:3005).
-- Tách biệt hoàn toàn với `backend-node` cũ. Schema khớp 100% với SQLite v33 của mobile.
-- API Endpoints đã hoàn thiện:
-  - Auth (`/auth/register`, `/auth/login`, `/auth/me`, `/auth/google`) hỗ trợ Email/Password, Google OAuth thực tế và Mock Google Login cho môi trường phát triển local (đã sửa lỗi Unique constraint failed khi trùng email).
-  - CRUD sản phẩm, khách hàng, đơn hàng, công nợ, chi phí, báo cáo dashboard.
-  - Tự động hóa logic kho hàng (trừ thô/phối trộn) và tự động ghi nợ khi thanh toán thiếu.
-
-### 2. Web App Next.js (`web-app/`)
-- Thiết kế bằng Next.js 16 (App Router), React 19, TypeScript và CSS Variables (tối ưu hóa HSL Dark/Light theme, glassmorphism, micro-animations).
-- Trang đã triển khai & tối ưu hóa compile:
-  - **Landing Page (`/`)**: Trình diễn tính năng chuyên nghiệp, bảng giá gói dịch vụ, kêu gọi hành động.
-  - **Auth (`/login`)**: Tích hợp Login/Register với trạng thái lưu token qua LocalStorage, bảo mật bằng Suspense boundary cho pre-render. Tích hợp Google Sign-In thực tế (Google Identity Services) hiển thị popup chọn tài khoản Google của thiết bị.
-  - **Dashboard layout & Home (`/dashboard`)**: Sidebar/Header responsive, hiển thị các chỉ số KPIs (Doanh thu, số đơn, chi phí, nợ khách hàng) cùng bảng giao dịch gần đây.
-  - **POS Bán hàng (`/pos`)**: Thao tác tạo đơn, chọn khách hàng, giảm giá trực tiếp, tính toán và in hóa đơn/ghi nợ tự động.
-  - **Quản lý sản phẩm (`/products`)**: CRUD đầy đủ phân loại RAW/MIX, giá vốn, giá bán, số lượng tồn kho.
-  - **Khách hàng (`/customers`)**: Danh bạ đối tác lọc riêng Khách hàng & Nhà cung cấp.
-  - **Lịch sử bán hàng (`/sales`)**: Chi tiết hóa đơn và hủy/hoàn trả đơn hàng.
-  - **Sổ ghi nợ (`/debts`)**: Quản lý thu nợ (khách nợ) và trả nợ (nợ nhà cung cấp).
-  - **Chi phí (`/expenses`)**: Ghi chép và lọc các loại chi phí hoạt động.
-  - **Báo cáo (`/reports`)**: Biểu đồ doanh thu/lợi nhuận động theo Tuần/Tháng/Năm, danh sách mặt hàng bán chạy.
-  - **Cài đặt (`/settings`)**: Thiết lập thông tin cửa hàng, tài khoản ngân hàng VietQR, quản lý tài khoản nhân viên.
-- Biên dịch: Build tĩnh Next.js hoạt động hoàn hảo 100% không có lỗi type-checking.
-=======
 ### Nâng cấp giao diện hóa đơn & Chia sẻ (2026-05-10)
 - **lib/screens/receipt_preview_screen.dart**:
   - Khắc phục lỗi bố cục bị bóp méo trên màn hình bằng `InteractiveViewer(constrained: false)`.
@@ -132,4 +104,41 @@ lib/
   - Pin (giữ nguyên) các package khác như `google_sign_in`, `fl_chart`, `flutter_contacts`, `file_picker` ở các phiên bản ổn định để tránh lỗi biên dịch do thay đổi API, nhưng vẫn hưởng lợi từ việc đóng gói (packaging) 16KB của Gradle 8.7+.
 - **Build**: Đã tạo thành công file `app-release.aab` sạch, hỗ trợ Android 15+.
 - **Lưu ý**: Gỡ bỏ hoàn toàn các workaround cũ như `extractNativeLibs="true"` vì không còn được Play Store chấp nhận cho API 35+.
->>>>>>> 8e11059bd6951bbb540043e0a81caf8cb90fe40e
+
+## Trạng thái Web Migration (2026-06-25)
+
+### 1. Backend API (`backend-api/`)
+- Kiến trúc Node.js + Express + TypeScript + Prisma ORM.
+- Database: PostgreSQL `market_vendor_web` (localhost:3005).
+- Tách biệt hoàn toàn với `backend-node` cũ. Schema khớp 100% với SQLite v33 của mobile.
+- API Endpoints đã hoàn thiện:
+  - Auth (`/auth/register`, `/auth/login`, `/auth/me`, `/auth/google`) hỗ trợ Email/Password, Google OAuth thực tế và Mock Google Login cho môi trường phát triển local (đã sửa lỗi Unique constraint failed khi trùng email).
+  - CRUD sản phẩm, khách hàng, đơn hàng, công nợ, chi phí, báo cáo dashboard.
+  - Tự động hóa logic kho hàng (trừ thô/phối trộn) và tự động ghi nợ khi thanh toán thiếu.
+  - **Đồng bộ dữ liệu (`/api/sync/push`, `/api/sync/pull`)**: Triển khai giải pháp đồng bộ 2 chiều (LWW - Last-Write-Wins) bằng Prisma, hỗ trợ lưu trữ lịch sử sự kiện đồng bộ (`sync_events`) và xử lý xung đột dữ liệu tối ưu giữa di động và máy chủ web.
+
+### 2. Web App Next.js (`web-app/`)
+- Thiết kế bằng Next.js 16 (App Router), React 19, TypeScript và CSS Variables (tối ưu hóa HSL Dark/Light theme, glassmorphism, micro-animations).
+- Trang đã triển khai & tối ưu hóa compile:
+  - **Landing Page (`/`)**: Trình diễn tính năng chuyên nghiệp, bảng giá gói dịch vụ, kêu gọi hành động.
+  - **Auth (`/login`)**: Tích hợp Login/Register với trạng thái lưu token qua LocalStorage, bảo mật bằng Suspense boundary cho pre-render. Tích hợp Google Sign-In thực tế (Google Identity Services) hiển thị popup chọn tài khoản Google của thiết bị.
+  - **Dashboard layout & Home (`/dashboard`)**: Sidebar/Header responsive, hiển thị các chỉ số KPIs (Doanh thu, số đơn, chi phí, nợ khách hàng) cùng bảng giao dịch gần đây.
+  - **POS Bán hàng (`/pos`)**: Thao tác tạo đơn, chọn khách hàng, giảm giá trực tiếp, tính toán và in hóa đơn/ghi nợ tự động. Tích hợp thêm nút **🎤 Lên đơn AI** mở modal Lên đơn hàng bằng giọng nói.
+  - **Lên đơn bằng giọng nói (`VoiceOrderModal`)**: Sử dụng Web Speech API để nhận diện giọng nói tiếng Việt trực tiếp trên trình duyệt, kết nối Client-side AI parser với API Gemini/OpenRouter của người dùng để phân tích cú pháp đơn hàng JSON và tự động map sản phẩm/khách hàng vào giỏ hàng POS.
+  - **Quản lý sản phẩm (`/products`)**: CRUD đầy đủ phân loại RAW/MIX, giá vốn, giá bán, số lượng tồn kho.
+  - **Khách hàng (`/customers`)**: Danh bạ đối tác lọc riêng Khách hàng & Nhà cung cấp.
+  - **Lịch sử bán hàng (`/sales`)**: Chi tiết hóa đơn và hủy/hoàn trả đơn hàng.
+  - **Sổ ghi nợ (`/debts`)**: Quản lý thu nợ (khách nợ) và trả nợ (nợ nhà cung cấp).
+  - **Chi phí (`/expenses`)**: Ghi chép và lọc các loại chi phí hoạt động.
+  - **Báo cáo (`/reports`)**: Biểu đồ doanh thu/lợi nhuận động theo Tuần/Tháng/Năm, danh sách mặt hàng bán chạy. Bổ sung tính năng **Xuất báo cáo Excel (CSV)** chi tiết.
+  - **Cài đặt (`/settings`)**: Thiết lập thông tin cửa hàng, tài khoản ngân hàng VietQR, quản lý tài khoản nhân viên (kết nối trực tiếp API backend). Thêm tab **Cấu hình AI** để quản lý API key và model của người dùng.
+- **PWA & Offline**: Tích hợp Service Worker (`sw.js`) và Manifest (`manifest.ts`) cho phép ứng dụng Next.js hoạt động offline và hiển thị giao diện POS ngay cả khi mất mạng.
+- Biên dịch: Build tĩnh Next.js hoạt động hoàn hảo 100% không có lỗi type-checking.
+
+### 3. Đồng bộ hóa toàn diện Web ↔ Mobile (Phase 6 - ĐÃ HOÀN THÀNH)
+- **API Backend**: Nâng cấp các API backend cho Báo cáo (Reports) & Dashboard để hỗ trợ lọc theo nhân viên (`employeeId`), tính toán đầy đủ 14 KPIs thực tế, `/top-products`, `/expenses-ratio` (tỉ trọng chi phí), và gom nhóm doanh thu theo ngày/tháng/năm tại `/revenue`. Bổ sung endpoint `/opening-stocks` để lấy dữ liệu tồn đầu kỳ.
+- **Logic POS Bán hàng**: Đồng bộ logic công nợ (chặn nợ Khách vãng lai, gán nhanh số tiền khách trả, dropdown chọn nhân viên bán hàng) và sinh VietQR tự động khi thanh toán BANK thành công. Tích hợp cảnh báo tồn kho (cho phép cập nhật nhanh) và cảnh báo bán dưới giá RAW của MIX.
+- **Reports & Dashboard**:
+  - Dashboard Web loại bỏ mock data, tự động truyền date hôm nay và tính toán động tổng tiền hóa đơn từ order items.
+  - Trang Báo cáo (Reports) Web hiển thị đủ 14 KPIs thực tế, bộ lọc Date Range và nhân viên, vẽ Pie Chart SVG tỷ trọng chi phí tương tác, vẽ Bar/Line Chart SVG doanh thu/lợi nhuận/lợi nhuận ròng có hover tooltip, danh sách Top 10 sản phẩm có progress bar tỉ lệ.
+  - Tích hợp tính năng **Xuất báo cáo Excel tổng hợp (12 Sheet XML Spreadsheet)** client-side tải xuống dữ liệu đầy đủ (khách hàng, sản phẩm, công nợ, lịch sử trả nợ, chi phí, lịch sử nhập kho, lịch sử xuất kho, list đơn hàng, tồn đầu kỳ, tồn cuối kỳ...) khớp 100% với mobile app.

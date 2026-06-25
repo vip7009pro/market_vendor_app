@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { path: '/dashboard', label: 'Tổng quan', icon: '📊' },
   { path: '/pos', label: 'Bán hàng (POS)', icon: '🛒' },
   { path: '/sales', label: 'Lịch sử bán', icon: '📜' },
+  { path: '/purchases', label: 'Nhập hàng', icon: '📥' },
   { path: '/products', label: 'Sản phẩm', icon: '📦' },
   { path: '/customers', label: 'Khách hàng', icon: '👥' },
   { path: '/debts', label: 'Công nợ', icon: '💳' },

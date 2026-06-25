@@ -13,6 +13,7 @@ import purchasesRoutes from './routes/purchases.routes.js';
 import expensesRoutes from './routes/expenses.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
+import syncRoutes from './routes/sync.routes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
@@ -41,6 +42,7 @@ app.use('/api/purchases', purchasesRoutes);
 app.use('/api/expenses', expensesRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/sync', syncRoutes);
 
 // ─── Error handler ───────────────────────────────────
 app.use(errorHandler);

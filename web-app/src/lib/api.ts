@@ -42,7 +42,11 @@ class ApiClient {
       throw new Error(error.error || `HTTP ${res.status}`);
     }
 
-    return res.json();
+    const result = await res.json();
+    if (result && typeof result === 'object' && 'data' in result) {
+      return result.data;
+    }
+    return result;
   }
 
   // Auth
@@ -94,6 +98,25 @@ class ApiClient {
     return this.fetch(`/api/sales/${id}`, { method: 'DELETE' });
   }
 
+  // Purchases
+  async getPurchases(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.fetch(`/api/purchases/orders${qs}`);
+  }
+
+  async createPurchase(data: any) {
+    return this.fetch('/api/purchases/orders', { method: 'POST', body: data });
+  }
+
+  async deletePurchase(id: string) {
+    return this.fetch(`/api/purchases/orders/${id}`, { method: 'DELETE' });
+  }
+
+  async getPurchaseHistory(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.fetch(`/api/purchases/history${qs}`);
+  }
+
   // Customers
   async getCustomers(params?: Record<string, string>) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -120,6 +143,15 @@ class ApiClient {
     return this.fetch(`/api/reports/dashboard${qs}`);
   }
 
+  async getRevenueReport(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.fetch(`/api/reports/revenue${qs}`);
+  }
+
+  async getOpeningStocks(year: number, month: number) {
+    return this.fetch(`/api/reports/opening-stocks?year=${year}&month=${month}`);
+  }
+
   // Expenses
   async getExpenses(params?: Record<string, string>) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -128,6 +160,53 @@ class ApiClient {
 
   async createExpense(data: any) {
     return this.fetch('/api/expenses', { method: 'POST', body: data });
+  }
+
+  // Settings - Employees
+  async getEmployees() {
+    return this.fetch('/api/settings/employees');
+  }
+
+  async createEmployee(data: { name: string }) {
+    return this.fetch('/api/settings/employees', { method: 'POST', body: data });
+  }
+
+  async updateEmployee(id: string, data: { name: string }) {
+    return this.fetch(`/api/settings/employees/${id}`, { method: 'PUT', body: data });
+  }
+
+  async deleteEmployee(id: string) {
+    return this.fetch(`/api/settings/employees/${id}`, { method: 'DELETE' });
+  }
+
+  // Settings - Store Info
+  async getStoreInfo() {
+    return this.fetch('/api/settings/store');
+  }
+
+  async updateStoreInfo(data: {
+    name: string;
+    address: string;
+    phone: string;
+    taxCode?: string;
+    email?: string;
+    bankName?: string;
+    bankAccount?: string;
+  }) {
+    return this.fetch('/api/settings/store', { method: 'PUT', body: data });
+  }
+
+  // Settings - VietQR Bank Accounts
+  async getBankAccounts() {
+    return this.fetch('/api/settings/bank-accounts');
+  }
+
+  async createBankAccount(data: any) {
+    return this.fetch('/api/settings/bank-accounts', { method: 'POST', body: data });
+  }
+
+  async deleteBankAccount(id: string) {
+    return this.fetch(`/api/settings/bank-accounts/${id}`, { method: 'DELETE' });
   }
 }
 

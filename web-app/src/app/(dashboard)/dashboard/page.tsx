@@ -20,18 +20,26 @@ export default function DashboardPage() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      setError('');
+      
+      const todayStr = new Date().toISOString().split('T')[0];
+      const params = {
+        startDate: todayStr,
+        endDate: todayStr,
+      };
+
       const [dashResponse, salesResponse] = await Promise.all([
-        api.getDashboard().catch(() => ({ data: null })),
-        api.getSales({ limit: '5' }).catch(() => ({ data: [] })),
+        api.getDashboard(params).catch(() => null),
+        api.getSales({ limit: '5' }).catch(() => null),
       ]);
 
-      const dashData = dashResponse?.data || dashResponse || {};
-      const salesList = salesResponse?.data || salesResponse || [];
-
-      // Check if we received valid dashboard stats, otherwise use demo fallback
-      if (!dashData.netRevenue && !dashData.totalRevenue && salesList.length === 0) {
-        throw new Error("No data returned, fallback to demo");
+      // If both API calls failed or returned nothing
+      if (!dashResponse && !salesResponse) {
+        throw new Error("Không thể kết nối đến máy chủ API");
       }
+
+      const dashData = dashResponse || {};
+      const salesList = salesResponse?.sales || salesResponse?.data || salesResponse || [];
 
       setStats({
         todayRevenue: Number(dashData.netRevenue || dashData.totalRevenue || 0),
@@ -41,46 +49,16 @@ export default function DashboardPage() {
         recentSales: Array.isArray(salesList) ? salesList : [],
       });
     } catch (err: any) {
-      console.warn('Could not fetch real dashboard stats, using demo data', err);
+      console.error('Error fetching dashboard stats:', err);
+      setError(err.message || 'Lỗi tải dữ liệu tổng quan');
+      
+      // Default to 0 stats instead of fake mock data
       setStats({
-        todayRevenue: 2450000,
-        todaySalesCount: 18,
-        totalDebtsOwedToMe: 4120000,
-        todayExpenses: 350000,
-        recentSales: [
-          {
-            id: 'demo-1',
-            customerName: 'Chị Lan Chợ Lớn',
-            paymentType: 'CASH',
-            totalAmount: 180000,
-            paidAmount: 180000,
-            createdAt: new Date().toISOString(),
-          },
-          {
-            id: 'demo-2',
-            customerName: 'Anh Hùng (Đại lý)',
-            paymentType: 'BANK',
-            totalAmount: 1200000,
-            paidAmount: 500000,
-            createdAt: new Date(Date.now() - 3600000).toISOString(),
-          },
-          {
-            id: 'demo-3',
-            customerName: 'Khách vãng lai',
-            paymentType: 'CASH',
-            totalAmount: 45000,
-            paidAmount: 45000,
-            createdAt: new Date(Date.now() - 7200000).toISOString(),
-          },
-          {
-            id: 'demo-4',
-            customerName: 'Cô Năm Rau Sạch',
-            paymentType: 'CASH',
-            totalAmount: 250000,
-            paidAmount: 250000,
-            createdAt: new Date(Date.now() - 14400000).toISOString(),
-          },
-        ],
+        todayRevenue: 0,
+        todaySalesCount: 0,
+        totalDebtsOwedToMe: 0,
+        todayExpenses: 0,
+        recentSales: [],
       });
     } finally {
       setLoading(false);
@@ -122,12 +100,15 @@ export default function DashboardPage() {
           <h2 className="text-2xl font-bold text-white">Tổng quan hoạt động</h2>
           <p className="text-sm text-slate-400">Xem nhanh hiệu suất bán hàng của bạn hôm nay</p>
         </div>
-        <button
-          onClick={fetchDashboardData}
-          className="btn btn-secondary text-xs flex items-center gap-2"
-        >
-          🔄 Làm mới dữ liệu
-        </button>
+        <div className="flex items-center gap-2">
+          {error && <span className="text-xs text-rose-400">{error}</span>}
+          <button
+            onClick={fetchDashboardData}
+            className="btn btn-secondary text-xs flex items-center gap-2"
+          >
+            🔄 Làm mới
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -140,7 +121,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Doanh thu hôm nay</p>
-            <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-1">{formatCurrency(todayRevenue)}</h3>
+            <h3 className="text-xl font-bold text-white mt-1">{formatCurrency(todayRevenue)}</h3>
           </div>
         </div>
 
@@ -152,7 +133,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Số đơn hàng</p>
-            <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-1">{todaySalesCount} đơn</h3>
+            <h3 className="text-xl font-bold text-white mt-1">{todaySalesCount} đơn</h3>
           </div>
         </div>
 
@@ -176,7 +157,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Chi phí hôm nay</p>
-            <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-1">{formatCurrency(todayExpenses)}</h3>
+            <h3 className="text-xl font-bold text-white mt-1">{formatCurrency(todayExpenses)}</h3>
           </div>
         </div>
       </div>
@@ -204,34 +185,47 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                {recentSales.map((sale) => {
-                  const total = Number(sale.totalAmount || 0);
-                  const paid = Number(sale.paidAmount || 0);
-                  const debt = total - paid;
-                  return (
-                    <tr key={sale.id} className="hover:bg-white/5 transition-colors">
-                      <td className="py-3 px-4 font-mono text-xs text-indigo-400">
-                        #{sale.id.slice(-6).toUpperCase()}
-                      </td>
-                      <td className="py-3 px-4 font-medium text-white">
-                        {sale.customerName || (sale.customer?.name) || 'Khách vãng lai'}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          sale.paymentType === 'CASH' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-cyan-500/10 text-cyan-400'
-                        }`}>
-                          {sale.paymentType === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right font-semibold text-white">
-                        {formatCurrency(total)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-bold text-amber-500">
-                        {debt > 0 ? formatCurrency(debt) : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {recentSales.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-slate-500 text-xs">
+                      Chưa có đơn hàng nào được tạo hôm nay
+                    </td>
+                  </tr>
+                ) : (
+                  recentSales.map((sale) => {
+                    const discount = Number(sale.discount || 0);
+                    const subtotal = Array.isArray(sale.items) 
+                      ? sale.items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice) * Number(item.quantity)), 0)
+                      : 0;
+                    const total = Math.max(0, subtotal - discount);
+                    const paid = Number(sale.paidAmount || 0);
+                    const debt = Math.max(0, total - paid);
+
+                    return (
+                      <tr key={sale.id} className="hover:bg-white/5 transition-colors">
+                        <td className="py-3 px-4 font-mono text-xs text-indigo-400">
+                          #{sale.id.slice(-6).toUpperCase()}
+                        </td>
+                        <td className="py-3 px-4 font-medium text-white">
+                          {sale.customerName || (sale.customer?.name) || 'Khách vãng lai'}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            sale.paymentType === 'CASH' || sale.paymentType === 'cash' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-cyan-500/10 text-cyan-400'
+                          }`}>
+                            {sale.paymentType === 'CASH' || sale.paymentType === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-semibold text-white">
+                          {formatCurrency(total)}
+                        </td>
+                        <td className="py-3 px-4 text-right font-bold text-amber-500">
+                          {debt > 0 ? formatCurrency(debt) : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -244,7 +238,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 gap-4">
             <Link
               href="/pos"
-              className="flex items-center justify-between p-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 transition-colors group"
+              className="flex items-center justify-between p-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 transition-colors group animate-pulse-glow"
             >
               <div className="flex items-center gap-3">
                 <span className="text-xl">🛒</span>

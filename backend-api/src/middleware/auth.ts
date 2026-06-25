@@ -10,6 +10,9 @@ export interface AuthPayload {
 
 export interface AuthRequest extends Request {
   user?: AuthPayload;
+  params: {
+    [key: string]: string;
+  };
 }
 
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {

@@ -59,6 +59,21 @@ router.post('/orders', async (req: AuthRequest, res: Response): Promise<void> =>
     const orderId = uuidv4();
     const now = new Date();
 
+    let totalCost = 0;
+    if (items && Array.isArray(items)) {
+      for (const item of items) {
+        totalCost += (item.quantity || 0) * (item.unitCost || 0);
+      }
+    }
+
+    let finalPrice = totalCost;
+    if (discountType.toUpperCase() === 'PERCENT') {
+      finalPrice = Math.max(0, totalCost * (1 - Number(discountValue) / 100));
+    } else {
+      finalPrice = Math.max(0, totalCost - Number(discountValue));
+    }
+    const unpaidAmount = finalPrice - Number(paidAmount);
+
     await prisma.$transaction(async (tx) => {
       await tx.purchaseOrder.create({
         data: {
@@ -78,7 +93,7 @@ router.post('/orders', async (req: AuthRequest, res: Response): Promise<void> =>
       // Create purchase history items and add stock
       if (items && Array.isArray(items)) {
         for (const item of items) {
-          const totalCost = (item.quantity || 0) * (item.unitCost || 0);
+          const itemTotalCost = (item.quantity || 0) * (item.unitCost || 0);
           await tx.purchaseHistory.create({
             data: {
               userId,
@@ -88,7 +103,7 @@ router.post('/orders', async (req: AuthRequest, res: Response): Promise<void> =>
               productName: item.productName,
               quantity: item.quantity,
               unitCost: item.unitCost || 0,
-              totalCost,
+              totalCost: itemTotalCost,
               paidAmount: item.paidAmount || 0,
               supplierName: supplierName || null,
               supplierPhone: supplierPhone || null,
@@ -107,6 +122,34 @@ router.post('/orders', async (req: AuthRequest, res: Response): Promise<void> =>
             },
           });
         }
+      }
+
+      // Auto-create debt if unpaidAmount > 0 and supplierName is provided
+      if (unpaidAmount > 0 && supplierName) {
+        let supplierId = uuidv4();
+        const existingSupplier = await tx.customer.findFirst({
+          where: { userId, name: supplierName, isSupplier: true, deletedAt: null },
+        });
+        if (existingSupplier) {
+          supplierId = existingSupplier.id;
+        }
+
+        await tx.debt.create({
+          data: {
+            userId,
+            id: uuidv4(),
+            createdAt: createdAt ? new Date(createdAt) : now,
+            type: 0, // oweOthers
+            partyId: supplierId,
+            partyName: supplierName,
+            initialAmount: unpaidAmount,
+            amount: unpaidAmount,
+            description: `Nợ tự động từ đơn nhập hàng ${orderId.slice(0, 8).toUpperCase()}`,
+            sourceType: 'purchase',
+            sourceId: orderId,
+            updatedAt: now,
+          },
+        });
       }
     });
 

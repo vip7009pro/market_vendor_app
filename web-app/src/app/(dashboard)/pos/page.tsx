@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import api from '@/lib/api';
+import VoiceOrderModal from '@/components/pos/VoiceOrderModal';
 
 interface Product {
   id: string;
@@ -20,19 +21,38 @@ interface Customer {
   isSupplier: boolean;
 }
 
+interface Employee {
+  id: string;
+  name: string;
+}
+
+interface MixItem {
+  rawProductId: string;
+  rawName: string;
+  rawUnit: string;
+  rawQty: number;
+  rawUnitCost: number;
+}
+
 interface CartItem {
   product: Product;
   quantity: number;
+  displayName?: string;
+  mixItems?: MixItem[];
+  unitCost?: number;
 }
 
 export default function PosPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [bankAccount, setBankAccount] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('walk-in');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [discount, setDiscount] = useState<number>(0);
   const [paymentType, setPaymentType] = useState<'CASH' | 'BANK'>('CASH');
   const [note, setNote] = useState('');
@@ -46,35 +66,72 @@ export default function PosPage() {
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<any>(null);
 
+  // Voice Order Modal State
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+
+  // Warnings State
+  const [stockWarningOpen, setStockWarningOpen] = useState(false);
+  const [outOfStockItems, setOutOfStockItems] = useState<any[]>([]);
+  const [mixWarningOpen, setMixWarningOpen] = useState(false);
+  const [mixPriceWarnings, setMixPriceWarnings] = useState<any[]>([]);
+
+  // Raw Product Picker for MIX State
+  const [mixProductSelectOpen, setMixProductSelectOpen] = useState<string | null>(null);
+
+  const handleApplyVoiceOrder = (result: {
+    customer?: Customer;
+    paidAmount?: number;
+    items: Array<{ product: Product; quantity: number; overridePrice?: number }>;
+  }) => {
+    if (result.customer) {
+      setSelectedCustomerId(result.customer.id);
+    }
+    if (result.paidAmount !== undefined) {
+      setPaidAmount(result.paidAmount);
+    }
+    
+    // Add items to cart
+    const newCart = [...cart];
+    for (const item of result.items) {
+      const prod = {
+        ...item.product,
+        price: item.overridePrice || item.product.price
+      };
+      const existingIdx = newCart.findIndex(c => c.product.id === prod.id);
+      if (existingIdx > -1) {
+        newCart[existingIdx].quantity += item.quantity;
+      } else {
+        newCart.push({ product: prod, quantity: item.quantity });
+      }
+    }
+    setCart(newCart);
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [prodData, custData] = await Promise.all([
+      const [prodData, custData, empData, bankData] = await Promise.all([
         api.getProducts().catch(() => null),
         api.getCustomers().catch(() => null),
+        api.getEmployees().catch(() => null),
+        api.getBankAccounts().catch(() => null),
       ]);
 
-      if (prodData) setProducts(prodData);
-      else {
-        // Mock Products
-        setProducts([
-          { id: '1', name: 'Cà phê sữa đá', price: 25000, costPrice: 12000, currentStock: 80, unit: 'ly', itemType: 'MIX' },
-          { id: '2', name: 'Cà phê đen đá', price: 20000, costPrice: 10000, currentStock: 120, unit: 'ly', itemType: 'MIX' },
-          { id: '3', name: 'Nước ngọt Coca Cola', price: 15000, costPrice: 10500, currentStock: 24, unit: 'lon', itemType: 'RAW' },
-          { id: '4', name: 'Trà đào cam sả', price: 35000, costPrice: 15000, currentStock: 15, unit: 'ly', itemType: 'MIX' },
-          { id: '5', name: 'Bánh mì thịt nướng', price: 20000, costPrice: 11000, currentStock: 10, unit: 'ổ', itemType: 'MIX' },
-          { id: '6', name: 'Khăn giấy ướt', price: 5000, costPrice: 2000, currentStock: 150, unit: 'gói', itemType: 'RAW' },
-        ]);
+      if (prodData) {
+        setProducts(prodData);
       }
-
-      if (custData) setCustomers(custData.filter((c: any) => !c.isSupplier));
-      else {
-        // Mock Customers
-        setCustomers([
-          { id: 'c-1', name: 'Chị Lan Chợ Lớn', phone: '0901234567', isSupplier: false },
-          { id: 'c-2', name: 'Anh Hùng Đại Lý', phone: '0987654321', isSupplier: false },
-          { id: 'c-3', name: 'Cô Năm Rau Sạch', phone: '0912345678', isSupplier: false },
-        ]);
+      if (custData) {
+        setCustomers(custData.filter((c: any) => !c.isSupplier));
+      }
+      if (empData) {
+        setEmployees(empData);
+        if (empData.length > 0) {
+          setSelectedEmployeeId(empData[0].id);
+        }
+      }
+      if (bankData) {
+        const defaultAcc = bankData.find((acc: any) => acc.isDefault);
+        setBankAccount(defaultAcc || bankData[0] || null);
       }
     } finally {
       setLoading(false);
@@ -88,9 +145,14 @@ export default function PosPage() {
   const addToCart = (product: Product) => {
     const existing = cart.find(item => item.product.id === product.id);
     if (existing) {
+      if (product.itemType === 'MIX') return; // MIX items added only once to configure raw materials
       setCart(cart.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
     } else {
-      setCart([...cart, { product, quantity: 1 }]);
+      if (product.itemType === 'MIX') {
+        setCart([...cart, { product, quantity: 0, mixItems: [], displayName: product.name, unitCost: 0 }]);
+      } else {
+        setCart([...cart, { product, quantity: 1 }]);
+      }
     }
   };
 
@@ -102,6 +164,64 @@ export default function PosPage() {
     }
   };
 
+  const addRawToMix = (mixProductId: string, raw: Product) => {
+    setCart(cart.map(item => {
+      if (item.product.id !== mixProductId) return item;
+      const mixItems = item.mixItems ? [...item.mixItems] : [];
+      const existing = mixItems.find(m => m.rawProductId === raw.id);
+      if (!existing) {
+        mixItems.push({
+          rawProductId: raw.id,
+          rawName: raw.name,
+          rawUnit: raw.unit,
+          rawQty: 0,
+          rawUnitCost: raw.costPrice,
+        });
+      }
+      const totalQty = mixItems.reduce((sum, m) => sum + m.rawQty, 0);
+      const totalCost = mixItems.reduce((sum, m) => sum + (m.rawQty * m.rawUnitCost), 0);
+      return {
+        ...item,
+        mixItems,
+        quantity: totalQty,
+        unitCost: totalQty <= 0 ? 0 : totalCost / totalQty
+      };
+    }));
+    setMixProductSelectOpen(null);
+  };
+
+  const updateRawQtyInMix = (mixProductId: string, rawProductId: string, qty: number) => {
+    setCart(cart.map(item => {
+      if (item.product.id !== mixProductId) return item;
+      const mixItems = (item.mixItems || []).map(m => 
+        m.rawProductId === rawProductId ? { ...m, rawQty: Math.max(0, qty) } : m
+      );
+      const totalQty = mixItems.reduce((sum, m) => sum + m.rawQty, 0);
+      const totalCost = mixItems.reduce((sum, m) => sum + (m.rawQty * m.rawUnitCost), 0);
+      return {
+        ...item,
+        mixItems,
+        quantity: totalQty,
+        unitCost: totalQty <= 0 ? 0 : totalCost / totalQty
+      };
+    }));
+  };
+
+  const removeRawFromMix = (mixProductId: string, rawProductId: string) => {
+    setCart(cart.map(item => {
+      if (item.product.id !== mixProductId) return item;
+      const mixItems = (item.mixItems || []).filter(m => m.rawProductId !== rawProductId);
+      const totalQty = mixItems.reduce((sum, m) => sum + m.rawQty, 0);
+      const totalCost = mixItems.reduce((sum, m) => sum + (m.rawQty * m.rawUnitCost), 0);
+      return {
+        ...item,
+        mixItems,
+        quantity: totalQty,
+        unitCost: totalQty <= 0 ? 0 : totalCost / totalQty
+      };
+    }));
+  };
+
   const getSubtotal = () => {
     return cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
   };
@@ -111,11 +231,98 @@ export default function PosPage() {
     return Math.max(0, sub - discount);
   };
 
-  const handleOpenCheckout = () => {
+  const validateBeforeCheckout = () => {
     if (cart.length === 0) return;
+
+    // 1. Check stock
+    const neededRaw: Record<string, { name: string; unit: string; currentStock: number; required: number }> = {};
+    for (const item of cart) {
+      if (item.product.itemType === 'MIX') {
+        const mixItems = item.mixItems || [];
+        for (const m of mixItems) {
+          if (m.rawQty <= 0) continue;
+          const p = products.find(prod => prod.id === m.rawProductId);
+          if (!p) continue;
+          if (!neededRaw[p.id]) {
+            neededRaw[p.id] = { name: p.name, unit: p.unit, currentStock: p.currentStock, required: 0 };
+          }
+          neededRaw[p.id].required += m.rawQty;
+        }
+      } else {
+        const p = item.product;
+        if (!neededRaw[p.id]) {
+          neededRaw[p.id] = { name: p.name, unit: p.unit, currentStock: p.currentStock, required: 0 };
+        }
+        neededRaw[p.id].required += item.quantity;
+      }
+    }
+
+    const oosList = Object.entries(neededRaw)
+      .map(([id, data]) => ({ id, ...data }))
+      .filter(item => item.currentStock < item.required);
+
+    if (oosList.length > 0) {
+      setOutOfStockItems(oosList);
+      setStockWarningOpen(true);
+      return;
+    }
+
+    // 2. Check sell price below RAW cost for MIX
+    const mixWarnings: any[] = [];
+    for (const item of cart) {
+      if (item.product.itemType === 'MIX') {
+        const mixItems = item.mixItems || [];
+        let rawSellTotal = 0;
+        for (const m of mixItems) {
+          const rawProd = products.find(p => p.id === m.rawProductId);
+          if (rawProd) {
+            rawSellTotal += m.rawQty * rawProd.price;
+          }
+        }
+        const mixTotal = item.product.price * item.quantity;
+        if (rawSellTotal > 0 && mixTotal + 0.000001 < rawSellTotal) {
+          mixWarnings.push({
+            name: item.displayName || item.product.name,
+            price: mixTotal,
+            rawSellTotal,
+          });
+        }
+      }
+    }
+
+    if (mixWarnings.length > 0) {
+      setMixPriceWarnings(mixWarnings);
+      setMixWarningOpen(true);
+      return;
+    }
+
+    // Open Checkout
+    openCheckout();
+  };
+
+  const openCheckout = () => {
     const total = getTotal();
     setPaidAmount(total);
     setCheckoutModalOpen(true);
+  };
+
+  const handleUpdateStockQuick = async (id: string, newStock: number) => {
+    try {
+      await api.updateProduct(id, { currentStock: newStock });
+      const prodData = await api.getProducts().catch(() => null);
+      if (prodData) {
+        setProducts(prodData);
+        setCart(cart.map(item => {
+          const updatedProd = prodData.find((p: any) => p.id === item.product.id);
+          return updatedProd ? { ...item, product: updatedProd } : item;
+        }));
+      }
+      setOutOfStockItems(prev => prev.map(item => 
+        item.id === id ? { ...item, currentStock: newStock } : item
+      ).filter(item => item.currentStock < item.required));
+    } catch (err) {
+      alert('Không thể cập nhật tồn kho');
+    }
   };
 
   const handleCheckoutSubmit = async () => {
@@ -123,59 +330,36 @@ export default function PosPage() {
     const total = getTotal();
     const subtotal = getSubtotal();
     const customer = selectedCustomerId === 'walk-in' ? null : customers.find(c => c.id === selectedCustomerId);
+    const employee = selectedEmployeeId ? employees.find(e => e.id === selectedEmployeeId) : null;
     
-    // Construct Sale Payload
     const saleData = {
       id: 'web-sale-' + Math.random().toString(36).substr(2, 9),
       createdAt: new Date().toISOString(),
       customerId: customer?.id || null,
       customerName: customer?.name || 'Khách vãng lai',
+      employeeId: employee?.id || null,
+      employeeName: employee?.name || null,
       discount: discount,
       paidAmount: paidAmount,
       paymentType: paymentType,
-      totalCost: cart.reduce((sum, item) => sum + (item.product.costPrice * item.quantity), 0),
+      totalCost: cart.reduce((sum, item) => sum + ((item.unitCost || item.product.costPrice) * item.quantity), 0),
       note: note,
       items: cart.map(item => ({
         productId: item.product.id,
         name: item.product.name,
         unitPrice: item.product.price,
-        unitCost: item.product.costPrice,
+        unitCost: item.unitCost || item.product.costPrice,
         quantity: item.quantity,
         unit: item.product.unit,
         itemType: item.product.itemType,
+        displayName: item.displayName || null,
+        mixItemsJson: item.mixItems ? JSON.stringify(item.mixItems) : null,
         updatedAt: new Date().toISOString(),
       })),
     };
 
     try {
-      // call api
-      try {
-        await api.createSale(saleData);
-      } catch (err) {
-        console.warn('API error during sale creation, simulating locally', err);
-      }
-
-      // If paidAmount < total, create a Debt automatically
-      if (paidAmount < total && customer) {
-        const debtData = {
-          id: 'web-debt-' + Math.random().toString(36).substr(2, 9),
-          createdAt: new Date().toISOString(),
-          type: 1, // othersOweMe (Khách nợ mình)
-          partyId: customer.id,
-          partyName: customer.name,
-          initialAmount: total - paidAmount,
-          amount: total - paidAmount,
-          description: `Nợ từ đơn hàng ${saleData.id.slice(-6).toUpperCase()}`,
-          sourceType: 'sale',
-          sourceId: saleData.id,
-          updatedAt: new Date().toISOString(),
-        };
-
-        try {
-          // If we had a direct debt API endpoint, we would hit it
-          // Local storage fallback / DB relation is handled server-side normally
-        } catch {}
-      }
+      await api.createSale(saleData);
 
       setCompletedOrder({
         ...saleData,
@@ -191,10 +375,32 @@ export default function PosPage() {
       setCheckoutModalOpen(false);
       setReceiptModalOpen(true);
     } catch (err) {
-      alert('Lỗi tạo đơn hàng');
+      alert('Lỗi tạo đơn hàng: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const getVietQrUrl = (amount: number, saleId: string, cartItems: CartItem[]) => {
+    if (!bankAccount) return '';
+    const bankId = bankAccount.bin || bankAccount.code || '';
+    const accountNo = bankAccount.accountNo || '';
+    const accountName = encodeURIComponent(bankAccount.accountName || '');
+    
+    const parts = cartItems.map(it => {
+      const name = it.product.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      return `${name} x${it.quantity}=${Math.round(it.product.price * it.quantity)}`;
+    });
+    const tail = saleId.replace(/\D/g, '').slice(-5) || saleId.slice(-5);
+    const rawDesc = `${tail} Noi dung: ${parts.join('; ')}`;
+    let safeDesc = rawDesc
+      .replace(/[^a-zA-Z0-9\s=xX\-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (safeDesc.length > 50) safeDesc = safeDesc.slice(0, 47) + '...';
+    
+    const addInfo = encodeURIComponent(safeDesc);
+    return `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${amount}&addInfo=${addInfo}&accountName=${accountName}`;
   };
 
   const filteredProducts = products.filter(p =>
@@ -205,20 +411,31 @@ export default function PosPage() {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
   };
 
+  const rawProductsOnly = products.filter(p => p.itemType === 'RAW');
+
   return (
     <div className="h-[calc(100vh-140px)] flex flex-col lg:flex-row gap-6 animate-fade-in-up">
       {/* Left side: Product catalog */}
       <div className="flex-1 flex flex-col bg-slate-900 border border-white/5 rounded-2xl p-6 overflow-hidden">
-        {/* Search */}
-        <div className="relative mb-6">
-          <input
-            type="text"
-            className="input pl-10"
-            placeholder="Tìm sản phẩm bán..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <span className="absolute left-3.5 top-3.5 text-slate-500">🔍</span>
+        {/* Search & Voice Order */}
+        <div className="relative mb-6 flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              className="input pl-10"
+              placeholder="Tìm sản phẩm bán..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <span className="absolute left-3.5 top-3.5 text-slate-500">🔍</span>
+          </div>
+          <button
+            onClick={() => setVoiceModalOpen(true)}
+            className="btn btn-primary px-4 flex items-center justify-center gap-1.5 shadow-glow cursor-pointer text-xs shrink-0"
+            title="Lên đơn bằng giọng nói"
+          >
+            <span>🎤</span> Lên đơn AI
+          </button>
         </div>
 
         {/* Product Grid */}
@@ -269,30 +486,88 @@ export default function PosPage() {
             </div>
           ) : (
             cart.map((item) => (
-              <div key={item.product.id} className="flex justify-between items-center bg-slate-950/30 border border-white/5 p-3 rounded-xl gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-white truncate">{item.product.name}</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    {formatCurrency(item.product.price)} x {item.quantity}
-                  </p>
+              <div key={item.product.id} className="flex flex-col bg-slate-950/30 border border-white/5 p-3 rounded-xl gap-2">
+                <div className="flex justify-between items-center w-full">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-white truncate">{item.product.name}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {formatCurrency(item.product.price)} {item.product.itemType === 'RAW' ? `x ${item.quantity}` : ' (MIX)'}
+                    </p>
+                  </div>
+                  
+                  {/* Quantity Control for RAW */}
+                  {item.product.itemType === 'RAW' ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
+                        className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center"
+                      >
+                        -
+                      </button>
+                      <span className="text-xs font-bold text-white w-6 text-center">{item.quantity}</span>
+                      <button
+                        onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
+                        className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center"
+                      >
+                        +
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => updateQuantity(item.product.id, 0)}
+                      className="text-rose-400 hover:text-rose-300 text-xs py-1 px-2 border border-rose-500/20 bg-rose-500/5 rounded-lg"
+                    >
+                      Xóa
+                    </button>
+                  )}
                 </div>
-                
-                {/* Quantity Control */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
-                    className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center"
-                  >
-                    -
-                  </button>
-                  <span className="text-xs font-bold text-white w-6 text-center">{item.quantity}</span>
-                  <button
-                    onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
-                    className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center"
-                  >
-                    +
-                  </button>
-                </div>
+
+                {/* MIX Configuration */}
+                {item.product.itemType === 'MIX' && (
+                  <div className="mt-2 pl-2 border-l border-indigo-500/30 space-y-2">
+                    <input
+                      type="text"
+                      className="input py-1 text-[11px] h-7"
+                      placeholder="Tên hiển thị hóa đơn (tùy chọn)"
+                      value={item.displayName || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCart(cart.map(c => c.product.id === item.product.id ? { ...c, displayName: val } : c));
+                      }}
+                    />
+
+                    {/* Raw materials list */}
+                    <div className="space-y-1.5">
+                      {(item.mixItems || []).map((m, idx) => (
+                        <div key={idx} className="flex justify-between items-center gap-2 text-[10px] text-slate-400">
+                          <span className="truncate flex-1">{m.rawName}</span>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              className="input py-0.5 px-1 h-6 w-12 text-center text-[10px] bg-slate-900 border-white/5"
+                              value={m.rawQty || ''}
+                              onChange={(e) => updateRawQtyInMix(item.product.id, m.rawProductId, Number(e.target.value))}
+                            />
+                            <span>{m.rawUnit}</span>
+                            <button
+                              onClick={() => removeRawFromMix(item.product.id, m.rawProductId)}
+                              className="text-rose-400 hover:text-white px-1 text-xs"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => setMixProductSelectOpen(item.product.id)}
+                      className="btn btn-secondary py-1 text-[10px] w-full flex items-center justify-center gap-1"
+                    >
+                      ➕ Thêm nguyên liệu RAW
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           )}
@@ -300,6 +575,21 @@ export default function PosPage() {
 
         {/* Customer & Discount Form */}
         <div className="border-t border-slate-800 pt-4 space-y-3.5 text-sm">
+          {/* Employee */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nhân viên bán hàng</label>
+            <select
+              className="input text-xs"
+              value={selectedEmployeeId}
+              onChange={(e) => setSelectedEmployeeId(e.target.value)}
+            >
+              <option value="">Chọn nhân viên...</option>
+              {employees.map(emp => (
+                <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
+              ))}
+            </select>
+          </div>
+
           {/* Customer */}
           <div>
             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Khách hàng</label>
@@ -373,7 +663,7 @@ export default function PosPage() {
           </div>
 
           <button
-            onClick={handleOpenCheckout}
+            onClick={validateBeforeCheckout}
             disabled={cart.length === 0}
             className="btn btn-primary w-full btn-lg font-bold shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -381,6 +671,142 @@ export default function PosPage() {
           </button>
         </div>
       </div>
+
+      {/* Raw Product Picker Modal for MIX */}
+      {mixProductSelectOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="glass w-full max-w-sm rounded-2xl border border-white/10 shadow-2xl p-5 relative animate-fade-in-up">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-white">Chọn nguyên liệu RAW</h3>
+              <button onClick={() => setMixProductSelectOpen(null)} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+            <div className="max-h-60 overflow-y-auto space-y-2">
+              {rawProductsOnly.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => addRawToMix(mixProductSelectOpen, p)}
+                  className="w-full text-left p-2.5 rounded-xl border border-white/5 hover:border-indigo-500/30 bg-slate-950/40 text-xs font-semibold text-white flex justify-between items-center"
+                >
+                  <span>{p.name}</span>
+                  <span className="text-[10px] text-slate-400">Tồn: {p.currentStock} {p.unit}</span>
+                </button>
+              ))}
+              {rawProductsOnly.length === 0 && (
+                <p className="text-center text-xs text-slate-500 py-4">Chưa có sản phẩm RAW nào</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stock warning modal */}
+      {stockWarningOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
+            <h3 className="text-lg font-bold text-rose-400 mb-4 flex items-center gap-2">
+              ⚠️ Tồn kho không đủ
+            </h3>
+            <div className="space-y-4 text-xs text-slate-300">
+              <p>Một số sản phẩm hoặc nguyên liệu có số lượng tồn kho thấp hơn lượng cần xuất đơn hàng:</p>
+              <div className="space-y-3 max-h-48 overflow-y-auto">
+                {outOfStockItems.map((item, idx) => (
+                  <div key={idx} className="p-3 bg-slate-950/40 rounded-xl border border-white/5 flex justify-between items-center">
+                    <div>
+                      <p className="font-semibold text-white">{item.name}</p>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        Cần: {item.required} {item.unit} | Tồn hiện tại: {item.currentStock} {item.unit}
+                      </p>
+                    </div>
+                    {/* Fast stock adjustment */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        defaultValue={item.required}
+                        id={`oos-adjust-${item.id}`}
+                        className="input h-7 w-16 text-center text-xs"
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById(`oos-adjust-${item.id}`) as HTMLInputElement;
+                          if (input) {
+                            handleUpdateStockQuick(item.id, Number(input.value));
+                          }
+                        }}
+                        className="btn btn-primary h-7 px-2 text-[10px]"
+                      >
+                        Cập nhật
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setStockWarningOpen(false)}
+                  className="btn btn-secondary text-xs"
+                >
+                  Hủy đơn
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStockWarningOpen(false);
+                    openCheckout();
+                  }}
+                  className="btn btn-primary text-xs bg-amber-500 hover:bg-amber-600 shadow-glow"
+                >
+                  Bỏ qua & Tiếp tục
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mix Price below RAW cost warning modal */}
+      {mixWarningOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="glass w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
+            <h3 className="text-lg font-bold text-amber-500 mb-4 flex items-center gap-2">
+              ⚠️ Cảnh báo giá bán MIX
+            </h3>
+            <div className="space-y-4 text-xs text-slate-300">
+              <p>Có sản phẩm MIX có giá bán thấp hơn tổng giá bán lẻ của nguyên liệu cấu thành:</p>
+              <div className="space-y-2">
+                {mixPriceWarnings.map((w, idx) => (
+                  <div key={idx} className="p-3 bg-slate-950/40 rounded-xl border border-white/5 flex justify-between text-slate-300">
+                    <span className="font-semibold text-white">{w.name}</span>
+                    <span>
+                      {formatCurrency(w.price)} &lt; {formatCurrency(w.rawSellTotal)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p>Bạn vẫn muốn lưu hóa đơn?</p>
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setMixWarningOpen(false)}
+                  className="btn btn-secondary text-xs"
+                >
+                  Quay lại
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMixWarningOpen(false);
+                    openCheckout();
+                  }}
+                  className="btn btn-primary text-xs shadow-glow"
+                >
+                  Vẫn lưu
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Checkout Dialog Modal */}
       {checkoutModalOpen && (
@@ -410,9 +836,37 @@ export default function PosPage() {
                 <input
                   type="number"
                   className="input"
-                  value={paidAmount}
+                  value={paidAmount === 0 ? '' : paidAmount}
                   onChange={(e) => setPaidAmount(Number(e.target.value))}
                 />
+                
+                {/* Fast PaidAmount buttons */}
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaidAmount(0)}
+                    className="btn py-1 px-2.5 text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-all rounded-lg"
+                  >
+                    Khách nợ tất
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaidAmount(getTotal())}
+                    className="btn py-1 px-2.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all rounded-lg"
+                  >
+                    Trả hết
+                  </button>
+                  {[50000, 100000, 200000, 500000].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setPaidAmount(val)}
+                      className="btn py-1 px-2.5 text-[10px] font-semibold bg-slate-800 text-slate-300 border border-white/5 hover:bg-slate-700 transition-all rounded-lg"
+                    >
+                      {val / 1000}k
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {paidAmount < getTotal() && (
@@ -422,7 +876,7 @@ export default function PosPage() {
                   <strong>{selectedCustomerId === 'walk-in' ? 'Khách vãng lai' : customers.find(c => c.id === selectedCustomerId)?.name}</strong>.
                   {selectedCustomerId === 'walk-in' && (
                     <div className="mt-1.5 text-rose-400 font-bold">
-                      * Cảnh báo: Cần chọn cụ thể Khách hàng trong danh sách để theo dõi công nợ chính xác!
+                      * Cảnh báo: Có nợ thì bắt buộc phải chọn khách hàng cụ thể! Khách vãng lai không được ghi nợ.
                     </div>
                   )}
                 </div>
@@ -460,84 +914,118 @@ export default function PosPage() {
         </div>
       )}
 
-      {/* Success Receipt Modal */}
+      {/* Success Receipt Modal (Double column: Receipt + VietQR if bank method and no debt) */}
       {receiptModalOpen && completedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass w-full max-w-sm rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up">
+          <div className={`glass w-full ${
+            completedOrder.paymentType === 'BANK' && completedOrder.paidAmount > 0 && completedOrder.total - completedOrder.paidAmount <= 0
+              ? 'max-w-2xl'
+              : 'max-w-sm'
+          } rounded-2xl border border-white/10 shadow-2xl p-6 relative animate-fade-in-up`}>
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-white">Hóa đơn thanh toán</h3>
               <button onClick={() => setReceiptModalOpen(false)} className="text-slate-400 hover:text-white text-lg">✕</button>
             </div>
 
-            {/* Receipt template */}
-            <div className="bg-white text-black p-5 rounded-lg font-mono text-xs space-y-4 shadow-inner">
-              <div className="text-center space-y-1">
-                <h4 className="font-bold text-sm">MARKET VENDOR APPS</h4>
-                <p className="text-[10px] text-zinc-500">Đồng hành cùng tiểu thương Việt</p>
-                <p className="text-[9px] text-zinc-500">ĐT: 0987.654.321</p>
-              </div>
-              
-              <div className="border-t border-dashed border-zinc-300 my-2"></div>
-              
-              <div className="space-y-1">
-                <p>Số HĐ: {completedOrder.id.slice(-6).toUpperCase()}</p>
-                <p>Khách hàng: {completedOrder.customerName}</p>
-                <p>Ngày tạo: {new Date(completedOrder.createdAt).toLocaleDateString('vi-VN')} {new Date(completedOrder.createdAt).toLocaleTimeString('vi-VN')}</p>
-              </div>
-
-              <div className="border-t border-dashed border-zinc-300 my-2"></div>
-
-              {/* Items list */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between font-bold">
-                  <span className="w-1/2">Tên SP</span>
-                  <span className="w-1/6 text-right">SL</span>
-                  <span className="w-1/3 text-right">T.Tiền</span>
+            {/* Content body split in 2 columns if VietQR active */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+              {/* Receipt template */}
+              <div className="bg-white text-black p-5 rounded-lg font-mono text-xs space-y-4 shadow-inner">
+                <div className="text-center space-y-1">
+                  <h4 className="font-bold text-sm">MARKET VENDOR APPS</h4>
+                  <p className="text-[10px] text-zinc-500">Đồng hành cùng tiểu thương Việt</p>
+                  <p className="text-[9px] text-zinc-500">ĐT: 0987.654.321</p>
                 </div>
-                {completedOrder.items.map((item: any, idx: number) => (
-                  <div key={idx} className="flex justify-between">
-                    <span className="w-1/2 truncate">{item.name}</span>
-                    <span className="w-1/6 text-right">{item.quantity}</span>
-                    <span className="w-1/3 text-right">{formatCurrency(item.unitPrice * item.quantity)}</span>
+                
+                <div className="border-t border-dashed border-zinc-300 my-2"></div>
+                
+                <div className="space-y-1">
+                  <p>Số HĐ: {completedOrder.id.slice(-6).toUpperCase()}</p>
+                  <p>Khách hàng: {completedOrder.customerName}</p>
+                  {completedOrder.employeeName && <p>Nhân viên: {completedOrder.employeeName}</p>}
+                  <p>Ngày tạo: {new Date(completedOrder.createdAt).toLocaleDateString('vi-VN')} {new Date(completedOrder.createdAt).toLocaleTimeString('vi-VN')}</p>
+                </div>
+
+                <div className="border-t border-dashed border-zinc-300 my-2"></div>
+
+                {/* Items list */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between font-bold">
+                    <span className="w-1/2 font-bold text-black">Tên SP</span>
+                    <span className="w-1/6 text-right font-bold text-black">SL</span>
+                    <span className="w-1/3 text-right font-bold text-black">T.Tiền</span>
                   </div>
-                ))}
-              </div>
+                  {completedOrder.items.map((item: any, idx: number) => (
+                    <div key={idx} className="flex justify-between text-zinc-700">
+                      <span className="w-1/2 truncate">{item.name}</span>
+                      <span className="w-1/6 text-right">{item.quantity}</span>
+                      <span className="w-1/3 text-right">{formatCurrency(item.unitPrice * item.quantity)}</span>
+                    </div>
+                  ))}
+                </div>
 
-              <div className="border-t border-dashed border-zinc-300 my-2"></div>
+                <div className="border-t border-dashed border-zinc-300 my-2"></div>
 
-              <div className="space-y-1 text-right">
-                <div className="flex justify-between">
-                  <span>Tạm tính:</span>
-                  <span>{formatCurrency(completedOrder.subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-zinc-600">
-                  <span>Giảm giá:</span>
-                  <span>-{formatCurrency(completedOrder.discount)}</span>
-                </div>
-                <div className="flex justify-between font-bold">
-                  <span>Tổng tiền:</span>
-                  <span>{formatCurrency(completedOrder.total)}</span>
-                </div>
-                <div className="flex justify-between text-zinc-700">
-                  <span>Khách trả:</span>
-                  <span>{formatCurrency(completedOrder.paidAmount)}</span>
-                </div>
-                {completedOrder.total - completedOrder.paidAmount > 0 && (
-                  <div className="flex justify-between font-bold text-rose-600">
-                    <span>Còn nợ:</span>
-                    <span>{formatCurrency(completedOrder.total - completedOrder.paidAmount)}</span>
+                <div className="space-y-1 text-right text-zinc-700">
+                  <div className="flex justify-between">
+                    <span>Tạm tính:</span>
+                    <span>{formatCurrency(completedOrder.subtotal)}</span>
                   </div>
-                )}
+                  <div className="flex justify-between text-zinc-500">
+                    <span>Giảm giá:</span>
+                    <span>-{formatCurrency(completedOrder.discount)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-black">
+                    <span>Tổng tiền:</span>
+                    <span>{formatCurrency(completedOrder.total)}</span>
+                  </div>
+                  <div className="flex justify-between text-zinc-700 font-medium">
+                    <span>Khách trả:</span>
+                    <span>{formatCurrency(completedOrder.paidAmount)}</span>
+                  </div>
+                  {completedOrder.total - completedOrder.paidAmount > 0 && (
+                    <div className="flex justify-between font-bold text-rose-600">
+                      <span>Còn nợ:</span>
+                      <span>{formatCurrency(completedOrder.total - completedOrder.paidAmount)}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-dashed border-zinc-300 my-2"></div>
+                
+                <div className="text-center font-bold text-[10px] text-zinc-500">
+                  CẢM ƠN QUÝ KHÁCH & HẸN GẶP LẠI!
+                </div>
               </div>
 
-              <div className="border-t border-dashed border-zinc-300 my-2"></div>
-              
-              <div className="text-center font-bold text-[10px] text-zinc-500">
-                CẢM ƠN QUÝ KHÁCH & HẸN GẶP LẠI!
-              </div>
+              {/* VietQR Column (Only for bank payments with full payment) */}
+              {completedOrder.paymentType === 'BANK' && completedOrder.paidAmount > 0 && completedOrder.total - completedOrder.paidAmount <= 0 && (
+                <div className="flex flex-col items-center justify-center p-4 bg-slate-950/40 rounded-xl border border-white/5 text-center space-y-4">
+                  <p className="text-xs font-bold text-white uppercase tracking-wider">Quét QR chuyển khoản</p>
+                  
+                  {bankAccount ? (
+                    <>
+                      <img
+                        src={getVietQrUrl(completedOrder.paidAmount, completedOrder.id, completedOrder.items)}
+                        alt="VietQR code"
+                        className="w-64 h-64 object-contain rounded-lg border border-white/10 bg-white p-2"
+                      />
+                      <div className="text-xs text-slate-300">
+                        <p className="font-semibold">{bankAccount.name}</p>
+                        <p>STK: <strong className="text-indigo-400 font-mono">{bankAccount.accountNo}</strong></p>
+                        <p className="text-[10px] text-slate-500 mt-1 uppercase">Chủ TK: {bankAccount.accountName}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-12 text-xs text-slate-500">
+                      ⚠️ Chưa cấu hình tài khoản ngân hàng mặc định. Vào Cài đặt để thiết lập VietQR.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div className="flex justify-end gap-3 pt-6 border-t border-slate-800 mt-4">
+            <div className="flex justify-end gap-3 pt-6 border-t border-slate-800 mt-6">
               <button
                 onClick={() => window.print()}
                 className="btn btn-secondary text-xs"
@@ -554,6 +1042,15 @@ export default function PosPage() {
           </div>
         </div>
       )}
+
+      {/* Voice Order Modal */}
+      <VoiceOrderModal
+        isOpen={voiceModalOpen}
+        onClose={() => setVoiceModalOpen(false)}
+        products={products}
+        customers={customers}
+        onApply={handleApplyVoiceOrder}
+      />
     </div>
   );
 }
