@@ -6,6 +6,7 @@ import api from '@/lib/api';
 import Modal from '@/components/ui/Modal';
 import AppDataGrid from '@/components/ui/AppDataGrid';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { matchVietnamese } from '@/lib/text';
 
 interface Expense {
   id: string;
@@ -127,8 +128,9 @@ export default function ExpensesPage() {
   };
 
   const filteredExpenses = expenses.filter(e => {
-    const searchText = (e.name || e.note || e.category || '').toLowerCase();
-    const matchesSearch = searchText.includes(search.toLowerCase());
+    const matchesSearch = matchVietnamese(e.name || '', search) ||
+                          matchVietnamese(e.note || '', search) ||
+                          matchVietnamese(getCategoryLabel(e.category) || '', search);
     const matchesCategory = categoryFilter === 'ALL' || e.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });

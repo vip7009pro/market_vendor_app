@@ -1,7 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import api from '@/lib/api';
+import AppDataGrid from '@/components/ui/AppDataGrid';
+import { GridColDef } from '@mui/x-data-grid';
+import { matchVietnamese } from '@/lib/text';
+import Modal from '@/components/ui/Modal';
+import { formatCurrency, formatDateTime } from '@/lib/format';
 
 interface Employee {
   id: string;
@@ -197,6 +202,29 @@ export default function ReportsPage() {
   const [hoveredChartIdx, setHoveredChartIdx] = useState<number | null>(null);
   const [hoveredPieIdx, setHoveredPieIdx] = useState<number | null>(null);
 
+  // Inventory summary metrics
+  const [inventorySummary, setInventorySummary] = useState({
+    openingQty: 0,
+    openingCost: 0,
+    openingSell: 0,
+    importQty: 0,
+    importCost: 0,
+    importSell: 0,
+    exportQty: 0,
+    exportCost: 0,
+    exportSell: 0,
+    endingQty: 0,
+    endingCost: 0,
+    endingSell: 0,
+  });
+
+  // Backdata modal state
+  const [backdataModalOpen, setBackdataModalOpen] = useState(false);
+  const [backdataKind, setBackdataKind] = useState<string | null>(null);
+  const [backdataTitle, setBackdataTitle] = useState('');
+  const [backdataLoading, setBackdataLoading] = useState(false);
+  const [backdataRows, setBackdataRows] = useState<any[]>([]);
+
   useEffect(() => {
     // Load employee list
     api.getEmployees().then(setEmployees).catch(() => {});
@@ -211,17 +239,93 @@ export default function ReportsPage() {
         ...(selectedEmployeeId && { employeeId: selectedEmployeeId }),
       };
 
-      const [kpiRes, topRes, ratioRes, revRes] = await Promise.all([
+      const startD = new Date(startDate);
+      const year = startD.getFullYear();
+      const month = startD.getMonth() + 1;
+
+      const [kpiRes, topRes, ratioRes, revRes, productsRes, openingRes, importsRes, exportsRes] = await Promise.all([
         api.getDashboard(params),
         api.fetch<TopProduct[]>(`/api/reports/top-products?startDate=${startDate}&endDate=${endDate}${selectedEmployeeId ? `&employeeId=${selectedEmployeeId}` : ''}`),
         api.fetch<ExpenseRatio[]>(`/api/reports/expenses-ratio?startDate=${startDate}&endDate=${endDate}`),
         api.getRevenueReport({ ...params, groupBy }),
+        api.getProducts().catch(() => []),
+        api.getOpeningStocks(year, month).catch(() => []),
+        api.getPurchaseHistory({ startDate, endDate }).catch(() => []),
+        api.getExportHistory({ startDate, endDate }).catch(() => []),
       ]);
 
       if (kpiRes) setKpis(kpiRes);
       if (topRes) setTopProducts(topRes);
       if (ratioRes) setExpenseRatios(ratioRes);
       if (revRes) setRevenueData(revRes);
+
+      // Compute Inventory Summary
+      const productsList = productsRes || [];
+      const openingList = openingRes || [];
+      const importsList = importsRes || [];
+      const exportsList = exportsRes || [];
+
+      const productsById = Object.fromEntries(productsList.map((p: any) => [p.id, p]));
+      const openingStocksMap = Object.fromEntries(openingList.map((op: any) => [op.productId, Number(op.openingStock || 0)]));
+
+      // 1. Opening
+      let openingQty = 0;
+      let openingCost = 0;
+      let openingSell = 0;
+      productsList.forEach((p: any) => {
+        if (p.itemType === 'RAW') {
+          const qty = openingStocksMap[p.id] || 0;
+          openingQty += qty;
+          openingCost += qty * Number(p.costPrice || 0);
+          openingSell += qty * Number(p.price || 0);
+        }
+      });
+
+      // 2. Import
+      let importQty = 0;
+      let importCost = 0;
+      let importSell = 0;
+      importsList.forEach((ph: any) => {
+        const qty = Number(ph.quantity || 0);
+        importQty += qty;
+        importCost += Number(ph.totalCost || 0);
+        const prod = productsById[ph.productId];
+        if (prod) {
+          importSell += qty * Number(prod.price || 0);
+        }
+      });
+
+      // 3. Export
+      let exportQty = 0;
+      let exportCost = 0;
+      let exportSell = 0;
+      exportsList.forEach((ex: any) => {
+        const qty = Number(ex.quantity || 0);
+        exportQty += qty;
+        exportCost += Number(ex.totalCost || 0);
+        exportSell += Number(ex.totalPrice || 0);
+      });
+
+      // 4. Ending
+      const endingQty = openingQty + importQty - exportQty;
+      const endingCost = openingCost + importCost - exportCost;
+      const endingSell = openingSell + importSell - exportSell;
+
+      setInventorySummary({
+        openingQty,
+        openingCost,
+        openingSell,
+        importQty,
+        importCost,
+        importSell,
+        exportQty,
+        exportCost,
+        exportSell,
+        endingQty,
+        endingCost,
+        endingSell,
+      });
+
     } catch (err) {
       console.error('Failed to load report data:', err);
     } finally {
@@ -937,6 +1041,330 @@ export default function ReportsPage() {
     );
   };
 
+  const openBackdata = async (kind: string, title: string) => {
+    setBackdataKind(kind);
+    setBackdataTitle(title);
+    setBackdataModalOpen(true);
+    setBackdataLoading(true);
+    try {
+      const params = { startDate, endDate };
+      if (kind === 'revenue' || kind === 'discount' || kind === 'net_revenue' || kind === 'profit' || kind === 'net_profit') {
+        const sales = await api.getSales(params);
+        setBackdataRows(sales || []);
+      } else if (kind === 'cost' || kind === 'export_history') {
+        const exports = await api.getExportHistory(params);
+        setBackdataRows(exports || []);
+      } else if (kind === 'cash' || kind === 'bank') {
+        const [sales, debts] = await Promise.all([
+          api.getSales(params),
+          api.getDebts(),
+        ]);
+        const pmts: any[] = [];
+        sales.forEach((s: any) => {
+          const paid = Number(s.paidAmount || 0);
+          if (paid > 0) {
+            const isCash = (s.paymentType || '').toLowerCase() === 'cash';
+            if ((kind === 'cash' && isCash) || (kind === 'bank' && !isCash)) {
+              pmts.push({
+                id: `sale-${s.id}`,
+                createdAt: s.createdAt,
+                type: 'Bán hàng',
+                description: `Thanh toán đơn hàng #${s.id.slice(-6).toUpperCase()}`,
+                party: s.customerName || 'Khách vãng lai',
+                amount: paid,
+                paymentType: s.paymentType === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản',
+              });
+            }
+          }
+        });
+        debts.forEach((d: any) => {
+          if (d.payments) {
+            d.payments.forEach((p: any) => {
+              const payDate = new Date(p.createdAt);
+              const startLimit = new Date(startDate);
+              const endLimit = new Date(endDate + 'T23:59:59');
+              if (payDate >= startLimit && payDate <= endLimit) {
+                const isCash = (p.paymentType || '').toLowerCase() === 'cash';
+                if ((kind === 'cash' && isCash) || (kind === 'bank' && !isCash)) {
+                  pmts.push({
+                    id: `debt-${p.uuid}`,
+                    createdAt: p.createdAt,
+                    type: d.type === 1 ? 'Thu nợ' : 'Trả nợ',
+                    description: `Thanh toán nợ cho đối tác: ${d.partyName}`,
+                    party: d.partyName,
+                    amount: Number(p.amount),
+                    paymentType: p.paymentType === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản',
+                  });
+                }
+              }
+            });
+          }
+        });
+        pmts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setBackdataRows(pmts);
+      } else if (kind === 'outstanding') {
+        const sales = await api.getSales(params);
+        const outstandingSales = sales.filter((s: any) => {
+          const subtotal = s.items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice) * Number(item.quantity)), 0);
+          const total = Math.max(0, subtotal - Number(s.discount || 0));
+          return total - Number(s.paidAmount || 0) > 0;
+        });
+        setBackdataRows(outstandingSales);
+      } else if (kind === 'expenses' || kind === 'expense_reasonable' || kind === 'expense_outside') {
+        const expenses = await api.getExpenses(params);
+        let filtered = expenses || [];
+        if (kind === 'expense_reasonable') {
+          filtered = filtered.filter((e: any) => e.category !== 'Chi tiêu ngoài kinh doanh');
+        } else if (kind === 'expense_outside') {
+          filtered = filtered.filter((e: any) => e.category === 'Chi tiêu ngoài kinh doanh');
+        }
+        setBackdataRows(filtered);
+      } else if (kind === 'owe' || kind === 'owed') {
+        const debts = await api.getDebts();
+        const typeTab = kind === 'owe' ? 0 : 1;
+        const filtered = debts.filter((d: any) => d.type === typeTab && !d.settled);
+        setBackdataRows(filtered);
+      } else if (kind === 'opening_stock') {
+        const [products, openingStocks] = await Promise.all([
+          api.getProducts(),
+          api.getOpeningStocks(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1),
+        ]);
+        const openingMap = Object.fromEntries(openingStocks.map((o: any) => [o.productId, Number(o.openingStock || 0)]));
+        const rows = products.filter((p: any) => p.itemType === 'RAW').map((p: any) => {
+          const qty = openingMap[p.id] || 0;
+          return {
+            id: p.id,
+            productName: p.name,
+            unit: p.unit,
+            quantity: qty,
+            unitCost: Number(p.costPrice),
+            totalCost: qty * Number(p.costPrice),
+            unitPrice: Number(p.price),
+            totalPrice: qty * Number(p.price),
+          };
+        });
+        setBackdataRows(rows);
+      } else if (kind === 'import_history') {
+        const imports = await api.getPurchaseHistory(params);
+        setBackdataRows(imports || []);
+      } else if (kind === 'ending_stock') {
+        const startD = new Date(startDate);
+        const year = startD.getFullYear();
+        const month = startD.getMonth() + 1;
+        const [products, openingStocks, imports, exports] = await Promise.all([
+          api.getProducts(),
+          api.getOpeningStocks(year, month),
+          api.getPurchaseHistory(params),
+          api.getExportHistory(params),
+        ]);
+        const openingMap = Object.fromEntries(openingStocks.map((o: any) => [o.productId, Number(o.openingStock || 0)]));
+        const importMap: Record<string, number> = {};
+        imports.forEach((im: any) => {
+          importMap[im.productId] = (importMap[im.productId] || 0) + Number(im.quantity);
+        });
+        const exportMap: Record<string, number> = {};
+        exports.forEach((ex: any) => {
+          exportMap[ex.productId] = (exportMap[ex.productId] || 0) + Number(ex.quantity);
+        });
+        const rows = products.filter((p: any) => p.itemType === 'RAW').map((p: any) => {
+          const opening = openingMap[p.id] || 0;
+          const importQty = importMap[p.id] || 0;
+          const exportQty = exportMap[p.id] || 0;
+          const ending = opening + importQty - exportQty;
+          return {
+            id: p.id,
+            productName: p.name,
+            unit: p.unit,
+            opening,
+            importQty,
+            exportQty,
+            ending,
+            unitCost: Number(p.costPrice),
+            totalCost: ending * Number(p.costPrice),
+          };
+        });
+        setBackdataRows(rows);
+      }
+    } catch (err) {
+      console.warn('Failed to load backdata', err);
+      setBackdataRows([]);
+    } finally {
+      setBackdataLoading(false);
+    }
+  };
+
+  const getBackdataColumns = (): GridColDef[] => {
+    switch (backdataKind) {
+      case 'revenue':
+      case 'discount':
+      case 'net_revenue':
+      case 'profit':
+      case 'net_profit':
+        return [
+          { field: 'createdAt', headerName: 'Thời gian', width: 140, valueFormatter: (v) => formatDateTime(String(v)) },
+          { field: 'customerName', headerName: 'Khách hàng', flex: 1, minWidth: 120 },
+          { field: 'employeeName', headerName: 'Nhân viên', width: 110 },
+          {
+            field: 'subtotal',
+            headerName: 'Tạm tính',
+            width: 110,
+            align: 'right',
+            headerAlign: 'right',
+            valueGetter: (_, row) => {
+              const sub = (row.items || []).reduce((sum: number, it: any) => sum + Number(it.unitPrice || 0) * Number(it.quantity || 0), 0);
+              return sub;
+            },
+            valueFormatter: (v) => formatCurrency(Number(v))
+          },
+          { field: 'discount', headerName: 'Giảm giá', width: 90, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          {
+            field: 'total',
+            headerName: 'Tổng cộng',
+            width: 110,
+            align: 'right',
+            headerAlign: 'right',
+            valueGetter: (_, row) => {
+              const sub = (row.items || []).reduce((sum: number, it: any) => sum + Number(it.unitPrice || 0) * Number(it.quantity || 0), 0);
+              return Math.max(0, sub - Number(row.discount || 0));
+            },
+            valueFormatter: (v) => formatCurrency(Number(v))
+          },
+          { field: 'paidAmount', headerName: 'Đã trả', width: 100, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          {
+            field: 'debt',
+            headerName: 'Còn nợ',
+            width: 100,
+            align: 'right',
+            headerAlign: 'right',
+            valueGetter: (_, row) => {
+              const sub = (row.items || []).reduce((sum: number, it: any) => sum + Number(it.unitPrice || 0) * Number(it.quantity || 0), 0);
+              const total = Math.max(0, sub - Number(row.discount || 0));
+              return Math.max(0, total - Number(row.paidAmount || 0));
+            },
+            valueFormatter: (v) => formatCurrency(Number(v))
+          },
+          { field: 'paymentType', headerName: 'Hình thức', width: 100, valueFormatter: (v) => v === 'CASH' ? '💵 Tiền mặt' : '🏦 Banking' },
+        ];
+      case 'cost':
+      case 'export_history':
+        return [
+          { field: 'createdAt', headerName: 'Thời gian', width: 140, valueFormatter: (v) => formatDateTime(String(v)) },
+          { field: 'productName', headerName: 'Tên SP/Nguyên liệu', flex: 1, minWidth: 140 },
+          { field: 'quantity', headerName: 'Số lượng', width: 85, align: 'center', headerAlign: 'center' },
+          { field: 'unitCost', headerName: 'Giá vốn', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'totalCost', headerName: 'Trị giá vốn', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'itemType', headerName: 'Kiểu xuất', width: 110, valueFormatter: (v) => v === 'MIX' ? 'Từ món MIX' : 'Hàng thô' },
+          { field: 'customerName', headerName: 'Khách hàng', width: 120 },
+          {
+            field: 'saleId',
+            headerName: 'Mã đơn',
+            width: 90,
+            valueFormatter: (v) => v ? `#${String(v).slice(-6).toUpperCase()}` : '—',
+          },
+        ];
+      case 'cash':
+      case 'bank':
+        return [
+          { field: 'createdAt', headerName: 'Thời gian', width: 140, valueFormatter: (v) => formatDateTime(String(v)) },
+          { field: 'type', headerName: 'Hạng mục', width: 110 },
+          { field: 'description', headerName: 'Nội dung', flex: 1, minWidth: 150 },
+          { field: 'party', headerName: 'Đối tác', width: 130 },
+          { field: 'amount', headerName: 'Số tiền', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'paymentType', headerName: 'Hình thức', width: 100 },
+        ];
+      case 'outstanding':
+        return [
+          { field: 'createdAt', headerName: 'Thời gian', width: 140, valueFormatter: (v) => formatDateTime(String(v)) },
+          {
+            field: 'id',
+            headerName: 'Mã đơn',
+            width: 100,
+            valueFormatter: (v) => v ? `#${String(v).slice(-6).toUpperCase()}` : '—',
+          },
+          { field: 'customerName', headerName: 'Khách hàng', flex: 1, minWidth: 130 },
+          {
+            field: 'total',
+            headerName: 'Tổng đơn',
+            width: 110,
+            align: 'right',
+            headerAlign: 'right',
+            valueGetter: (_, row) => {
+              const sub = (row.items || []).reduce((sum: number, it: any) => sum + Number(it.unitPrice || 0) * Number(it.quantity || 0), 0);
+              return Math.max(0, sub - Number(row.discount || 0));
+            },
+            valueFormatter: (v) => formatCurrency(Number(v))
+          },
+          { field: 'paidAmount', headerName: 'Đã trả', width: 100, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          {
+            field: 'debt',
+            headerName: 'Còn nợ',
+            width: 100,
+            align: 'right',
+            headerAlign: 'right',
+            valueGetter: (_, row) => {
+              const sub = (row.items || []).reduce((sum: number, it: any) => sum + Number(it.unitPrice || 0) * Number(it.quantity || 0), 0);
+              const total = Math.max(0, sub - Number(row.discount || 0));
+              return Math.max(0, total - Number(row.paidAmount || 0));
+            },
+            valueFormatter: (v) => formatCurrency(Number(v))
+          },
+        ];
+      case 'expenses':
+      case 'expense_reasonable':
+      case 'expense_outside':
+        return [
+          { field: 'occurredAt', headerName: 'Thời gian', width: 140, valueFormatter: (v) => formatDateTime(String(v)) },
+          { field: 'name', headerName: 'Tên chi phí', flex: 1, minWidth: 140 },
+          { field: 'category', headerName: 'Hạng mục', width: 150 },
+          { field: 'amount', headerName: 'Số tiền', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'note', headerName: 'Ghi chú', width: 140 },
+        ];
+      case 'owe':
+      case 'owed':
+        return [
+          { field: 'createdAt', headerName: 'Ngày ghi', width: 110, valueFormatter: (v) => new Date(v).toLocaleDateString('vi-VN') },
+          { field: 'partyName', headerName: 'Đối tác', flex: 1, minWidth: 140 },
+          { field: 'description', headerName: 'Nội dung', flex: 1, minWidth: 150 },
+          { field: 'initialAmount', headerName: 'Nợ ban đầu', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'amount', headerName: 'Còn lại', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'dueDate', headerName: 'Hạn trả', width: 110, valueFormatter: (v) => v ? new Date(v).toLocaleDateString('vi-VN') : '—' },
+        ];
+      case 'opening_stock':
+        return [
+          { field: 'productName', headerName: 'Tên nguyên liệu/SP thô', flex: 1, minWidth: 160 },
+          { field: 'unit', headerName: 'ĐVT', width: 70, align: 'center', headerAlign: 'center' },
+          { field: 'quantity', headerName: 'Tồn đầu kỳ', width: 110, align: 'center', headerAlign: 'center' },
+          { field: 'unitCost', headerName: 'Đơn giá vốn', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'totalCost', headerName: 'Tổng trị giá vốn', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'unitPrice', headerName: 'Đơn giá bán', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'totalPrice', headerName: 'Tổng trị giá bán', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+        ];
+      case 'import_history':
+        return [
+          { field: 'createdAt', headerName: 'Thời gian', width: 140, valueFormatter: (v) => formatDateTime(String(v)) },
+          { field: 'productName', headerName: 'Tên sản phẩm', flex: 1, minWidth: 150 },
+          { field: 'supplierName', headerName: 'Nhà cung cấp', width: 140 },
+          { field: 'quantity', headerName: 'SL nhập', width: 90, align: 'center', headerAlign: 'center' },
+          { field: 'unitCost', headerName: 'Giá nhập', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'totalCost', headerName: 'Thành tiền', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'note', headerName: 'Ghi chú', width: 130 },
+        ];
+      case 'ending_stock':
+        return [
+          { field: 'productName', headerName: 'Tên nguyên liệu/SP thô', flex: 1, minWidth: 160 },
+          { field: 'unit', headerName: 'ĐVT', width: 70, align: 'center', headerAlign: 'center' },
+          { field: 'opening', headerName: 'Tồn đầu kỳ', width: 95, align: 'center', headerAlign: 'center' },
+          { field: 'importQty', headerName: 'Nhập trong kỳ', width: 95, align: 'center', headerAlign: 'center' },
+          { field: 'exportQty', headerName: 'Xuất trong kỳ', width: 95, align: 'center', headerAlign: 'center' },
+          { field: 'ending', headerName: 'Tồn cuối kỳ', width: 95, align: 'center', headerAlign: 'center' },
+          { field: 'unitCost', headerName: 'Giá vốn', width: 110, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+          { field: 'totalCost', headerName: 'Tổng trị giá vốn', width: 125, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
+        ];
+      default:
+        return [];
+    }
+  };
+
   return (
     <div className="space-y-8 animate-fade-in-up">
       {/* Header */}
@@ -999,104 +1427,204 @@ export default function ReportsPage() {
         <>
           {/* 14 KPIs Dashboard Grid */}
           <div className="space-y-4">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tóm tắt 14 KPIs kinh doanh</h3>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tóm tắt 14 KPIs kinh doanh (Click để xem chi tiết)</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {/* Doanh thu gộp */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('revenue', '1. Chi tiết doanh thu gộp')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">1. Doanh thu gộp</span>
                 <span className="text-base font-extrabold text-white mt-1.5">{formatCurrency(kpis?.totalRevenue || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Tổng tiền mặt bán hàng gốc</span>
               </div>
 
               {/* Giảm giá */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('discount', '2. Chi tiết giảm giá')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">2. Tổng giảm giá</span>
                 <span className="text-base font-extrabold text-amber-500 mt-1.5">-{formatCurrency(kpis?.totalDiscount || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Chiết khấu trực tiếp trên bill</span>
               </div>
 
               {/* Doanh thu thuần */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('net_revenue', '3. Chi tiết doanh thu thuần')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">3. Doanh thu thuần</span>
                 <span className="text-base font-extrabold text-indigo-400 mt-1.5">{formatCurrency(kpis?.netRevenue || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Doanh thu gộp - giảm giá</span>
               </div>
 
               {/* Giá vốn */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('cost', '4. Chi tiết giá vốn')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">4. Tổng giá vốn</span>
                 <span className="text-base font-extrabold text-slate-300 mt-1.5">{formatCurrency(kpis?.totalCost || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Gồm giá thô và MIX phân rã</span>
               </div>
 
               {/* Lợi nhuận gộp */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('profit', '5. Chi tiết lợi nhuận gộp')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">5. Lợi nhuận gộp</span>
                 <span className="text-base font-extrabold text-cyan-400 mt-1.5">{formatCurrency(kpis?.grossProfit || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Doanh thu thuần - giá vốn</span>
               </div>
 
               {/* Thu tiền mặt */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('cash', '6. Chi tiết thu tiền mặt')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">6. Thu TM (Đơn hàng)</span>
                 <span className="text-base font-extrabold text-emerald-400 mt-1.5">{formatCurrency(kpis?.cashRevenue || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Tiền mặt đơn + Thu nợ gốc</span>
               </div>
 
               {/* Thu chuyển khoản */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('bank', '7. Chi tiết thu chuyển khoản')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">7. Thu CK (Đơn hàng)</span>
                 <span className="text-base font-extrabold text-sky-400 mt-1.5">{formatCurrency(kpis?.bankRevenue || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Banking đơn + Thu nợ chuyển khoản</span>
               </div>
 
               {/* Nợ phát sinh */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('outstanding', '8. Chi tiết nợ bán hàng còn lại')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">8. Nợ bán hàng còn lại</span>
                 <span className="text-base font-extrabold text-rose-400 mt-1.5">{formatCurrency(kpis?.outstandingDebt || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Nợ chưa thu từ các đơn trong kỳ</span>
               </div>
 
               {/* Tổng chi phí */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('expenses', '9. Chi tiết tổng chi phí')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">9. Tổng chi phí</span>
                 <span className="text-base font-extrabold text-rose-300 mt-1.5">{formatCurrency(kpis?.totalExpenses || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Mọi khoản chi phát sinh</span>
               </div>
 
               {/* Chi phí hợp lý */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('expense_reasonable', '10. Chi tiết chi phí hợp lý')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">10. Chi phí hợp lý</span>
                 <span className="text-base font-extrabold text-slate-200 mt-1.5">{formatCurrency(kpis?.expenseReasonable || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Chi phí kinh doanh phục vụ vận hành</span>
               </div>
 
               {/* Ngoài kinh doanh */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('expense_outside', '11. Chi tiết chi tiêu ngoài kinh doanh')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">11. Chi tiêu ngoài KD</span>
                 <span className="text-base font-extrabold text-purple-400 mt-1.5">{formatCurrency(kpis?.expenseOutsideBusiness || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Rút vốn chi cá nhân</span>
               </div>
 
               {/* Nợ phải trả */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('owe', '12. Chi tiết nợ phải trả (Owe)')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">12. Nợ phải trả (Owe)</span>
                 <span className="text-base font-extrabold text-orange-400 mt-1.5">{formatCurrency(kpis?.totalOwe || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Tiền nợ NCC còn lại lũy kế</span>
               </div>
 
               {/* Nợ phải thu */}
-              <div className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all">
+              <div
+                onClick={() => openBackdata('owed', '13. Chi tiết nợ phải thu (Owed)')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
                 <span className="text-[10px] text-slate-500 font-bold uppercase">13. Nợ phải thu (Owed)</span>
                 <span className="text-base font-extrabold text-yellow-500 mt-1.5">{formatCurrency(kpis?.totalOwed || 0)}</span>
                 <span className="text-[9px] text-slate-500 mt-1">Tiền khách nợ tôi lũy kế</span>
               </div>
 
               {/* Lợi nhuận ròng */}
-              <div className="card bg-gradient-to-tr from-indigo-500/10 to-cyan-500/10 border-indigo-500/20 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all shadow-md">
+              <div
+                onClick={() => openBackdata('net_profit', '14. Chi tiết lợi nhuận ròng')}
+                className="card bg-gradient-to-tr from-indigo-500/10 to-cyan-500/10 border-indigo-500/20 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all shadow-md cursor-pointer hover:border-indigo-500/40 hover:brightness-110"
+              >
                 <span className="text-[10px] text-indigo-300 font-extrabold uppercase">14. Lợi nhuận ròng</span>
                 <span className="text-lg font-black text-emerald-400 mt-1.5">{formatCurrency(kpis?.netProfit || 0)}</span>
                 <span className="text-[9px] text-slate-400 mt-1">Lợi nhuận gộp - chi phí hợp lý</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Tổng quan tồn kho RAW */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tổng quan tồn kho RAW (Click để xem chi tiết)</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Tồn đầu kỳ */}
+              <div
+                onClick={() => openBackdata('opening_stock', 'Chi tiết tồn đầu kỳ')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Tồn đầu kỳ</span>
+                <span className="text-base font-extrabold text-white mt-1.5">{inventorySummary.openingQty.toLocaleString('vi-VN')}</span>
+                <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
+                  <span>Vốn: {formatCurrency(inventorySummary.openingCost)}</span>
+                  <span>Bán: {formatCurrency(inventorySummary.openingSell)}</span>
+                </div>
+              </div>
+
+              {/* Nhập trong kỳ */}
+              <div
+                onClick={() => openBackdata('import_history', 'Chi tiết nhập kho trong kỳ')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Nhập trong kỳ</span>
+                <span className="text-base font-extrabold text-emerald-400 mt-1.5">+{inventorySummary.importQty.toLocaleString('vi-VN')}</span>
+                <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
+                  <span>Vốn: {formatCurrency(inventorySummary.importCost)}</span>
+                  <span>Bán: {formatCurrency(inventorySummary.importSell)}</span>
+                </div>
+              </div>
+
+              {/* Xuất trong kỳ */}
+              <div
+                onClick={() => openBackdata('export_history', 'Chi tiết xuất kho trong kỳ')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Xuất trong kỳ</span>
+                <span className="text-base font-extrabold text-rose-400 mt-1.5">-{inventorySummary.exportQty.toLocaleString('vi-VN')}</span>
+                <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
+                  <span>Vốn: {formatCurrency(inventorySummary.exportCost)}</span>
+                  <span>Bán: {formatCurrency(inventorySummary.exportSell)}</span>
+                </div>
+              </div>
+
+              {/* Tồn cuối kỳ */}
+              <div
+                onClick={() => openBackdata('ending_stock', 'Chi tiết tồn cuối kỳ')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Tồn cuối kỳ</span>
+                <span className="text-base font-extrabold text-indigo-400 mt-1.5">{inventorySummary.endingQty.toLocaleString('vi-VN')}</span>
+                <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
+                  <span>Vốn: {formatCurrency(inventorySummary.endingCost)}</span>
+                  <span>Bán: {formatCurrency(inventorySummary.endingSell)}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1213,6 +1741,39 @@ export default function ReportsPage() {
           </div>
         </>
       )}
+
+      {/* Backdata Modal */}
+      <Modal
+        open={backdataModalOpen}
+        onClose={() => setBackdataModalOpen(false)}
+        title={backdataTitle}
+        maxWidth="max-w-5xl"
+      >
+        <div className="space-y-4">
+          <div className="flex justify-between items-center text-xs text-slate-400">
+            <span>Khoảng thời gian: {startDate} ➔ {endDate}</span>
+            <span>Tổng cộng: {backdataRows.length} bản ghi</span>
+          </div>
+
+          <div className="border border-white/5 rounded-xl overflow-hidden bg-slate-950/20">
+            <AppDataGrid
+              rows={backdataRows}
+              columns={getBackdataColumns()}
+              loading={backdataLoading}
+              height={450}
+            />
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={() => setBackdataModalOpen(false)}
+              className="btn btn-secondary text-xs py-2 px-4 rounded-xl font-semibold hover:bg-slate-800"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

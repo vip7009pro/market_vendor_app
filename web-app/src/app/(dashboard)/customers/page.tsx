@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { GridColDef } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import { matchVietnamese } from '@/lib/text';
 import Modal from '@/components/ui/Modal';
 import AppDataGrid from '@/components/ui/AppDataGrid';
 
@@ -118,7 +119,7 @@ export default function CustomersPage() {
   };
 
   const filteredCustomers = customers.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+    const matchesSearch = matchVietnamese(c.name, search) ||
                           (c.phone && c.phone.includes(search));
     const matchesTab = tab === 'CUSTOMER' ? !c.isSupplier : c.isSupplier;
     return matchesSearch && matchesTab;

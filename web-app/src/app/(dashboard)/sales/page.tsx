@@ -8,6 +8,7 @@ import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
 import VietQrDisplay from '@/components/ui/VietQrDisplay';
 import { buildVietQrAddInfoFromItems } from '@/lib/vietqr';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { matchVietnamese } from '@/lib/text';
 
 interface SaleItem {
   name: string;
@@ -87,7 +88,7 @@ export default function SalesPage() {
   const filteredSales = useMemo(() => sales.filter((s) => {
     const total = getSaleTotal(s);
     const debt = total - s.paidAmount;
-    const matchesSearch = s.customerName.toLowerCase().includes(search.toLowerCase()) || s.id.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = matchVietnamese(s.customerName, search) || matchVietnamese(s.id, search);
     const matchesPayment = paymentFilter === 'ALL' || s.paymentType === paymentFilter;
     const matchesDebt = debtFilter === 'ALL' || (debtFilter === 'PAID' && debt <= 0) || (debtFilter === 'DEBT' && debt > 0);
     return matchesSearch && matchesPayment && matchesDebt;

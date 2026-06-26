@@ -489,4 +489,168 @@ router.get('/opening-stocks', async (req: AuthRequest, res: Response): Promise<v
   }
 });
 
+// ─── POST /api/reports/opening-stocks ────────────────
+router.post('/opening-stocks', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const { productId, year, month, openingStock } = req.body;
+
+    if (!productId || !year || !month) {
+      res.status(400).json({ error: 'productId, year, month are required' });
+      return;
+    }
+
+    const row = await prisma.productOpeningStock.upsert({
+      where: {
+        userId_productId_year_month: {
+          userId,
+          productId,
+          year: parseInt(String(year)),
+          month: parseInt(String(month)),
+        }
+      },
+      update: {
+        openingStock: Number(openingStock),
+        updatedAt: new Date(),
+      },
+      create: {
+        userId,
+        productId,
+        year: parseInt(String(year)),
+        month: parseInt(String(month)),
+        openingStock: Number(openingStock),
+        updatedAt: new Date(),
+      }
+    });
+
+    res.json({ data: row });
+  } catch (error) {
+    console.error('Update opening stock error:', error);
+    res.status(500).json({ error: 'Failed to update opening stock' });
+  }
+});
+
+// ─── GET /api/reports/export-history ────────────────
+router.get('/export-history', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const { search, startDate, endDate } = req.query;
+
+    const where: any = {
+      userId,
+      ...notDeleted,
+    };
+
+    if (startDate || endDate) {
+      where.sale = {
+        createdAt: {},
+      };
+      if (startDate) where.sale.createdAt.gte = new Date(String(startDate));
+      if (endDate) {
+        const end = new Date(String(endDate));
+        end.setHours(23, 59, 59, 999);
+        where.sale.createdAt.lte = end;
+      }
+    }
+
+    const saleItems = await prisma.saleItem.findMany({
+      where,
+      include: {
+        sale: true,
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+
+    const exportRows: any[] = [];
+
+    for (const item of saleItems) {
+      if (item.sale.deletedAt) continue;
+      const itemType = (item.itemType || '').toUpperCase().trim();
+      const saleCreatedAt = item.sale.createdAt.toISOString();
+      const customerName = item.sale.customerName || 'Khách vãng lai';
+
+      if (itemType === 'MIX') {
+        const mixJson = (item.mixItemsJson || '').trim();
+        if (!mixJson) continue;
+        try {
+          const decoded = JSON.parse(mixJson);
+          if (Array.isArray(decoded)) {
+            for (const e of decoded) {
+              const rid = (e.rawProductId || '').trim();
+              if (!rid) continue;
+              const rq = Number(e.rawQty || 0) * Number(item.quantity);
+              const ruc = Number(e.rawUnitCost || 0);
+
+              if (search) {
+                const s = String(search).toLowerCase();
+                const matches = e.rawName.toLowerCase().includes(s) ||
+                                customerName.toLowerCase().includes(s) ||
+                                item.saleId.toLowerCase().includes(s);
+                if (!matches) continue;
+              }
+
+              exportRows.push({
+                id: `${item.id}-${rid}`,
+                saleId: item.saleId,
+                createdAt: saleCreatedAt,
+                customerName,
+                employeeName: item.sale.employeeName || '—',
+                productId: rid,
+                productName: e.rawName,
+                unit: e.rawUnit || '—',
+                quantity: rq,
+                unitPrice: null,
+                totalPrice: null,
+                unitCost: ruc,
+                totalCost: rq * ruc,
+                itemType: 'MIX',
+              });
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      } else {
+        const pid = item.productId;
+        if (!pid) continue;
+        const qty = Number(item.quantity || 0);
+        const unitPrice = Number(item.unitPrice || 0);
+        const unitCost = Number(item.unitCost || 0);
+
+        if (search) {
+          const s = String(search).toLowerCase();
+          const matches = item.name.toLowerCase().includes(s) ||
+                          customerName.toLowerCase().includes(s) ||
+                          item.saleId.toLowerCase().includes(s);
+          if (!matches) continue;
+        }
+
+        exportRows.push({
+          id: item.id,
+          saleId: item.saleId,
+          createdAt: saleCreatedAt,
+          customerName,
+          employeeName: item.sale.employeeName || '—',
+          productId: pid,
+          productName: item.name,
+          unit: item.unit,
+          quantity: qty,
+          unitPrice,
+          totalPrice: qty * unitPrice,
+          unitCost,
+          totalCost: qty * unitCost,
+          itemType: 'RAW',
+        });
+      }
+    }
+
+    res.json({ data: exportRows });
+  } catch (error) {
+    console.error('Get export history error:', error);
+    res.status(500).json({ error: 'Failed to get export history' });
+  }
+});
+
 export default router;

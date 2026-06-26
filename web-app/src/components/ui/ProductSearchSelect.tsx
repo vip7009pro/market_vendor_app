@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { matchVietnamese } from '@/lib/text';
 
 interface ProductOption {
   id: string;
@@ -33,9 +34,9 @@ export default function ProductSearchSelect({
   const selected = products.find((p) => p.id === value);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return products.slice(0, 20);
-    return products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 20);
+    return products.filter((p) => matchVietnamese(p.name, q)).slice(0, 20);
   }, [products, query]);
 
   useEffect(() => {

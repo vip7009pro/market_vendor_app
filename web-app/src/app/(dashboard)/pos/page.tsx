@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import api from '@/lib/api';
+import { matchVietnamese } from '@/lib/text';
 import VoiceOrderModal from '@/components/pos/VoiceOrderModal';
 import Modal from '@/components/ui/Modal';
 import VietQrDisplay from '@/components/ui/VietQrDisplay';
@@ -400,7 +401,7 @@ export default function PosPage() {
   };
 
   const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase())
+    matchVietnamese(p.name, searchQuery)
   );
 
   const formatCurrency = (val: number) => {
@@ -435,7 +436,7 @@ export default function PosPage() {
         </div>
 
         {/* Product Grid */}
-        <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {loading ? (
             <div className="col-span-full py-12 text-center text-slate-500">
               Đang tải danh mục sản phẩm...

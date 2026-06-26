@@ -150,3 +150,19 @@ lib/
   - Dashboard Web loại bỏ mock data, tự động truyền date hôm nay và tính toán động tổng tiền hóa đơn từ order items.
   - Trang Báo cáo (Reports) Web hiển thị đủ 14 KPIs thực tế, bộ lọc Date Range và nhân viên, vẽ Pie Chart SVG tỷ trọng chi phí tương tác, vẽ Bar/Line Chart SVG doanh thu/lợi nhuận/lợi nhuận ròng có hover tooltip, danh sách Top 10 sản phẩm có progress bar tỉ lệ.
   - Tích hợp tính năng **Xuất báo cáo Excel tổng hợp (12 Sheet XML Spreadsheet)** client-side tải xuống dữ liệu đầy đủ (khách hàng, sản phẩm, công nợ, lịch sử trả nợ, chi phí, lịch sử nhập kho, lịch sử xuất kho, list đơn hàng, tồn đầu kỳ, tồn cuối kỳ...) khớp 100% với mobile app.
+
+### 4. Tìm kiếm Tiếng Việt, Quản lý Tồn kho & Chi tiết Báo cáo (Phase 7 - ĐÃ HOÀN THÀNH)
+- **Chuẩn hóa tìm kiếm Tiếng Việt (Vietnamese diacritics search)**:
+  - Tạo tiện ích `web-app/src/lib/text.ts` hỗ trợ loại bỏ dấu Tiếng Việt, so khớp chữ cái đầu (`getInitials`) phục vụ tìm kiếm nhanh (giống trên Flutter mobile).
+  - Tích hợp hàm `matchVietnamese` vào ô tìm kiếm ở tất cả màn hình: POS, Lịch sử bán hàng, Lịch sử nhập hàng, Sản phẩm, Khách hàng, Công nợ, Chi phí và ô tìm kiếm sản phẩm trong dialog.
+- **Giao diện POS**: Điều chỉnh grid danh sách sản phẩm thành 4 cột trên desktop để hiển thị trực quan hơn.
+- **Sản phẩm & Quản lý Kho**:
+  - Tách trang Sản phẩm làm 3 sub-tabs: Tồn kho, Lịch sử nhập kho, Lịch sử xuất kho RAW.
+  - Hàng MIX không hiển thị số lượng tồn kho (hiển thị `—`) vì không quản lý tồn trực tiếp (tất cả quy về nguyên liệu thô RAW).
+  - Tab nhập kho hiển thị chi tiết lịch sử mua hàng, tab xuất kho RAW hiển thị lịch sử xuất bán (bao gồm cả phân rã nguyên liệu cấu thành món MIX).
+  - Tích hợp các widget tính tổng số lượng, tổng tiền/giá vốn/thành tiền thay đổi động theo bộ lọc thời gian & sản phẩm.
+  - Bổ sung nút **"Cập nhật tồn đầu kỳ"** mở modal cho phép chọn Tháng-Năm để nhập số dư tồn đầu kỳ (tồn đầu tháng) cho sản phẩm (upsert qua composite key `userId_productId_year_month`).
+- **Nâng cấp Báo cáo (Reports)**:
+  - Bổ sung thêm 4 chỉ số KPIs tồn kho (Tồn đầu kỳ, Nhập trong kỳ, Xuất trong kỳ, Tồn cuối kỳ) nâng tổng số KPIs lên **18**.
+  - Tích hợp modal xem chi tiết giao dịch gốc (**Backdata Grid**) cho cả 18 KPIs. Khi click vào từng KPI card, hệ thống sẽ gọi API tương ứng để hiển thị bảng chi tiết các giao dịch / sản phẩm / chứng từ liên quan dưới dạng bảng lưới DataGrid.
+

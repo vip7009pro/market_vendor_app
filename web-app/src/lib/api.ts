@@ -164,6 +164,15 @@ class ApiClient {
     return this.fetch(`/api/reports/opening-stocks?year=${year}&month=${month}`);
   }
 
+  async updateOpeningStock(data: { productId: string; year: number; month: number; openingStock: number }) {
+    return this.fetch('/api/reports/opening-stocks', { method: 'POST', body: data });
+  }
+
+  async getExportHistory(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.fetch(`/api/reports/export-history${qs}`);
+  }
+
   // Expenses
   async getExpenses(params?: Record<string, string>) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';

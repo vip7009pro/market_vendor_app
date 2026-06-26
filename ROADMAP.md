@@ -87,3 +87,21 @@ Tài liệu này theo dõi tiến độ các phase của dự án chuyển đổ
 - [x] **6.5 Cập nhật Dashboard Web**
   - [x] Loại bỏ mock data fallback, sử dụng dữ liệu thực tế hôm nay qua filter date, tính toán động tổng đơn hàng.
 
+---
+
+### 🔍 PHASE 7: Tìm kiếm Tiếng Việt, Quản lý Tồn kho & Chi tiết Báo cáo (Phase 7 - ĐÃ HOÀN THÀNH)
+- [x] **7.1 Chuẩn hóa tìm kiếm Tiếng Việt (Vietnamese diacritics search)**
+  - [x] Tạo tiện ích dùng chung `text.ts` thực hiện loại bỏ dấu và so khớp chính xác/tên viết tắt (initials).
+  - [x] Áp dụng tìm kiếm chuẩn hóa cho tất cả các màn hình: POS, Lịch sử bán hàng, Sản phẩm, Khách hàng, Công nợ, Chi phí và modal chọn nhanh sản phẩm.
+- [x] **7.2 Cải tiến layout POS**
+  - [x] Chuyển đổi lưới sản phẩm (grid) tại POS thành 4 cột trên màn hình desktop.
+- [x] **7.3 Tách tab và quản lý tồn kho Sản phẩm**
+  - [x] Ẩn thông số tồn kho trực tiếp đối với sản phẩm MIX (hiển thị `—`).
+  - [x] Tạo 3 sub-tabs trong trang sản phẩm: Tồn kho, Lịch sử nhập kho (RAW purchases), Lịch sử xuất kho RAW (bao gồm cả phân rã nguyên liệu MIX).
+  - [x] Tích hợp các widget tổng hợp số lượng và giá trị (giá vốn, thành tiền) tự động tính toán theo bộ lọc.
+  - [x] Thêm tính năng cập nhật số dư tồn đầu kỳ (tồn đầu tháng) cho sản phẩm.
+- [x] **7.4 Nâng cấp Báo cáo & Chi tiết giao dịch (Backdata)**
+  - [x] Bổ sung phần "Tổng quan tồn kho" gồm 4 thẻ chỉ số: Tồn đầu, Nhập trong kỳ, Xuất trong kỳ, Tồn cuối kỳ.
+  - [x] Tích hợp modal xem chi tiết giao dịch gốc (Backdata Grid) cho toàn bộ 18 chỉ số KPIs báo cáo.
+
+

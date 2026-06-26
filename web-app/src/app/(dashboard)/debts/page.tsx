@@ -7,6 +7,7 @@ import Modal from '@/components/ui/Modal';
 import AppDataGrid, { toRowSelectionModel } from '@/components/ui/AppDataGrid';
 import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { matchVietnamese } from '@/lib/text';
 
 interface DebtPayment {
   uuid: string;
@@ -101,11 +102,10 @@ export default function DebtsPage() {
 
   const filteredDebts = useMemo(() => {
     return debts.filter((d) => {
-      const q = search.toLowerCase();
       const matchesSearch =
-        d.partyName.toLowerCase().includes(q) ||
-        (d.description || '').toLowerCase().includes(q) ||
-        (d.sourceId || '').toLowerCase().includes(q);
+        matchVietnamese(d.partyName, search) ||
+        matchVietnamese(d.description || '', search) ||
+        matchVietnamese(d.sourceId || '', search);
       return matchesSearch && d.type === typeTab && !d.settled;
     });
   }, [debts, search, typeTab]);
