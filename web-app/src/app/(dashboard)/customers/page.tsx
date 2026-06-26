@@ -210,7 +210,7 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      <AppDataGrid rows={customerRows} columns={customerColumns} loading={loading} height={520} />
+      <AppDataGrid rows={customerRows} columns={customerColumns} loading={loading} height="calc(100vh - 270px)" />
 
       <Modal
         open={modalOpen}

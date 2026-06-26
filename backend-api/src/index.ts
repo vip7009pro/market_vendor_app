@@ -18,7 +18,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3007', 10);
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
 
 // ─── Middleware ───────────────────────────────────────
 app.use(cors({

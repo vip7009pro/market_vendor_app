@@ -311,7 +311,7 @@ export default function PurchasesPage() {
         <MasterDetailLayout
           detailTitle={selectedOrder ? `Đơn #${selectedOrder.id.slice(-6).toUpperCase()}` : 'Chi tiết đơn nhập'}
           showDetail={!!selectedOrder}
-          list={<AppDataGrid rows={orderRows} columns={orderColumns} loading={loading} height={520} onRowClick={onOrderRowClick} rowSelectionModel={toRowSelectionModel(selectedOrder ? [selectedOrder.id] : [])} />}
+          list={<AppDataGrid rows={orderRows} columns={orderColumns} loading={loading} height="100%" onRowClick={onOrderRowClick} rowSelectionModel={toRowSelectionModel(selectedOrder ? [selectedOrder.id] : [])} />}
           detail={selectedOrder && (
             <div className="space-y-4 text-sm">
               <div className="space-y-1 text-xs text-slate-400">
@@ -344,7 +344,7 @@ export default function PurchasesPage() {
           )}
         />
       ) : (
-        <AppDataGrid rows={historyRows} columns={historyColumns} loading={loading} height={520} />
+        <AppDataGrid rows={historyRows} columns={historyColumns} loading={loading} height="calc(100vh - 270px)" />
       )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="📦 Nhập hàng vào kho" maxWidth="max-w-3xl" closeOnBackdrop={false} contentClassName="max-h-[90vh] overflow-y-auto">

@@ -225,10 +225,31 @@ export default function ReportsPage() {
   const [backdataLoading, setBackdataLoading] = useState(false);
   const [backdataRows, setBackdataRows] = useState<any[]>([]);
 
+  // Chart loading state to prevent full-page flashes
+  const [chartLoading, setChartLoading] = useState(false);
+
   useEffect(() => {
     // Load employee list
     api.getEmployees().then(setEmployees).catch(() => {});
   }, []);
+
+  const fetchRevenueDataOnly = async () => {
+    try {
+      setChartLoading(true);
+      const params = {
+        startDate,
+        endDate,
+        ...(selectedEmployeeId && { employeeId: selectedEmployeeId }),
+        groupBy,
+      };
+      const revRes = await api.getRevenueReport(params);
+      if (revRes) setRevenueData(revRes);
+    } catch (err) {
+      console.error('Failed to load chart data:', err);
+    } finally {
+      setChartLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -243,11 +264,10 @@ export default function ReportsPage() {
       const year = startD.getFullYear();
       const month = startD.getMonth() + 1;
 
-      const [kpiRes, topRes, ratioRes, revRes, productsRes, openingRes, importsRes, exportsRes] = await Promise.all([
+      const [kpiRes, topRes, ratioRes, productsRes, openingRes, importsRes, exportsRes] = await Promise.all([
         api.getDashboard(params),
         api.fetch<TopProduct[]>(`/api/reports/top-products?startDate=${startDate}&endDate=${endDate}${selectedEmployeeId ? `&employeeId=${selectedEmployeeId}` : ''}`),
         api.fetch<ExpenseRatio[]>(`/api/reports/expenses-ratio?startDate=${startDate}&endDate=${endDate}`),
-        api.getRevenueReport({ ...params, groupBy }),
         api.getProducts().catch(() => []),
         api.getOpeningStocks(year, month).catch(() => []),
         api.getPurchaseHistory({ startDate, endDate }).catch(() => []),
@@ -257,7 +277,6 @@ export default function ReportsPage() {
       if (kpiRes) setKpis(kpiRes);
       if (topRes) setTopProducts(topRes);
       if (ratioRes) setExpenseRatios(ratioRes);
-      if (revRes) setRevenueData(revRes);
 
       // Compute Inventory Summary
       const productsList = productsRes || [];
@@ -335,6 +354,10 @@ export default function ReportsPage() {
 
   useEffect(() => {
     fetchData();
+  }, [startDate, endDate, selectedEmployeeId]);
+
+  useEffect(() => {
+    fetchRevenueDataOnly();
   }, [startDate, endDate, selectedEmployeeId, groupBy]);
 
   const formatCurrency = (val: number) => {
@@ -752,9 +775,9 @@ export default function ReportsPage() {
     });
 
     return (
-      <div className="flex flex-col sm:flex-row items-center gap-6">
+      <div className="flex flex-col items-center gap-6 justify-center">
         {/* SVG Circle */}
-        <div className="relative w-44 h-44 shrink-0">
+        <div className="relative w-56 h-56 shrink-0">
           <svg viewBox="-90 -90 180 180" className="w-full h-full transform -rotate-90">
             {slices.map((s, idx) => (
               <path
@@ -769,17 +792,17 @@ export default function ReportsPage() {
           </svg>
 
           {/* Interactive Tooltip in center */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center p-4 bg-slate-950/20 rounded-full backdrop-blur-[1px]">
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center p-6 bg-slate-950/20 rounded-full backdrop-blur-[1px]">
             {hoveredPieIdx !== null ? (
               <>
-                <span className="text-[10px] text-slate-400 truncate max-w-[120px] font-bold">{expenseRatios[hoveredPieIdx].category}</span>
-                <span className="text-xs font-bold text-white mt-0.5">{expenseRatios[hoveredPieIdx].percentage.toFixed(1)}%</span>
-                <span className="text-[9px] text-slate-500 mt-0.5">{formatCurrency(expenseRatios[hoveredPieIdx].amount)}</span>
+                <span className="text-[10px] text-slate-400 truncate max-w-[140px] font-bold">{expenseRatios[hoveredPieIdx].category}</span>
+                <span className="text-sm font-bold text-white mt-0.5">{expenseRatios[hoveredPieIdx].percentage.toFixed(1)}%</span>
+                <span className="text-[10px] text-slate-500 mt-0.5">{formatCurrency(expenseRatios[hoveredPieIdx].amount)}</span>
               </>
             ) : (
               <>
                 <span className="text-[10px] text-slate-500 font-semibold">Tổng chi phí</span>
-                <span className="text-xs font-extrabold text-indigo-300 mt-0.5">
+                <span className="text-sm font-extrabold text-indigo-300 mt-0.5">
                   {formatCurrency(kpis?.expenseReasonable || 0)}
                 </span>
               </>
@@ -787,13 +810,13 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Legend */}
-        <div className="flex-1 space-y-2 text-xs w-full max-h-48 overflow-y-auto pr-1">
+        {/* Legend Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs w-full max-h-60 overflow-y-auto pr-1">
           {slices.map((s, idx) => (
             <div
               key={idx}
-              className={`flex items-center justify-between p-1.5 rounded-lg transition-all ${
-                hoveredPieIdx === idx ? 'bg-slate-800/40 border-l-2 border-indigo-500 pl-2' : ''
+              className={`flex items-center justify-between p-2 rounded-lg transition-all ${
+                hoveredPieIdx === idx ? 'bg-slate-800/40 border-l-2 border-indigo-500 pl-2.5' : 'bg-slate-950/20 border border-white/5'
               }`}
               onMouseEnter={() => setHoveredPieIdx(idx)}
               onMouseLeave={() => setHoveredPieIdx(null)}
@@ -802,7 +825,7 @@ export default function ReportsPage() {
                 <span className="w-2.5 h-2.5 rounded shrink-0" style={{ backgroundColor: s.color }}></span>
                 <span className="text-slate-300 truncate font-medium">{s.category}</span>
               </div>
-              <span className="font-semibold text-slate-400 text-[10px] shrink-0">
+              <span className="font-semibold text-slate-400 text-[10px] shrink-0 ml-4">
                 {formatCurrency(s.amount)} ({s.percentage.toFixed(1)}%)
               </span>
             </div>
@@ -1054,7 +1077,7 @@ export default function ReportsPage() {
       } else if (kind === 'cost' || kind === 'export_history') {
         const exports = await api.getExportHistory(params);
         setBackdataRows(exports || []);
-      } else if (kind === 'cash' || kind === 'bank') {
+      } else if (kind === 'cash' || kind === 'bank' || kind === 'total_paid') {
         const [sales, debts] = await Promise.all([
           api.getSales(params),
           api.getDebts(),
@@ -1064,7 +1087,11 @@ export default function ReportsPage() {
           const paid = Number(s.paidAmount || 0);
           if (paid > 0) {
             const isCash = (s.paymentType || '').toLowerCase() === 'cash';
-            if ((kind === 'cash' && isCash) || (kind === 'bank' && !isCash)) {
+            if (
+              kind === 'total_paid' ||
+              (kind === 'cash' && isCash) ||
+              (kind === 'bank' && !isCash)
+            ) {
               pmts.push({
                 id: `sale-${s.id}`,
                 createdAt: s.createdAt,
@@ -1078,19 +1105,23 @@ export default function ReportsPage() {
           }
         });
         debts.forEach((d: any) => {
-          if (d.payments) {
+          if (d.type === 1 && d.payments) { // d.type === 1 are customer nợ (othersOweMe)
             d.payments.forEach((p: any) => {
               const payDate = new Date(p.createdAt);
               const startLimit = new Date(startDate);
               const endLimit = new Date(endDate + 'T23:59:59');
               if (payDate >= startLimit && payDate <= endLimit) {
                 const isCash = (p.paymentType || '').toLowerCase() === 'cash';
-                if ((kind === 'cash' && isCash) || (kind === 'bank' && !isCash)) {
+                if (
+                  kind === 'total_paid' ||
+                  (kind === 'cash' && isCash) ||
+                  (kind === 'bank' && !isCash)
+                ) {
                   pmts.push({
-                    id: `debt-${p.uuid}`,
+                    id: `debt-${p.uuid || p.id}`,
                     createdAt: p.createdAt,
-                    type: d.type === 1 ? 'Thu nợ' : 'Trả nợ',
-                    description: `Thanh toán nợ cho đối tác: ${d.partyName}`,
+                    type: 'Thu nợ',
+                    description: `Khách trả nợ: ${d.partyName}`,
                     party: d.partyName,
                     amount: Number(p.amount),
                     paymentType: p.paymentType === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản',
@@ -1264,6 +1295,7 @@ export default function ReportsPage() {
         ];
       case 'cash':
       case 'bank':
+      case 'total_paid':
         return [
           { field: 'createdAt', headerName: 'Thời gian', width: 140, valueFormatter: (v) => formatDateTime(String(v)) },
           { field: 'type', headerName: 'Hạng mục', width: 110 },
@@ -1567,6 +1599,42 @@ export default function ReportsPage() {
                 <span className="text-[10px] text-indigo-300 font-extrabold uppercase">14. Lợi nhuận ròng</span>
                 <span className="text-lg font-black text-emerald-400 mt-1.5">{formatCurrency(kpis?.netProfit || 0)}</span>
                 <span className="text-[9px] text-slate-400 mt-1">Lợi nhuận gộp - chi phí hợp lý</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Dòng tiền thực thu trong kỳ */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dòng tiền thực thu trong kỳ (Tiền thực tế nhận & Thu nợ)</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Tổng thực thu */}
+              <div
+                onClick={() => openBackdata('total_paid', 'Chi tiết Tổng thực thu trong kỳ')}
+                className="card bg-gradient-to-tr from-indigo-500/10 to-emerald-500/10 border-indigo-500/20 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
+                <span className="text-[10px] text-indigo-300 font-bold uppercase">Tổng thực thu (trong kỳ)</span>
+                <span className="text-base font-extrabold text-white mt-1.5">{formatCurrency((kpis?.cashPaid || 0) + (kpis?.bankPaid || 0))}</span>
+                <span className="text-[9px] text-slate-500 mt-1">Tổng tiền mặt + Chuyển khoản thực nhận</span>
+              </div>
+
+              {/* Thu TM trong kỳ */}
+              <div
+                onClick={() => openBackdata('cash', 'Chi tiết Thu tiền mặt thực tế trong kỳ')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Thu TM (Thực tế trong kỳ)</span>
+                <span className="text-base font-extrabold text-emerald-400 mt-1.5">{formatCurrency(kpis?.cashPaid || 0)}</span>
+                <span className="text-[9px] text-slate-500 mt-1">Tiền mặt từ đơn hàng và thu nợ</span>
+              </div>
+
+              {/* Thu CK trong kỳ */}
+              <div
+                onClick={() => openBackdata('bank', 'Chi tiết Thu chuyển khoản thực tế trong kỳ')}
+                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+              >
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Thu CK (Thực tế trong kỳ)</span>
+                <span className="text-base font-extrabold text-sky-400 mt-1.5">{formatCurrency(kpis?.bankPaid || 0)}</span>
+                <span className="text-[9px] text-slate-500 mt-1">Banking từ đơn hàng và thu nợ</span>
               </div>
             </div>
           </div>

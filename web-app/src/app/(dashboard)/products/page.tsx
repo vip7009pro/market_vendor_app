@@ -556,7 +556,7 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          <AppDataGrid rows={productRows} columns={productColumns} loading={loadingProducts} height={520} />
+          <AppDataGrid rows={productRows} columns={productColumns} loading={loadingProducts} height="calc(100vh - 280px)" />
         </div>
       )}
 
@@ -611,7 +611,7 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          <AppDataGrid rows={importRows} columns={importColumns} loading={loadingImports} height={420} />
+          <AppDataGrid rows={importRows} columns={importColumns} loading={loadingImports} height="calc(100vh - 410px)" />
         </div>
       )}
 
@@ -666,7 +666,7 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          <AppDataGrid rows={exportRows} columns={exportColumns} loading={loadingExports} height={420} />
+          <AppDataGrid rows={exportRows} columns={exportColumns} loading={loadingExports} height="calc(100vh - 410px)" />
         </div>
       )}
 

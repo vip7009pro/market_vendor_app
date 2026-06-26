@@ -13,12 +13,15 @@ export function toRowSelectionModel(ids: GridRowId[]) {
 }
 
 export default function AppDataGrid({
-  height = 480,
+  height,
   sx,
   ...props
 }: AppDataGridProps) {
   return (
-    <div style={{ width: '100%', height }} className="rounded-xl overflow-hidden border border-white/5 bg-slate-900/50">
+    <div
+      style={height !== undefined ? { width: '100%', height } : { width: '100%' }}
+      className="rounded-xl overflow-hidden border border-white/5 bg-slate-900/50 mt-6 w-full h-[480px] lg:h-[calc(100vh-270px)] min-h-[350px]"
+    >
       <DataGrid
         density="compact"
         pageSizeOptions={[25, 50, 100]}

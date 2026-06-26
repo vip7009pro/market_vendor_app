@@ -279,7 +279,7 @@ export default function DebtsPage() {
             rows={rows}
             columns={columns}
             loading={loading}
-            height={520}
+            height="100%"
             onRowClick={onRowClick}
             rowSelectionModel={toRowSelectionModel(selectedDebt ? [selectedDebt.id] : [])}
           />

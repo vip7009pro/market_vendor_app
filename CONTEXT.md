@@ -164,5 +164,13 @@ lib/
   - Bổ sung nút **"Cập nhật tồn đầu kỳ"** mở modal cho phép chọn Tháng-Năm để nhập số dư tồn đầu kỳ (tồn đầu tháng) cho sản phẩm (upsert qua composite key `userId_productId_year_month`).
 - **Nâng cấp Báo cáo (Reports)**:
   - Bổ sung thêm 4 chỉ số KPIs tồn kho (Tồn đầu kỳ, Nhập trong kỳ, Xuất trong kỳ, Tồn cuối kỳ) nâng tổng số KPIs lên **18**.
-  - Tích hợp modal xem chi tiết giao dịch gốc (**Backdata Grid**) cho cả 18 KPIs. Khi click vào từng KPI card, hệ thống sẽ gọi API tương ứng để hiển thị bảng chi tiết các giao dịch / sản phẩm / chứng từ liên quan dưới dạng bảng lưới DataGrid.
+  - Bổ sung section mới "Dòng tiền thực thu trong kỳ (Tiền thực tế nhận & Thu nợ)" chứa 3 widgets: Tổng thực thu, Thu TM, Thu CK. Dữ liệu tính toán từ các luồng thanh toán thực tế (checkout + thu nợ khách hàng) phát sinh trong khoảng ngày lọc.
+  - Tích hợp modal xem chi tiết giao dịch gốc (**Backdata Grid**) cho cả 18 KPIs + 3 widgets thực thu mới (hỗ trợ kind `total_paid`). Sửa logic backdata cash/bank để lọc đúng luồng nợ khách hàng (d.type = 1).
+  - Tối ưu hóa Pie Chart chi phí (tăng size vòng tròn lên `w-56`, căn giữa và xếp danh mục chú thích legends xuống dưới dạng grid 2 cột gọn gàng).
+  - Tách biệt luồng fetch dữ liệu biểu đồ và KPIs chính, loại bỏ hoàn toàn hiện tượng trắng trang giật nhấp nháy khi thay đổi bộ lọc biểu đồ Doanh thu (Day/Month/Year).
+- **Tối ưu hóa UI/UX toàn hệ thống**:
+  - Khắc phục lỗi icon kính lúp che đè chữ nhập bằng cách ghi đè `.input.pl-10` trong CSS.
+  - Sửa lỗi select dropdown bị che mất chữ sau khi chọn bằng cách reset padding đứng nhỏ hơn (`0.375rem`), ẩn arrow mặc định (`appearance: none`) và thiết lập arrow SVG tùy chỉnh mượt mà.
+  - Thiết lập chiều cao linh hoạt tự co giãn theo viewport cho các bảng MUI DataGrid (dính xuống bottom trên desktop: `calc(100vh - ...px)`) và các trang sử dụng `MasterDetailLayout` (Sales, Purchases, Debts) có chiều cao dynamic 100% độc lập scrolling.
+
 

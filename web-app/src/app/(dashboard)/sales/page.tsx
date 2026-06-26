@@ -156,7 +156,7 @@ export default function SalesPage() {
       <MasterDetailLayout
         detailTitle={selectedSale ? `Đơn #${selectedSale.id.slice(-6).toUpperCase()}` : 'Chi tiết đơn hàng'}
         showDetail={!!selectedSale}
-        list={<AppDataGrid rows={rows} columns={columns} loading={loading} height={520} onRowClick={onRowClick} rowSelectionModel={toRowSelectionModel(selectedSale ? [selectedSale.id] : [])} />}
+        list={<AppDataGrid rows={rows} columns={columns} loading={loading} height="100%" onRowClick={onRowClick} rowSelectionModel={toRowSelectionModel(selectedSale ? [selectedSale.id] : [])} />}
         detail={selectedSale && (
           <div className="space-y-4 text-sm">
             <div className="text-xs text-slate-400 space-y-1">

@@ -103,5 +103,12 @@ Tài liệu này theo dõi tiến độ các phase của dự án chuyển đổ
 - [x] **7.4 Nâng cấp Báo cáo & Chi tiết giao dịch (Backdata)**
   - [x] Bổ sung phần "Tổng quan tồn kho" gồm 4 thẻ chỉ số: Tồn đầu, Nhập trong kỳ, Xuất trong kỳ, Tồn cuối kỳ.
   - [x] Tích hợp modal xem chi tiết giao dịch gốc (Backdata Grid) cho toàn bộ 18 chỉ số KPIs báo cáo.
+  - [x] Thêm 3 widgets dòng tiền thực thu thực tế (Tổng thu, Thu TM, Thu CK) phát sinh trong kỳ cùng modal backdata chi tiết.
+- [x] **7.5 Tối ưu hóa UI/UX & Khắc phục lỗi hiển thị**
+  - [x] Sửa lỗi icon kính lúp che đè chữ nhập trong các ô tìm kiếm.
+  - [x] Thiết lập chiều cao linh hoạt tự động co giãn theo viewport cho các bảng MUI DataGrid (dính xuống bottom của desktop).
+  - [x] Sửa lỗi dropdown select bị che mất chữ sau khi chọn bằng cách reset padding đứng và thiết lập custom arrow SVG.
+  - [x] Tối ưu hóa Pie Chart chi phí to ra, legends chuyển xuống dưới dạng grid 2 cột.
+  - [x] Tách luồng render biểu đồ và KPIs, loại bỏ triệt để hiện tượng trắng trang nhấp nháy khi đổi bộ lọc biểu đồ.
 
 

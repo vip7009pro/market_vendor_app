@@ -227,7 +227,7 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      <AppDataGrid rows={expenseRows} columns={expenseColumns} loading={loading} height={480} />
+      <AppDataGrid rows={expenseRows} columns={expenseColumns} loading={loading} height="calc(100vh - 370px)" />
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Ghi nhận khoản chi mới" maxWidth="max-w-md">
 
