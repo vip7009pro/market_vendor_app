@@ -53,7 +53,7 @@ export default function PosPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [bankAccount, setBankAccount] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('walk-in');
@@ -65,19 +65,19 @@ export default function PosPage() {
   // Search Select Customer state
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
-  
+
   // Quick Add Customer Modal State
   const [quickAddCustomerOpen, setQuickAddCustomerOpen] = useState(false);
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
   const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
-  
+
   // Checkout Modal State
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState<number>(0);
   const [debtMode, setDebtMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  
+
   // Success Receipt Modal
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<any>(null);
@@ -108,7 +108,7 @@ export default function PosPage() {
     if (result.customer) {
       setSelectedCustomerId(result.customer.id);
     }
-    
+
     // Add items to cart
     const newCart = [...cart];
     for (const item of result.items) {
@@ -146,10 +146,10 @@ export default function PosPage() {
           const contact = contacts[0];
           const nameVal = contact.name && contact.name[0] ? contact.name[0] : '';
           const phoneVal = contact.tel && contact.tel[0] ? contact.tel[0] : '';
-          
+
           // clean phone number
           const cleanPhone = phoneVal.replace(/[\s\-\(\)]/g, '').replace(/^\+84/, '0');
-          
+
           setNewCustName(nameVal);
           setNewCustPhone(cleanPhone);
         }
@@ -235,8 +235,8 @@ export default function PosPage() {
   const displayCustomerName = selectedCustomerId === 'walk-in' ? 'Khách vãng lai' : (selectedCustomer ? `${selectedCustomer.name}${selectedCustomer.phone ? ` (${selectedCustomer.phone})` : ''}` : '');
 
   const filteredCustomersList = useMemo(() => {
-    return customers.filter(c => 
-      matchVietnamese(c.name, customerSearch) || 
+    return customers.filter(c =>
+      matchVietnamese(c.name, customerSearch) ||
       matchVietnamese(c.phone || '', customerSearch)
     );
   }, [customers, customerSearch]);
@@ -423,7 +423,7 @@ export default function PosPage() {
           return updatedProd ? { ...item, product: updatedProd } : item;
         }));
       }
-      setOutOfStockItems(prev => prev.map(item => 
+      setOutOfStockItems(prev => prev.map(item =>
         item.id === id ? { ...item, currentStock: newStock } : item
       ).filter(item => item.currentStock < item.required));
     } catch (err) {
@@ -437,7 +437,7 @@ export default function PosPage() {
     const subtotal = getSubtotal();
     const customer = selectedCustomerId === 'walk-in' ? null : customers.find(c => c.id === selectedCustomerId);
     const employee = selectedEmployeeId ? employees.find(e => e.id === selectedEmployeeId) : null;
-    
+
     const saleData = {
       id: 'web-sale-' + Math.random().toString(36).substr(2, 9),
       createdAt: new Date().toISOString(),
@@ -595,7 +595,7 @@ export default function PosPage() {
               👤 {selectedCustomerId === 'walk-in' ? 'Khách vãng lai' : customers.find(c => c.id === selectedCustomerId)?.name}
             </span>
           </button>
-          
+
           <button
             type="button"
             onClick={() => setMobileEmployeeModalOpen(true)}
@@ -633,7 +633,7 @@ export default function PosPage() {
                       {formatCurrency(item.product.price)} {item.product.itemType === 'RAW' ? `x ${item.quantity}` : ' (MIX)'}
                     </p>
                   </div>
-                  
+
                   {/* Quantity Control for RAW */}
                   {item.product.itemType === 'RAW' ? (
                     <div className="flex items-center gap-2 shrink-0">
@@ -733,8 +733,8 @@ export default function PosPage() {
           <div className="hidden lg:block">
             <div className="flex justify-between items-center mb-1.5">
               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Khách hàng</label>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setQuickAddCustomerOpen(true)}
                 className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-wider flex items-center gap-1 transition-colors"
               >
@@ -760,10 +760,10 @@ export default function PosPage() {
               <span className="absolute right-3 top-3 text-slate-500 text-[10px] pointer-events-none">
                 {customerDropdownOpen ? '▲' : '▼'}
               </span>
-              
+
               {customerDropdownOpen && (
                 <div className="absolute z-50 w-full mt-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-xl max-h-56 overflow-y-auto p-1.5 space-y-0.5 backdrop-blur-md">
-                  <div 
+                  <div
                     className="px-3.5 py-2.5 text-sm hover:bg-indigo-500/10 cursor-pointer text-[var(--color-text-secondary)] transition-colors"
                     onMouseDown={() => {
                       setSelectedCustomerId('walk-in');
@@ -813,22 +813,20 @@ export default function PosPage() {
               <button
                 type="button"
                 onClick={() => setPaymentType('CASH')}
-                className={`btn py-2 text-xs font-semibold ${
-                  paymentType === 'CASH'
+                className={`btn py-2 text-xs font-semibold ${paymentType === 'CASH'
                     ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                     : 'bg-slate-950/40 text-slate-500 border border-white/5'
-                }`}
+                  }`}
               >
                 💵 Tiền mặt
               </button>
               <button
                 type="button"
                 onClick={() => setPaymentType('BANK')}
-                className={`btn py-2 text-xs font-semibold ${
-                  paymentType === 'BANK'
+                className={`btn py-2 text-xs font-semibold ${paymentType === 'BANK'
                     ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                     : 'bg-slate-950/40 text-slate-500 border border-white/5'
-                }`}
+                  }`}
               >
                 🏦 Chuyển khoản
               </button>
@@ -921,6 +919,13 @@ export default function PosPage() {
           </button>
         </div>
       </div>
+      <VoiceOrderModal
+        isOpen={voiceModalOpen}
+        onClose={() => setVoiceModalOpen(false)}
+        products={products}
+        customers={customers}
+        onApply={handleApplyVoiceOrder}
+      />
 
       <Modal
         open={!!mixProductSelectOpen}
@@ -1096,16 +1101,16 @@ export default function PosPage() {
       >
         {completedOrder && (
           <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
               <div className="bg-white text-black p-5 rounded-lg font-mono text-xs space-y-4 shadow-inner">
                 <div className="text-center space-y-1">
                   <h4 className="font-bold text-sm">MARKET VENDOR APPS</h4>
                   <p className="text-[10px] text-zinc-500">Đồng hành cùng tiểu thương Việt</p>
                   <p className="text-[9px] text-zinc-500">ĐT: 0987.654.321</p>
                 </div>
-                
+
                 <div className="border-t border-dashed border-zinc-300 my-2"></div>
-                
+
                 <div className="space-y-1">
                   <p>Số HĐ: {completedOrder.id.slice(-6).toUpperCase()}</p>
                   <p>Khách hàng: {completedOrder.customerName}</p>
@@ -1159,7 +1164,7 @@ export default function PosPage() {
                 </div>
 
                 <div className="border-t border-dashed border-zinc-300 my-2"></div>
-                
+
                 <div className="text-center font-bold text-[10px] text-zinc-500">
                   CẢM ƠN QUÝ KHÁCH & HẸN GẶP LẠI!
                 </div>
@@ -1263,10 +1268,10 @@ export default function PosPage() {
       </Modal>
 
       {/* Mobile Select Customer Modal */}
-      <Modal 
-        open={mobileCustomerModalOpen} 
-        onClose={() => setMobileCustomerModalOpen(false)} 
-        title="Chọn khách hàng" 
+      <Modal
+        open={mobileCustomerModalOpen}
+        onClose={() => setMobileCustomerModalOpen(false)}
+        title="Chọn khách hàng"
         maxWidth="max-w-md"
       >
         <div className="space-y-4">
@@ -1298,9 +1303,8 @@ export default function PosPage() {
                 setSelectedCustomerId('walk-in');
                 setMobileCustomerModalOpen(false);
               }}
-              className={`w-full text-left px-4 py-3.5 text-sm sm:text-base font-semibold transition-colors flex justify-between items-center ${
-                selectedCustomerId === 'walk-in' ? 'bg-indigo-500/10 text-indigo-300' : 'text-slate-300'
-              }`}
+              className={`w-full text-left px-4 py-3.5 text-sm sm:text-base font-semibold transition-colors flex justify-between items-center ${selectedCustomerId === 'walk-in' ? 'bg-indigo-500/10 text-indigo-300' : 'text-slate-300'
+                }`}
             >
               <span>Khách vãng lai</span>
               {selectedCustomerId === 'walk-in' && <span className="text-sm sm:text-base font-bold">✓</span>}
@@ -1314,9 +1318,8 @@ export default function PosPage() {
                     setSelectedCustomerId(c.id);
                     setMobileCustomerModalOpen(false);
                   }}
-                  className={`w-full text-left px-4 py-3.5 text-sm sm:text-base transition-colors flex justify-between items-center ${
-                    isSelected ? 'bg-indigo-500/10 text-indigo-300' : 'text-white'
-                  }`}
+                  className={`w-full text-left px-4 py-3.5 text-sm sm:text-base transition-colors flex justify-between items-center ${isSelected ? 'bg-indigo-500/10 text-indigo-300' : 'text-white'
+                    }`}
                 >
                   <div>
                     <p className="font-bold text-sm sm:text-base text-white">{c.name}</p>
@@ -1334,10 +1337,10 @@ export default function PosPage() {
       </Modal>
 
       {/* Mobile Select Employee Modal */}
-      <Modal 
-        open={mobileEmployeeModalOpen} 
-        onClose={() => setMobileEmployeeModalOpen(false)} 
-        title="Chọn nhân viên bán hàng" 
+      <Modal
+        open={mobileEmployeeModalOpen}
+        onClose={() => setMobileEmployeeModalOpen(false)}
+        title="Chọn nhân viên bán hàng"
         maxWidth="max-w-md"
       >
         <div className="max-h-80 overflow-y-auto divide-y divide-white/5 border border-white/5 rounded-none bg-slate-950/20">
@@ -1346,9 +1349,8 @@ export default function PosPage() {
               setSelectedEmployeeId('');
               setMobileEmployeeModalOpen(false);
             }}
-            className={`w-full text-left px-4 py-3.5 text-sm sm:text-base font-semibold transition-colors flex justify-between items-center ${
-              !selectedEmployeeId ? 'bg-indigo-500/10 text-indigo-300' : 'text-slate-300'
-            }`}
+            className={`w-full text-left px-4 py-3.5 text-sm sm:text-base font-semibold transition-colors flex justify-between items-center ${!selectedEmployeeId ? 'bg-indigo-500/10 text-indigo-300' : 'text-slate-300'
+              }`}
           >
             <span>Không chọn nhân viên</span>
             {!selectedEmployeeId && <span className="text-sm sm:text-base font-bold">✓</span>}
@@ -1362,9 +1364,8 @@ export default function PosPage() {
                   setSelectedEmployeeId(emp.id);
                   setMobileEmployeeModalOpen(false);
                 }}
-                className={`w-full text-left px-4 py-3.5 text-sm sm:text-base transition-colors flex justify-between items-center ${
-                  isSelected ? 'bg-indigo-500/10 text-indigo-300' : 'text-white'
-                }`}
+                className={`w-full text-left px-4 py-3.5 text-sm sm:text-base transition-colors flex justify-between items-center ${isSelected ? 'bg-indigo-500/10 text-indigo-300' : 'text-white'
+                  }`}
               >
                 <div>
                   <p className="font-bold text-sm sm:text-base text-white">{emp.name}</p>
@@ -1378,10 +1379,10 @@ export default function PosPage() {
       </Modal>
 
       {/* Mobile Select Product Modal */}
-      <Modal 
-        open={mobileProductModalOpen} 
-        onClose={() => setMobileProductModalOpen(false)} 
-        title="Chọn sản phẩm" 
+      <Modal
+        open={mobileProductModalOpen}
+        onClose={() => setMobileProductModalOpen(false)}
+        title="Chọn sản phẩm"
         maxWidth="max-w-md"
       >
         <div className="space-y-4">
@@ -1426,10 +1427,10 @@ export default function PosPage() {
                       <span className="text-xs text-slate-400">Tồn: {p.currentStock} {p.unit}</span>
                     </div>
                   </div>
-                  
+
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     <span className="font-bold text-indigo-300 text-sm sm:text-base">{formatCurrency(p.price)}</span>
-                    
+
                     {qty > 0 ? (
                       <div className="flex items-center gap-1.5 bg-slate-900 border border-white/10 rounded-none p-0.5">
                         <button
