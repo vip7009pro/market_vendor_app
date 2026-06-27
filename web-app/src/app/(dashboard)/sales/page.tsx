@@ -425,9 +425,9 @@ export default function SalesPage() {
                 </span>
                 
                 {editCustomerDropdownOpen && (
-                  <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-white/10 rounded-lg shadow-xl max-h-56 overflow-y-auto divide-y divide-white/5 backdrop-blur-md">
+                  <div className="absolute z-50 w-full mt-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-xl max-h-56 overflow-y-auto p-1.5 space-y-0.5 backdrop-blur-md">
                     <div 
-                      className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-slate-300 transition-colors"
+                      className="px-3.5 py-2.5 text-sm hover:bg-indigo-500/10 cursor-pointer text-[var(--color-text-secondary)] transition-colors"
                       onMouseDown={() => {
                         setEditCustomerId('walk-in');
                         setEditCustomerName('Khách vãng lai');
@@ -441,7 +441,7 @@ export default function SalesPage() {
                       .map(c => (
                         <div
                           key={c.id}
-                          className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-white transition-colors"
+                          className="px-3.5 py-2.5 text-sm hover:bg-indigo-500/10 cursor-pointer text-[var(--color-text)] transition-colors"
                           onMouseDown={() => {
                             setEditCustomerId(c.id);
                             setEditCustomerName(c.name);
@@ -449,7 +449,7 @@ export default function SalesPage() {
                           }}
                         >
                           <p className="font-semibold">{c.name}</p>
-                          {c.phone && <p className="text-[10px] text-slate-400 mt-0.5">{c.phone}</p>}
+                          {c.phone && <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">{c.phone}</p>}
                         </div>
                       ))
                     }

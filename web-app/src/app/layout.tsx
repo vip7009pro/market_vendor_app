@@ -22,7 +22,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className="dark">
+    <html lang="vi" className="theme-midnight dark" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  const theme = localStorage.getItem('app_theme') || 'midnight';
+                  const isLight = ['light', 'spring', 'sky', 'mist'].indexOf(theme) !== -1;
+                  document.documentElement.className = 'theme-' + theme + ' ' + (isLight ? 'light' : 'dark');
+                } catch (e) {}
+              })()
+            `,
+          }}
+        />
+      </head>
       <body className={`${inter.variable} font-sans antialiased`}>
         <AuthProvider>
           <PWARegister />

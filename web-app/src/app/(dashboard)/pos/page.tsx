@@ -85,6 +85,12 @@ export default function PosPage() {
   // Voice Order Modal State
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
 
+  // Mobile Modals State
+  const [mobileCustomerModalOpen, setMobileCustomerModalOpen] = useState(false);
+  const [mobileEmployeeModalOpen, setMobileEmployeeModalOpen] = useState(false);
+  const [mobileProductModalOpen, setMobileProductModalOpen] = useState(false);
+  const [mobileProductSearch, setMobileProductSearch] = useState('');
+
   // Warnings State
   const [stockWarningOpen, setStockWarningOpen] = useState(false);
   const [outOfStockItems, setOutOfStockItems] = useState<any[]>([]);
@@ -495,6 +501,10 @@ export default function PosPage() {
     matchVietnamese(p.name, searchQuery)
   );
 
+  const filteredMobileProducts = products.filter(p =>
+    matchVietnamese(p.name, mobileProductSearch)
+  );
+
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
   };
@@ -502,9 +512,9 @@ export default function PosPage() {
   const rawProductsOnly = products.filter(p => p.itemType === 'RAW');
 
   return (
-    <div className="h-[calc(100vh-140px)] min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-6 overflow-hidden">
-      {/* Left side: Product catalog */}
-      <div className="flex-1 flex flex-col bg-slate-900 border border-white/5 rounded-2xl p-6 overflow-hidden">
+    <div className="flex-1 lg:h-[calc(100vh-140px)] min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-6 overflow-hidden">
+      {/* Left side: Product catalog (Desktop only) */}
+      <div className="hidden lg:flex flex-1 flex-col bg-slate-900 border border-white/5 rounded-2xl p-6 overflow-hidden">
         {/* Search & Voice Order */}
         <div className="relative mb-6 flex gap-2">
           <div className="relative flex-1">
@@ -561,9 +571,50 @@ export default function PosPage() {
 
       {/* Right side: Cart / Invoice Checkout */}
       <div className="w-full lg:w-[min(100%,28rem)] lg:shrink-0 flex flex-col bg-slate-900 border border-white/5 rounded-2xl p-4 lg:p-5 min-h-0 overflow-y-auto">
-        <h3 className="font-bold text-white text-base mb-4 flex items-center gap-2">
-          <span>🛒</span> Giỏ hàng ({cart.reduce((sum, item) => sum + item.quantity, 0)})
-        </h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-white text-base flex items-center gap-2">
+            <span>🛒</span> Giỏ hàng ({cart.reduce((sum, item) => sum + item.quantity, 0)})
+          </h3>
+          <button
+            onClick={() => setVoiceModalOpen(true)}
+            className="lg:hidden btn btn-primary py-1 px-3 text-xs flex items-center gap-1 shadow-glow cursor-pointer"
+          >
+            <span>🎤</span> Đơn AI
+          </button>
+        </div>
+
+        {/* Mobile quick action bar: select customer, employee, add product */}
+        <div className="lg:hidden grid grid-cols-2 gap-2.5 mb-4 shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileCustomerModalOpen(true)}
+            className="flex flex-col items-start p-3 bg-slate-950/40 border border-white/5 hover:border-indigo-500/30 rounded-xl text-left"
+          >
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Khách hàng</span>
+            <span className="text-xs font-bold text-indigo-300 truncate mt-1 w-full">
+              👤 {selectedCustomerId === 'walk-in' ? 'Khách vãng lai' : customers.find(c => c.id === selectedCustomerId)?.name}
+            </span>
+          </button>
+          
+          <button
+            type="button"
+            onClick={() => setMobileEmployeeModalOpen(true)}
+            className="flex flex-col items-start p-3 bg-slate-950/40 border border-white/5 hover:border-indigo-500/30 rounded-xl text-left"
+          >
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Nhân viên</span>
+            <span className="text-xs font-bold text-cyan-300 truncate mt-1 w-full">
+              💼 {selectedEmployeeId ? employees.find(e => e.id === selectedEmployeeId)?.name : 'Chưa chọn'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobileProductModalOpen(true)}
+            className="col-span-2 btn btn-primary py-2.5 font-bold shadow-glow flex items-center justify-center gap-2 mt-1 cursor-pointer text-xs"
+          >
+            ➕ Thêm sản phẩm
+          </button>
+        </div>
 
         {/* Selected Items */}
         <div className="flex-1 overflow-y-auto pr-1 space-y-3 mb-6">
@@ -574,11 +625,11 @@ export default function PosPage() {
             </div>
           ) : (
             cart.map((item) => (
-              <div key={item.product.id} className="flex flex-col bg-slate-950/30 border border-white/5 p-3 rounded-xl gap-2">
+              <div key={item.product.id} className="flex flex-col bg-slate-950/30 border border-white/5 p-4 rounded-none gap-2.5">
                 <div className="flex justify-between items-center w-full">
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-white truncate">{item.product.name}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
+                    <p className="text-base font-bold text-white truncate">{item.product.name}</p>
+                    <p className="text-sm text-slate-400 mt-1">
                       {formatCurrency(item.product.price)} {item.product.itemType === 'RAW' ? `x ${item.quantity}` : ' (MIX)'}
                     </p>
                   </div>
@@ -588,14 +639,14 @@ export default function PosPage() {
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
-                        className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center"
+                        className="w-9 h-9 sm:w-8 sm:h-8 rounded-none bg-slate-800 hover:bg-slate-700 text-slate-200 text-base flex items-center justify-center font-bold"
                       >
                         -
                       </button>
-                      <span className="text-xs font-bold text-white w-6 text-center">{item.quantity}</span>
+                      <span className="text-base font-extrabold text-white w-8 text-center">{item.quantity}</span>
                       <button
                         onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
-                        className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center"
+                        className="w-9 h-9 sm:w-8 sm:h-8 rounded-none bg-slate-800 hover:bg-slate-700 text-slate-200 text-base flex items-center justify-center font-bold"
                       >
                         +
                       </button>
@@ -603,7 +654,7 @@ export default function PosPage() {
                   ) : (
                     <button
                       onClick={() => updateQuantity(item.product.id, 0)}
-                      className="text-rose-400 hover:text-rose-300 text-xs py-1 px-2 border border-rose-500/20 bg-rose-500/5 rounded-lg"
+                      className="text-rose-400 hover:text-rose-300 text-sm py-1.5 px-3 border border-rose-500/20 bg-rose-500/5 rounded-none font-bold cursor-pointer"
                     >
                       Xóa
                     </button>
@@ -615,7 +666,7 @@ export default function PosPage() {
                   <div className="mt-2 pl-2 border-l border-indigo-500/30 space-y-2">
                     <input
                       type="text"
-                      className="input py-1 text-[11px] h-7"
+                      className="input py-1 text-xs sm:text-sm h-8 rounded-none"
                       placeholder="Tên hiển thị hóa đơn (tùy chọn)"
                       value={item.displayName || ''}
                       onChange={(e) => {
@@ -627,19 +678,19 @@ export default function PosPage() {
                     {/* Raw materials list */}
                     <div className="space-y-1.5">
                       {(item.mixItems || []).map((m, idx) => (
-                        <div key={idx} className="flex justify-between items-center gap-2 text-[10px] text-slate-400">
+                        <div key={idx} className="flex justify-between items-center gap-2 text-xs text-slate-400">
                           <span className="truncate flex-1">{m.rawName}</span>
                           <div className="flex items-center gap-1">
                             <input
                               type="number"
-                              className="input py-0.5 px-1 h-6 w-12 text-center text-[10px] bg-slate-900 border-white/5"
+                              className="input py-0.5 px-1 h-7 w-14 text-center text-xs bg-slate-900 border-white/5 rounded-none"
                               value={m.rawQty || ''}
                               onChange={(e) => updateRawQtyInMix(item.product.id, m.rawProductId, Number(e.target.value))}
                             />
                             <span>{m.rawUnit}</span>
                             <button
                               onClick={() => removeRawFromMix(item.product.id, m.rawProductId)}
-                              className="text-rose-400 hover:text-white px-1 text-xs"
+                              className="text-rose-400 hover:text-white px-1 text-sm cursor-pointer"
                             >
                               ✕
                             </button>
@@ -650,7 +701,7 @@ export default function PosPage() {
 
                     <button
                       onClick={() => setMixProductSelectOpen(item.product.id)}
-                      className="btn btn-secondary py-1 text-[10px] w-full flex items-center justify-center gap-1"
+                      className="btn btn-secondary py-1.5 text-xs rounded-none w-full flex items-center justify-center gap-1 cursor-pointer"
                     >
                       ➕ Thêm nguyên liệu RAW
                     </button>
@@ -664,7 +715,7 @@ export default function PosPage() {
         {/* Customer & Discount Form */}
         <div className="border-t border-slate-800 pt-4 space-y-3.5 text-sm">
           {/* Employee */}
-          <div>
+          <div className="hidden lg:block">
             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nhân viên bán hàng</label>
             <select
               className="input text-xs"
@@ -679,7 +730,7 @@ export default function PosPage() {
           </div>
 
           {/* Customer */}
-          <div>
+          <div className="hidden lg:block">
             <div className="flex justify-between items-center mb-1.5">
               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Khách hàng</label>
               <button 
@@ -711,9 +762,9 @@ export default function PosPage() {
               </span>
               
               {customerDropdownOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-white/10 rounded-lg shadow-xl max-h-56 overflow-y-auto divide-y divide-white/5 backdrop-blur-md">
+                <div className="absolute z-50 w-full mt-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-xl max-h-56 overflow-y-auto p-1.5 space-y-0.5 backdrop-blur-md">
                   <div 
-                    className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-slate-300 transition-colors"
+                    className="px-3.5 py-2.5 text-sm hover:bg-indigo-500/10 cursor-pointer text-[var(--color-text-secondary)] transition-colors"
                     onMouseDown={() => {
                       setSelectedCustomerId('walk-in');
                       setCustomerDropdownOpen(false);
@@ -722,19 +773,19 @@ export default function PosPage() {
                     Khách vãng lai
                   </div>
                   {filteredCustomersList.length === 0 ? (
-                    <div className="px-3 py-2.5 text-xs text-slate-500">Không tìm thấy khách hàng nào</div>
+                    <div className="px-3.5 py-2.5 text-sm text-slate-500">Không tìm thấy khách hàng nào</div>
                   ) : (
                     filteredCustomersList.map(c => (
                       <div
                         key={c.id}
-                        className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-white transition-colors"
+                        className="px-3.5 py-2.5 text-sm hover:bg-indigo-500/10 cursor-pointer text-[var(--color-text)] transition-colors"
                         onMouseDown={() => {
                           setSelectedCustomerId(c.id);
                           setCustomerDropdownOpen(false);
                         }}
                       >
                         <p className="font-semibold">{c.name}</p>
-                        {c.phone && <p className="text-[10px] text-slate-400 mt-0.5">{c.phone}</p>}
+                        {c.phone && <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">{c.phone}</p>}
                       </div>
                     ))
                   )}
@@ -1211,14 +1262,217 @@ export default function PosPage() {
         </form>
       </Modal>
 
-      {/* Voice Order Modal */}
-      <VoiceOrderModal
-        isOpen={voiceModalOpen}
-        onClose={() => setVoiceModalOpen(false)}
-        products={products}
-        customers={customers}
-        onApply={handleApplyVoiceOrder}
-      />
+      {/* Mobile Select Customer Modal */}
+      <Modal 
+        open={mobileCustomerModalOpen} 
+        onClose={() => setMobileCustomerModalOpen(false)} 
+        title="Chọn khách hàng" 
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                className="input pl-9 text-xs"
+                placeholder="Tìm tên, SĐT khách..."
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+              />
+              <span className="absolute left-3 top-3 text-[10px] text-slate-500">🔍</span>
+            </div>
+            <button
+              onClick={() => {
+                setMobileCustomerModalOpen(false);
+                setQuickAddCustomerOpen(true);
+              }}
+              className="btn btn-primary text-xs shrink-0 px-3 flex items-center justify-center gap-1 cursor-pointer"
+            >
+              ➕ Thêm
+            </button>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto divide-y divide-white/5 border border-white/5 rounded-none bg-slate-950/20">
+            <button
+              onClick={() => {
+                setSelectedCustomerId('walk-in');
+                setMobileCustomerModalOpen(false);
+              }}
+              className={`w-full text-left px-4 py-3.5 text-sm sm:text-base font-semibold transition-colors flex justify-between items-center ${
+                selectedCustomerId === 'walk-in' ? 'bg-indigo-500/10 text-indigo-300' : 'text-slate-300'
+              }`}
+            >
+              <span>Khách vãng lai</span>
+              {selectedCustomerId === 'walk-in' && <span className="text-sm sm:text-base font-bold">✓</span>}
+            </button>
+            {filteredCustomersList.map(c => {
+              const isSelected = c.id === selectedCustomerId;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setSelectedCustomerId(c.id);
+                    setMobileCustomerModalOpen(false);
+                  }}
+                  className={`w-full text-left px-4 py-3.5 text-sm sm:text-base transition-colors flex justify-between items-center ${
+                    isSelected ? 'bg-indigo-500/10 text-indigo-300' : 'text-white'
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold text-sm sm:text-base text-white">{c.name}</p>
+                    {c.phone && <p className="text-xs text-slate-400 mt-1">📞 {c.phone}</p>}
+                  </div>
+                  {isSelected && <span className="text-sm sm:text-base font-bold">✓</span>}
+                </button>
+              );
+            })}
+            {filteredCustomersList.length === 0 && (
+              <p className="text-center text-sm text-slate-500 py-6">Không tìm thấy khách hàng nào</p>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* Mobile Select Employee Modal */}
+      <Modal 
+        open={mobileEmployeeModalOpen} 
+        onClose={() => setMobileEmployeeModalOpen(false)} 
+        title="Chọn nhân viên bán hàng" 
+        maxWidth="max-w-md"
+      >
+        <div className="max-h-80 overflow-y-auto divide-y divide-white/5 border border-white/5 rounded-none bg-slate-950/20">
+          <button
+            onClick={() => {
+              setSelectedEmployeeId('');
+              setMobileEmployeeModalOpen(false);
+            }}
+            className={`w-full text-left px-4 py-3.5 text-sm sm:text-base font-semibold transition-colors flex justify-between items-center ${
+              !selectedEmployeeId ? 'bg-indigo-500/10 text-indigo-300' : 'text-slate-300'
+            }`}
+          >
+            <span>Không chọn nhân viên</span>
+            {!selectedEmployeeId && <span className="text-sm sm:text-base font-bold">✓</span>}
+          </button>
+          {employees.map(emp => {
+            const isSelected = emp.id === selectedEmployeeId;
+            return (
+              <button
+                key={emp.id}
+                onClick={() => {
+                  setSelectedEmployeeId(emp.id);
+                  setMobileEmployeeModalOpen(false);
+                }}
+                className={`w-full text-left px-4 py-3.5 text-sm sm:text-base transition-colors flex justify-between items-center ${
+                  isSelected ? 'bg-indigo-500/10 text-indigo-300' : 'text-white'
+                }`}
+              >
+                <div>
+                  <p className="font-bold text-sm sm:text-base text-white">{emp.name}</p>
+                  <p className="text-xs text-slate-500 mt-1">ID: {emp.id}</p>
+                </div>
+                {isSelected && <span className="text-sm sm:text-base font-bold">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      </Modal>
+
+      {/* Mobile Select Product Modal */}
+      <Modal 
+        open={mobileProductModalOpen} 
+        onClose={() => setMobileProductModalOpen(false)} 
+        title="Chọn sản phẩm" 
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                className="input pl-9 text-xs"
+                placeholder="Tìm tên sản phẩm..."
+                value={mobileProductSearch}
+                onChange={(e) => setMobileProductSearch(e.target.value)}
+              />
+              <span className="absolute left-3 top-3 text-[10px] text-slate-500">🔍</span>
+            </div>
+            <button
+              onClick={() => {
+                setMobileProductModalOpen(false);
+                setVoiceModalOpen(true);
+              }}
+              className="btn btn-secondary text-xs shrink-0 px-2.5 flex items-center justify-center cursor-pointer"
+              title="Lên đơn bằng giọng nói"
+            >
+              🎤 AI
+            </button>
+          </div>
+
+          <div className="max-h-96 overflow-y-auto divide-y divide-white/5 border border-white/5 rounded-none bg-slate-950/20">
+            {filteredMobileProducts.map(p => {
+              const cartItem = cart.find(c => c.product.id === p.id);
+              const qty = cartItem ? cartItem.quantity : 0;
+              return (
+                <div
+                  key={p.id}
+                  className="px-4 py-3 flex justify-between items-center gap-3 hover:bg-white/5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-sm sm:text-base text-white truncate">{p.name}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-none bg-slate-800 text-slate-400 font-semibold uppercase">
+                        {p.itemType === 'RAW' ? 'Hàng thô' : 'Pha chế'}
+                      </span>
+                      <span className="text-xs text-slate-400">Tồn: {p.currentStock} {p.unit}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <span className="font-bold text-indigo-300 text-sm sm:text-base">{formatCurrency(p.price)}</span>
+                    
+                    {qty > 0 ? (
+                      <div className="flex items-center gap-1.5 bg-slate-900 border border-white/10 rounded-none p-0.5">
+                        <button
+                          onClick={() => updateQuantity(p.id, qty - 1)}
+                          className="w-8 h-8 rounded-none bg-slate-800 text-slate-200 text-base flex items-center justify-center font-bold"
+                        >
+                          -
+                        </button>
+                        <span className="text-sm font-bold text-white w-7 text-center">{qty}</span>
+                        <button
+                          onClick={() => updateQuantity(p.id, qty + 1)}
+                          className="w-8 h-8 rounded-none bg-slate-800 text-slate-200 text-base flex items-center justify-center font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => addToCart(p)}
+                        className="btn btn-primary h-8 px-4 py-0 text-xs sm:text-sm shadow-glow rounded-none cursor-pointer"
+                      >
+                        Thêm
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {filteredMobileProducts.length === 0 && (
+              <p className="text-center text-sm text-slate-500 py-8">Không tìm thấy sản phẩm nào</p>
+            )}
+          </div>
+
+          <div className="flex justify-end pt-2 border-t border-slate-800">
+            <button
+              onClick={() => setMobileProductModalOpen(false)}
+              className="btn btn-secondary w-full text-xs cursor-pointer"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

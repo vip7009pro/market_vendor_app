@@ -65,6 +65,223 @@
   }
 }
 
+/* Theme classes overriding CSS variables */
+.theme-midnight {
+  --color-primary: #6366f1;
+  --color-primary-light: #818cf8;
+  --color-primary-dark: #4f46e5;
+  --color-secondary: #06b6d4;
+  --color-accent: #f59e0b;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-bg: #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-bg-card: #1e293b;
+  --color-bg-elevated: #334155;
+  --color-surface: rgba(30, 41, 59, 0.8);
+  --color-text: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-border: rgba(148, 163, 184, 0.15);
+  --color-border-hover: rgba(148, 163, 184, 0.3);
+  --gradient-primary: linear-gradient(135deg, #6366f1, #06b6d4);
+  --shadow-glow: 0 0 40px rgba(99, 102, 241, 0.3);
+}
+
+.theme-light {
+  --color-primary: #d82d8b;
+  --color-primary-light: #ff85c4;
+  --color-primary-dark: #a11162;
+  --color-secondary: #ff66a3;
+  --color-accent: #f59e0b;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-bg: #fff4fa;
+  --color-bg-secondary: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-elevated: #fff0f7;
+  --color-surface: rgba(255, 244, 250, 0.95);
+  --color-text: #4a0e31;
+  --color-text-secondary: #8e3063;
+  --color-text-muted: #c07aa0;
+  --color-border: rgba(216, 45, 139, 0.15);
+  --color-border-hover: rgba(216, 45, 139, 0.3);
+  --gradient-primary: linear-gradient(135deg, #d82d8b, #ff85c4);
+  --shadow-glow: 0 0 40px rgba(216, 45, 139, 0.2);
+}
+
+.theme-spring {
+  --color-primary: #2e7d32;
+  --color-primary-light: #66bb6a;
+  --color-primary-dark: #1b5e20;
+  --color-secondary: #81c784;
+  --color-accent: #d82d8b;
+  --color-success: #1b5e20;
+  --color-danger: #d32f2f;
+  --color-warning: #f57c00;
+  --color-bg: #f1f8e9;
+  --color-bg-secondary: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-elevated: #f9fbe7;
+  --color-surface: rgba(241, 248, 233, 0.95);
+  --color-text: #1b5e20;
+  --color-text-secondary: #33691e;
+  --color-text-muted: #558b2f;
+  --color-border: rgba(46, 125, 50, 0.15);
+  --color-border-hover: rgba(46, 125, 50, 0.3);
+  --gradient-primary: linear-gradient(135deg, #2e7d32, #66bb6a);
+  --shadow-glow: 0 0 45px rgba(46, 125, 50, 0.15);
+}
+
+.theme-sky {
+  --color-primary: #0288d1;
+  --color-primary-light: #29b6f6;
+  --color-primary-dark: #01579b;
+  --color-secondary: #b3e5fc;
+  --color-accent: #d82d8b;
+  --color-success: #2e7d32;
+  --color-danger: #d32f2f;
+  --color-warning: #f57c00;
+  --color-bg: #e1f5fe;
+  --color-bg-secondary: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-elevated: #f1fbfd;
+  --color-surface: rgba(225, 245, 254, 0.95);
+  --color-text: #01579b;
+  --color-text-secondary: #0277bd;
+  --color-text-muted: #0288d1;
+  --color-border: rgba(2, 136, 209, 0.15);
+  --color-border-hover: rgba(2, 136, 209, 0.3);
+  --gradient-primary: linear-gradient(135deg, #0288d1, #29b6f6);
+  --shadow-glow: 0 0 45px rgba(2, 136, 209, 0.15);
+}
+
+.theme-mist {
+  --color-primary: #334155;
+  --color-primary-light: #475569;
+  --color-primary-dark: #1e293b;
+  --color-secondary: #cbd5e1;
+  --color-accent: #4f46e5;
+  --color-success: #16a34a;
+  --color-danger: #dc2626;
+  --color-warning: #ea580c;
+  --color-bg: #f8fafc;
+  --color-bg-secondary: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-elevated: #f1f5f9;
+  --color-surface: rgba(248, 250, 252, 0.95);
+  --color-text: #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748b;
+  --color-border: rgba(71, 85, 105, 0.15);
+  --color-border-hover: rgba(71, 85, 105, 0.3);
+  --gradient-primary: linear-gradient(135deg, #334155, #64748b);
+  --shadow-glow: 0 0 40px rgba(71, 85, 105, 0.1);
+}
+
+.theme-nature {
+  --color-primary: #2e7d32;
+  --color-primary-light: #66bb6a;
+  --color-primary-dark: #1b5e20;
+  --color-secondary: #00e676;
+  --color-accent: #f59e0b;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-bg: #0f1c11;
+  --color-bg-secondary: #172a1a;
+  --color-bg-card: #172a1a;
+  --color-bg-elevated: #203b24;
+  --color-surface: rgba(23, 42, 26, 0.85);
+  --color-text: #e8f5e9;
+  --color-text-secondary: #a5d6a7;
+  --color-text-muted: #66bb6a;
+  --color-border: rgba(46, 125, 50, 0.2);
+  --color-border-hover: rgba(46, 125, 50, 0.35);
+  --gradient-primary: linear-gradient(135deg, #2e7d32, #66bb6a);
+  --shadow-glow: 0 0 40px rgba(46, 125, 50, 0.3);
+}
+
+.theme-ocean {
+  --color-primary: #0077b6;
+  --color-primary-light: #00b4d8;
+  --color-primary-dark: #03045e;
+  --color-secondary: #90e0ef;
+  --color-accent: #f59e0b;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-bg: #051329;
+  --color-bg-secondary: #0c2340;
+  --color-bg-card: #0c2340;
+  --color-bg-elevated: #15355c;
+  --color-surface: rgba(12, 35, 64, 0.85);
+  --color-text: #e2f1f8;
+  --color-text-secondary: #90caf9;
+  --color-text-muted: #64b5f6;
+  --color-border: rgba(0, 119, 182, 0.2);
+  --color-border-hover: rgba(0, 119, 182, 0.35);
+  --gradient-primary: linear-gradient(135deg, #0077b6, #00b4d8);
+  --shadow-glow: 0 0 40px rgba(0, 119, 182, 0.3);
+}
+
+.theme-sunset {
+  --color-primary: #e65100;
+  --color-primary-light: #ff9100;
+  --color-primary-dark: #bf360c;
+  --color-secondary: #ffd180;
+  --color-accent: #f59e0b;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-bg: #1f0f08;
+  --color-bg-secondary: #301a10;
+  --color-bg-card: #301a10;
+  --color-bg-elevated: #44271a;
+  --color-surface: rgba(48, 26, 16, 0.85);
+  --color-text: #ffe0b2;
+  --color-text-secondary: #ffb74d;
+  --color-text-muted: #ffa726;
+  --color-border: rgba(230, 81, 0, 0.2);
+  --color-border-hover: rgba(230, 81, 0, 0.35);
+  --gradient-primary: linear-gradient(135deg, #e65100, #ff9100);
+  --shadow-glow: 0 0 40px rgba(230, 81, 0, 0.3);
+}
+
+.theme-lavender {
+  --color-primary: #7c4dff;
+  --color-primary-light: #b388ff;
+  --color-primary-dark: #651fff;
+  --color-secondary: #d1c4e9;
+  --color-accent: #f59e0b;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-bg: #0e0a1a;
+  --color-bg-secondary: #19142e;
+  --color-bg-card: #19142e;
+  --color-bg-elevated: #282147;
+  --color-surface: rgba(25, 20, 46, 0.85);
+  --color-text: #ede7f6;
+  --color-text-secondary: #b39ddb;
+  --color-text-muted: #9575cd;
+  --color-border: rgba(124, 77, 255, 0.2);
+  --color-border-hover: rgba(124, 77, 255, 0.35);
+  --gradient-primary: linear-gradient(135deg, #7c4dff, #b388ff);
+  --shadow-glow: 0 0 40px rgba(124, 77, 255, 0.3);
+}
+
+/* Scrollbar utility classes */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -292,4 +509,41 @@ select.input option {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-secondary);
+}
+
+/* Global variable overrides for active themes */
+body {
+  background-color: var(--color-bg) !important;
+  color: var(--color-text) !important;
+}
+
+/* Theme overrides for hardcoded Tailwind backgrounds */
+.theme-light .bg-\[\#0f172a\], .theme-light .bg-slate-900, .theme-light .bg-slate-950\/40, .theme-light .bg-slate-950\/30, .theme-light .bg-slate-950\/20, .theme-light .bg-slate-900\/50, .theme-light .bg-slate-950, .theme-light .bg-\[\#0f172a\]\/50,
+.theme-spring .bg-\[\#0f172a\], .theme-spring .bg-slate-900, .theme-spring .bg-slate-950\/40, .theme-spring .bg-slate-950\/30, .theme-spring .bg-slate-950\/20, .theme-spring .bg-slate-900\/50, .theme-spring .bg-slate-950, .theme-spring .bg-\[\#0f172a\]\/50,
+.theme-sky .bg-\[\#0f172a\], .theme-sky .bg-slate-900, .theme-sky .bg-slate-950\/40, .theme-sky .bg-slate-950\/30, .theme-sky .bg-slate-950\/20, .theme-sky .bg-slate-900\/50, .theme-sky .bg-slate-950, .theme-sky .bg-\[\#0f172a\]\/50,
+.theme-mist .bg-\[\#0f172a\], .theme-mist .bg-slate-900, .theme-mist .bg-slate-950\/40, .theme-mist .bg-slate-950\/30, .theme-mist .bg-slate-950\/20, .theme-mist .bg-slate-900\/50, .theme-mist .bg-slate-950, .theme-mist .bg-\[\#0f172a\]\/50,
+.theme-nature .bg-\[\#0f172a\], .theme-nature .bg-slate-900, .theme-nature .bg-slate-950\/40, .theme-nature .bg-slate-950\/30, .theme-nature .bg-slate-950\/20, .theme-nature .bg-slate-900\/50, .theme-nature .bg-slate-950, .theme-nature .bg-\[\#0f172a\]\/50,
+.theme-ocean .bg-\[\#0f172a\], .theme-ocean .bg-slate-900, .theme-ocean .bg-slate-950\/40, .theme-ocean .bg-slate-950\/30, .theme-ocean .bg-slate-950\/20, .theme-ocean .bg-slate-900\/50, .theme-ocean .bg-slate-950, .theme-ocean .bg-\[\#0f172a\]\/50,
+.theme-sunset .bg-\[\#0f172a\], .theme-sunset .bg-slate-900, .theme-sunset .bg-slate-950\/40, .theme-sunset .bg-slate-950\/30, .theme-sunset .bg-slate-950\/20, .theme-sunset .bg-slate-900\/50, .theme-sunset .bg-slate-950, .theme-sunset .bg-\[\#0f172a\]\/50,
+.theme-lavender .bg-\[\#0f172a\], .theme-lavender .bg-slate-900, .theme-lavender .bg-slate-950\/40, .theme-lavender .bg-slate-950\/30, .theme-lavender .bg-slate-950\/20, .theme-lavender .bg-slate-900\/50, .theme-lavender .bg-slate-950, .theme-lavender .bg-\[\#0f172a\]\/50 {
+  background-color: var(--color-bg-secondary) !important;
+}
+
+/* Theme overrides for hardcoded Tailwind text colors */
+.theme-light .text-white, .theme-spring .text-white, .theme-sky .text-white, .theme-mist .text-white, .theme-nature .text-white, .theme-ocean .text-white, .theme-sunset .text-white, .theme-lavender .text-white,
+.theme-light .text-slate-100, .theme-spring .text-slate-100, .theme-sky .text-slate-100, .theme-mist .text-slate-100, .theme-nature .text-slate-100, .theme-ocean .text-slate-100, .theme-sunset .text-slate-100, .theme-lavender .text-slate-100,
+.theme-light .text-slate-200, .theme-spring .text-slate-200, .theme-sky .text-slate-200, .theme-mist .text-slate-200, .theme-nature .text-slate-200, .theme-ocean .text-slate-200, .theme-sunset .text-slate-200, .theme-lavender .text-slate-200 {
+  color: var(--color-text) !important;
+}
+
+.theme-light .text-slate-400, .theme-spring .text-slate-400, .theme-sky .text-slate-400, .theme-mist .text-slate-400, .theme-nature .text-slate-400, .theme-ocean .text-slate-400, .theme-sunset .text-slate-400, .theme-lavender .text-slate-400,
+.theme-light .text-slate-500, .theme-spring .text-slate-500, .theme-sky .text-slate-500, .theme-mist .text-slate-500, .theme-nature .text-slate-500, .theme-ocean .text-slate-500, .theme-sunset .text-slate-500, .theme-lavender .text-slate-500 {
+  color: var(--color-text-secondary) !important;
+}
+
+/* Theme overrides for hardcoded Tailwind borders */
+.theme-light .border-white\/5, .theme-spring .border-white\/5, .theme-sky .border-white\/5, .theme-mist .border-white\/5, .theme-nature .border-white\/5, .theme-ocean .border-white\/5, .theme-sunset .border-white\/5, .theme-lavender .border-white\/5,
+.theme-light .border-slate-800, .theme-spring .border-slate-800, .theme-sky .border-slate-800, .theme-mist .border-slate-800, .theme-nature .border-slate-800, .theme-ocean .border-slate-800, .theme-sunset .border-slate-800, .theme-lavender .border-slate-800,
+.theme-light .border-white\/10, .theme-spring .border-white\/10, .theme-sky .border-white\/10, .theme-mist .border-white\/10, .theme-nature .border-white\/10, .theme-ocean .border-white\/10, .theme-sunset .border-white\/10, .theme-lavender .border-white\/10 {
+  border-color: var(--color-border) !important;
 }

@@ -589,9 +589,9 @@ export default function PurchasesPage() {
                 </span>
                 
                 {supplierDropdownOpen && (
-                  <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-white/10 rounded-lg shadow-xl max-h-56 overflow-y-auto divide-y divide-white/5 backdrop-blur-md">
+                  <div className="absolute z-50 w-full mt-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-xl max-h-56 overflow-y-auto p-1.5 space-y-0.5 backdrop-blur-md">
                     <div 
-                      className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-indigo-400 font-bold transition-colors"
+                      className="px-3.5 py-2.5 text-sm hover:bg-indigo-500/10 cursor-pointer text-indigo-400 font-bold transition-colors"
                       onMouseDown={() => {
                         handleSupplierChange('new');
                         setSupplierDropdownOpen(false);
@@ -604,14 +604,14 @@ export default function PurchasesPage() {
                       .map(s => (
                         <div
                           key={s.id}
-                          className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-white transition-colors"
+                          className="px-3.5 py-2.5 text-sm hover:bg-indigo-500/10 cursor-pointer text-[var(--color-text)] transition-colors"
                           onMouseDown={() => {
                             handleSupplierChange(s.id);
                             setSupplierDropdownOpen(false);
                           }}
                         >
                           <p className="font-semibold">{s.name}</p>
-                          {s.phone && <p className="text-[10px] text-slate-400 mt-0.5">{s.phone}</p>}
+                          {s.phone && <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">{s.phone}</p>}
                         </div>
                       ))
                     }
@@ -644,7 +644,7 @@ export default function PurchasesPage() {
             </div>
           </div>
 
-          <div className="border border-white/5 bg-slate-950/20 p-4 rounded-xl space-y-3">
+          <div className="border border-white/5 bg-slate-950/20 p-4 rounded-none space-y-3">
             <h4 className="text-xs font-bold text-indigo-400 uppercase">Thêm sản phẩm</h4>
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
               <div className="sm:col-span-5">
@@ -658,20 +658,20 @@ export default function PurchasesPage() {
               </div>
               <div className="sm:col-span-3">
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Đơn giá nhập</label>
-                <input type="number" className="input text-xs" value={addingCost || ''} onChange={(e) => setAddingCost(Number(e.target.value))} />
+                <input type="number" className="input text-sm rounded-none" value={addingCost || ''} onChange={(e) => setAddingCost(Number(e.target.value))} />
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">SL</label>
-                <input type="number" className="input text-xs" value={addingQty} onChange={(e) => setAddingQty(Number(e.target.value))} />
+                <input type="number" className="input text-sm rounded-none" value={addingQty} onChange={(e) => setAddingQty(Number(e.target.value))} />
               </div>
               <div className="sm:col-span-2">
-                <button type="button" onClick={addToCart} disabled={!addingProductId || addingQty <= 0} className="btn btn-primary w-full text-xs">Thêm</button>
+                <button type="button" onClick={addToCart} disabled={!addingProductId || addingQty <= 0} className="btn btn-primary w-full text-xs rounded-none">Thêm</button>
               </div>
             </div>
           </div>
 
-          <div className="border border-white/5 rounded-xl overflow-hidden">
-            <table className="w-full text-xs">
+          <div className="border border-white/5 rounded-none overflow-hidden">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-950/50 text-slate-500 uppercase">
                   <th className="py-2.5 px-3 text-left">Sản phẩm</th>
@@ -689,20 +689,20 @@ export default function PurchasesPage() {
                     <td className="py-2 px-3 font-semibold text-white">{item.product.name}</td>
                     <td className="py-2 px-2">
                       <div className="flex items-center justify-center gap-1">
-                        <button type="button" onClick={() => updateCartQty(item.product.id, -1)} className="w-7 h-7 rounded bg-slate-800 text-slate-300 text-sm">−</button>
+                        <button type="button" onClick={() => updateCartQty(item.product.id, -1)} className="w-7 h-7 rounded-none bg-slate-800 text-slate-300 text-sm">−</button>
                         <input
                           type="number"
-                          className="input h-7 w-14 text-center text-xs px-1"
+                          className="input h-7 w-14 text-center text-sm px-1 rounded-none"
                           value={item.quantity}
                           onChange={(e) => updateCartField(item.product.id, 'quantity', Number(e.target.value))}
                         />
-                        <button type="button" onClick={() => updateCartQty(item.product.id, 1)} className="w-7 h-7 rounded bg-slate-800 text-slate-300 text-sm">+</button>
+                        <button type="button" onClick={() => updateCartQty(item.product.id, 1)} className="w-7 h-7 rounded-none bg-slate-800 text-slate-300 text-sm">+</button>
                       </div>
                     </td>
                     <td className="py-2 px-2">
                       <input
                         type="number"
-                        className="input h-7 text-xs text-right"
+                        className="input h-7 text-sm text-right rounded-none"
                         value={item.unitCost || ''}
                         onChange={(e) => updateCartField(item.product.id, 'unitCost', Number(e.target.value))}
                       />

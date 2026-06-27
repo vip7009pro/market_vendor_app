@@ -94,19 +94,19 @@ export default function ProductSearchSelect({
         onKeyDown={onKeyDown}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-slate-900 shadow-2xl">
+        <div className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-1.5 shadow-2xl space-y-0.5">
           {filtered.map((p, idx) => (
             <button
               key={p.id}
               type="button"
-              className={`w-full text-left px-3 py-2 text-xs flex justify-between gap-2 ${
-                idx === highlight ? 'bg-indigo-500/20 text-indigo-200' : 'text-slate-300 hover:bg-white/5'
+              className={`w-full text-left px-3 py-2.5 text-sm sm:text-base flex justify-between gap-2 transition-colors ${
+                idx === highlight ? 'bg-indigo-500/20 text-indigo-300' : 'text-[var(--color-text)] hover:bg-[var(--color-bg-elevated)]'
               }`}
               onMouseEnter={() => setHighlight(idx)}
               onClick={() => pick(p)}
             >
               <span className="truncate font-semibold">{p.name}</span>
-              <span className="text-slate-500 shrink-0">
+              <span className="text-slate-500 shrink-0 text-xs">
                 {p.currentStock !== undefined ? `Tồn: ${p.currentStock} ${p.unit || ''}` : ''}
               </span>
             </button>

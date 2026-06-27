@@ -23,7 +23,8 @@ interface BankAccount {
 }
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'STORE' | 'BANK' | 'EMPLOYEE' | 'AI'>('STORE');
+  const [activeTab, setActiveTab] = useState<'STORE' | 'BANK' | 'EMPLOYEE' | 'AI' | 'THEME'>('STORE');
+  const [currentTheme, setCurrentTheme] = useState('midnight');
 
   // Store Settings State
   const [storeName, setStoreName] = useState('');
@@ -64,12 +65,14 @@ export default function SettingsPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    // Load selected AI model from localStorage on client mount
+    // Load selected AI model & theme from localStorage on client mount
     if (typeof window !== 'undefined') {
       const savedModel = localStorage.getItem('ai_model');
       if (savedModel) {
         setAiModel(savedModel);
       }
+      const savedTheme = localStorage.getItem('app_theme') || 'midnight';
+      setCurrentTheme(savedTheme);
     }
   }, []);
 
@@ -326,6 +329,16 @@ export default function SettingsPage() {
         >
           🤖 Cấu hình AI
         </button>
+        <button
+          onClick={() => setActiveTab('THEME')}
+          className={`px-6 py-3 font-semibold text-sm border-b-2 transition-all cursor-pointer ${
+            activeTab === 'THEME'
+              ? 'border-indigo-500 text-indigo-300'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          🎨 Giao diện
+        </button>
       </div>
 
       {/* Content panel */}
@@ -547,6 +560,63 @@ export default function SettingsPage() {
               Lưu cấu hình AI
             </button>
           </form>
+         )}
+
+        {activeTab === 'THEME' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1">Chọn giao diện ứng dụng</h3>
+              <p className="text-xs text-slate-400">Thay đổi màu sắc chủ đạo và cách hiển thị của toàn bộ hệ thống</p>
+            </div>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {[
+                { name: 'midnight', label: 'Midnight (Tối)', colors: ['#6366f1', '#06b6d4', '#0f172a'] },
+                { name: 'light', label: 'Hồng mộng mơ (Sáng)', colors: ['#d82d8b', '#ff85c4', '#fff4fa'] },
+                { name: 'spring', label: 'Gió mùa xuân (Sáng)', colors: ['#2e7d32', '#66bb6a', '#f1f8e9'] },
+                { name: 'sky', label: 'Bầu trời xanh (Sáng)', colors: ['#0288d1', '#29b6f6', '#e1f5fe'] },
+                { name: 'mist', label: 'Sương sớm (Sáng)', colors: ['#475569', '#cbd5e1', '#f8fafc'] },
+                { name: 'nature', label: 'Thiên nhiên (Tối)', colors: ['#2e7d32', '#66bb6a', '#0f1c11'] },
+                { name: 'ocean', label: 'Biển xanh (Tối)', colors: ['#0077b6', '#00b4d8', '#051329'] },
+                { name: 'sunset', label: 'Hoàng hôn (Tối)', colors: ['#e65100', '#ff9100', '#1f0f08'] },
+                { name: 'lavender', label: 'Lavender (Tối)', colors: ['#7c4dff', '#b388ff', '#0e0a1a'] }
+              ].map((theme) => {
+                const isSelected = theme.name === currentTheme;
+                return (
+                  <button
+                    key={theme.name}
+                    type="button"
+                    onClick={() => {
+                      setCurrentTheme(theme.name);
+                      localStorage.setItem('app_theme', theme.name);
+                      const isLight = ['light', 'spring', 'sky', 'mist'].indexOf(theme.name) !== -1;
+                      document.documentElement.className = 'theme-' + theme.name + ' ' + (isLight ? 'light' : 'dark');
+                    }}
+                    className={`p-4 rounded-2xl border text-left flex flex-col justify-between h-32 transition-all cursor-pointer ${
+                      isSelected 
+                        ? 'border-indigo-500 bg-indigo-500/10 shadow-glow shadow-indigo-500/5' 
+                        : 'border-white/5 bg-slate-950/40 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start w-full">
+                      <span className="text-xs font-bold text-white">{theme.label}</span>
+                      {isSelected && <span className="text-indigo-400 text-sm">✓</span>}
+                    </div>
+                    
+                    <div className="flex gap-1.5 mt-4">
+                      {theme.colors.map((c, idx) => (
+                        <span 
+                          key={idx} 
+                          className="w-5 h-5 rounded-full border border-white/10" 
+                          style={{ backgroundColor: c }}
+                        />
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
 

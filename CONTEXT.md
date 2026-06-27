@@ -216,4 +216,27 @@ lib/
 - **Tối ưu hóa hóa đơn chia sẻ (PNG)**:
   - Nâng cấp hệ số tỷ lệ Canvas lên `3` (scale x3) giúp hóa đơn PNG tải về hoặc chia sẻ qua Zalo/Messenger đạt độ sắc nét tuyệt đối, không còn bị mờ nhòe font chữ in nhiệt trên di động.
 
+### 7. Giao diện Di động Nâng cao & Đa Giao diện (Themes) (Phase 10 - ĐÃ HOÀN THÀNH)
+- **Thanh điều hướng dưới (Bottom Navigation Bar) & Nút tiện ích Header di động**:
+  - Thiết kế và đưa vào sử dụng thanh điều hướng cố định phía dưới màn hình trên giao diện di động (`fixed bottom-0 left-0 right-0 z-50`), hỗ trợ cuộn vuốt ngang mượt mà (`overflow-x-auto whitespace-nowrap scrollbar-none snap-x`) để hiển thị đầy đủ 10 mục của menu hệ thống.
+  - Loại bỏ nút hamburger menu co rút và menu dropdown che đè giao diện trước đây giúp việc thao tác bằng một tay trên điện thoại thuận tiện hơn.
+  - Bổ sung 2 nút biểu tượng tắt nhanh dạng tròn gọn gàng ngay trên **Mobile Headerbar**: Nút Tạo đơn mới (🛒) sử dụng gradient màu của theme, và nút Đăng xuất (🚪) viền màu nổi bật, giải quyết triệt để vấn đề thiếu hụt nút đăng xuất/tạo đơn khi chạy trên màn hình điện thoại.
+  - Đồng thời thu gọn kích thước nút "Tạo đơn mới" và "Đăng xuất" trên **Desktop Headerbar** về dạng biểu tượng (icon buttons) gọn gàng có chú thích (tooltips), tối giản hóa diện tích tiêu đề trên máy tính.
+  - Điều chỉnh khoảng đệm chân trang (`pb-24`) cho container hiển thị nội dung chính trên thiết bị di động để tránh bị thanh điều hướng dưới che lấp dữ liệu.
+- **Tối ưu hóa giao diện POS di động**:
+  - Ẩn danh sách sản phẩm dạng lưới cồng kềnh trên màn hình di động, mở rộng 100% diện tích màn hình để tập trung hoàn toàn vào hiển thị Giỏ hàng và thông tin thanh toán.
+  - Chuyển đổi cơ chế chọn Khách hàng, Nhân viên bán hàng và nút Thêm sản phẩm sang các hộp thoại (Modal/Dialog) chọn nhanh dạng danh sách trực quan, hỗ trợ tìm kiếm theo tiếng Việt chuẩn hóa và nút "Thêm nhanh" đối tác/sản phẩm mới trực tiếp.
+  - Phóng to cỡ chữ tên mặt hàng (`text-sm font-bold`) và nâng kích thước các nút cộng/trừ số lượng (`w-9 h-9`) để thao tác ngón tay chính xác hơn, không bị bấm nhầm.
+- **Tính năng thay đổi Giao diện đa sắc màu (Themes)**:
+  - Thiết kế và hỗ trợ 9 bộ biến số màu sắc CSS chủ đạo gồm 4 theme sáng có độ tương phản cao (Hồng mộng mơ, Gió mùa xuân, Bầu trời xanh, Sương sớm) và 5 theme tối (Midnight, Thiên nhiên, Biển xanh, Hoàng hôn, Lavender).
+  - Thêm tab "Giao diện" trong trang Cài đặt (`/settings`) hiển thị các thẻ màu xem trước trực quan giúp người dùng nhấp chọn thay đổi màu sắc ngay lập tức mà không cần tải lại trang.
+  - Nhúng đoạn mã script nhỏ đồng thì tại thẻ `<head>` của `layout.tsx` để đọc `localStorage` và gán class theme trên tag `<html>` trước khi trình duyệt vẽ giao diện (avoid FOUC), triệt tiêu hoàn toàn hiện tượng nháy màu khó chịu khi chuyển tiếp trang.
+  - Bổ sung quy tắc ghi đè thông minh trong [globals.css](file:///g:/NODEJS/market_vendor_app/web-app/src/app/globals.css) tự động chuyển đổi các màu nền/màu chữ/đường viền hardcoded của Tailwind (ví dụ `bg-slate-900`, `bg-[#0f172a]`, `border-white/5`...) sang màu sắc tương ứng của theme hiện tại.
+  - Đồng bộ hóa toàn diện màu nền và độ tương phản của bảng dữ liệu DataGrid trong [AppDataGrid.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/components/ui/AppDataGrid.tsx) theo biến CSS (nền header, nền grid, dòng cuộn, màu chữ và phân trang), đảm bảo chữ viết luôn hiển thị sắc nét có độ tương phản cao dễ đọc trên cả theme sáng lẫn theme tối.
+  - Chuẩn hóa thiết kế cho tất cả các hộp tìm kiếm Autocomplete/Dropdown tùy chỉnh trong ứng dụng: Thêm khoảng đệm bao quanh (`p-1.5`) cho container ngoài, loại bỏ hoàn toàn bo góc ở danh sách item bên trong (để phẳng/sharp), và tăng kích thước phông chữ lên `text-sm sm:text-base` giúp đọc thông tin dễ dàng hơn và tránh bị lẹm viền ngoài.
+  - Đồng thời, loại bỏ hoàn toàn bo góc (để phẳng/sharp) và tăng cỡ chữ cho tất cả các danh sách/bảng phần tử quan trọng:
+    - Danh sách sản phẩm được chọn thêm trong giỏ hàng POS (các card sản phẩm bỏ bo góc, tăng cỡ tên mặt hàng lên `text-base` và giá tiền lên `text-sm`, bỏ bo góc các nút tăng/giảm và nút xóa).
+    - Hộp thoại chọn Khách hàng, chọn Nhân viên và chọn Sản phẩm trên giao diện di động (bỏ bo góc các khung danh sách cuộn, chuyển cỡ chữ tên khách/nhân viên lên `text-sm sm:text-base` rõ nét).
+    - Bảng sản phẩm được thêm trong dialog Nhập hàng (chuyển sang phông chữ lớn `text-sm` cho toàn bảng, bỏ bo góc các nút cộng/trừ số lượng và ô nhập liệu).
+
 

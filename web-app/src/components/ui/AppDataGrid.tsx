@@ -20,7 +20,7 @@ export default function AppDataGrid({
   return (
     <div
       style={height !== undefined ? { width: '100%', height } : { width: '100%' }}
-      className="rounded-xl overflow-hidden border border-white/5 bg-slate-900/50 mt-6 w-full h-[480px] lg:h-[calc(100vh-270px)] min-h-[350px]"
+      className="rounded-xl overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg-secondary)] mt-6 w-full h-[480px] lg:h-[calc(100vh-270px)] min-h-[350px]"
     >
       <DataGrid
         density="compact"
@@ -32,16 +32,29 @@ export default function AppDataGrid({
         sx={{
           border: 'none',
           fontSize: '0.8125rem',
-          '--DataGrid-containerBackground': '#1e293b',
-          '& .MuiDataGrid-columnHeaders': { backgroundColor: '#0f172a' },
-          '& .MuiDataGrid-cell': { borderColor: 'rgba(148, 163, 184, 0.08)' },
-          '& .MuiDataGrid-row:hover': { backgroundColor: 'rgba(255,255,255,0.03)' },
+          color: 'var(--color-text)',
+          backgroundColor: 'var(--color-bg-secondary)',
+          '--DataGrid-containerBackground': 'var(--color-bg-secondary)',
+          '& .MuiDataGrid-main': { backgroundColor: 'var(--color-bg-secondary)' },
+          '& .MuiDataGrid-virtualScroller': { backgroundColor: 'var(--color-bg-secondary)' },
+          '& .MuiDataGrid-columnHeaders': { backgroundColor: 'var(--color-bg-card) !important', borderBottom: '1px solid var(--color-border)' },
+          '& .MuiDataGrid-columnHeader': { backgroundColor: 'var(--color-bg-card) !important' },
+          '& .MuiDataGrid-cell': { borderColor: 'var(--color-border)', color: 'var(--color-text)' },
+          '& .MuiDataGrid-row:hover': { backgroundColor: 'var(--color-bg-elevated) !important' },
           '& .MuiDataGrid-row.Mui-selected': {
             backgroundColor: 'rgba(99, 102, 241, 0.15) !important',
             '&:hover': { backgroundColor: 'rgba(99, 102, 241, 0.2) !important' },
           },
-          '& .MuiDataGrid-footerContainer': { borderTop: '1px solid rgba(148, 163, 184, 0.12)' },
-          '& .MuiDataGrid-columnHeaderTitle': { fontWeight: 700, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' },
+          '& .MuiDataGrid-footerContainer': { 
+            backgroundColor: 'var(--color-bg-card) !important', 
+            borderTop: '1px solid var(--color-border)',
+            color: 'var(--color-text) !important'
+          },
+          '& .MuiTablePagination-root': { color: 'var(--color-text)' },
+          '& .MuiTablePagination-actions': { color: 'var(--color-text)' },
+          '& .MuiIconButton-root': { color: 'var(--color-text)' },
+          '& .MuiIconButton-root.Mui-disabled': { color: 'var(--color-text-muted)', opacity: 0.5 },
+          '& .MuiDataGrid-columnHeaderTitle': { fontWeight: 700, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-secondary) !important' },
           ...sx,
         }}
       />
