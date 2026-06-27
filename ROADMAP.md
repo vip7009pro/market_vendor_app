@@ -111,4 +111,24 @@ Tài liệu này theo dõi tiến độ các phase của dự án chuyển đổ
   - [x] Tối ưu hóa Pie Chart chi phí to ra, legends chuyển xuống dưới dạng grid 2 cột.
   - [x] Tách luồng render biểu đồ và KPIs, loại bỏ triệt để hiện tượng trắng trang nhấp nháy khi đổi bộ lọc biểu đồ.
 
+---
+
+### 📱 PHASE 8: Danh bạ máy & Chia sẻ Hóa đơn trên Web di động - ĐÃ HOÀN THÀNH
+- [x] **8.1 Truy cập Danh bạ Điện thoại di động gốc**
+  - [x] Sử dụng W3C Contact Picker API để chọn liên lạc trực tiếp từ thiết bị.
+  - [x] Chuẩn hóa số điện thoại tự động chuyển `+84` / `84` thành đầu số `0`.
+- [x] **8.2 Vẽ và Chia sẻ Hóa đơn ảnh (PNG)**
+  - [x] Viết tiện ích Canvas vẽ hóa đơn dạng nhiệt chuyên nghiệp, tính toán chiều cao tự động.
+  - [x] Sử dụng Web Share API chia sẻ ảnh hóa đơn đến các ứng dụng khác (Zalo, Messenger...).
+  - [x] Cơ chế Fallback tự động tải file ảnh hóa đơn nếu trình duyệt không hỗ trợ Web Share API.
+- [x] **8.3 Hỗ trợ truy cập mạng nội bộ LAN & Tên miền custom**
+  - [x] Cấu hình `allowedDevOrigins` cho Webpack HMR trên IP LAN và tên miền `cmsvina4285.com:3001` để tránh lỗi chặn kết nối WebSocket.
+  - [x] Tự động phân giải địa chỉ `API_URL` dựa trên hostname trình duyệt để cuộc gọi API hướng đúng về máy chủ dev từ thiết bị di động.
+  - [x] Thêm tên miền custom `cmsvina4285.com` và `cmsvina4285.com:3001` vào allowed CORS origins của backend API.
+- [x] **8.4 Cài đặt HTTPS/SSL cho dev & production**
+  - [x] Cấu hình script khởi chạy `dev:ssl` cho Next.js dev server sử dụng custom SSL certs.
+  - [x] Tích hợp module HTTPS cho Express backend để tự động khởi chạy secure server nếu phát hiện chứng chỉ SSL.
+  - [x] Loại bỏ các tệp tin chứng chỉ SSL ra khỏi Git bằng cách cập nhật `.gitignore` gốc.
+
+
 

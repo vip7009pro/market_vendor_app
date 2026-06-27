@@ -9,6 +9,7 @@ import VietQrDisplay from '@/components/ui/VietQrDisplay';
 import { buildVietQrAddInfoFromItems } from '@/lib/vietqr';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { matchVietnamese } from '@/lib/text';
+import { shareReceiptImage } from '@/lib/receiptShare';
 
 interface SaleItem {
   name: string;
@@ -197,7 +198,40 @@ export default function SalesPage() {
               </div>
             )}
 
-            <button onClick={() => handleDeleteSale(selectedSale.id)} className="btn btn-secondary text-xs text-rose-400 border-rose-500/20">🗑️ Hủy & Hoàn trả đơn</button>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  if (selectedSale) {
+                    await shareReceiptImage({
+                      id: selectedSale.id,
+                      createdAt: selectedSale.createdAt,
+                      customerName: selectedSale.customerName,
+                      employeeName: null,
+                      items: selectedSale.items.map((it) => ({
+                        name: it.name,
+                        quantity: it.quantity,
+                        unitPrice: it.unitPrice,
+                        unit: it.unit,
+                      })),
+                      discount: selectedSale.discount,
+                      subtotal: saleTotal + selectedSale.discount,
+                      total: saleTotal,
+                      paidAmount: selectedSale.paidAmount,
+                      paymentType: selectedSale.paymentType,
+                    });
+                  }
+                }}
+                className="btn btn-secondary text-xs border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10 flex-1 py-2 flex items-center justify-center gap-1.5"
+              >
+                📱 Chia sẻ ảnh HĐ
+              </button>
+              <button
+                onClick={() => handleDeleteSale(selectedSale.id)}
+                className="btn btn-secondary text-xs text-rose-400 border-rose-500/20 flex-1 py-2 flex items-center justify-center gap-1.5"
+              >
+                🗑️ Hủy & Hoàn trả đơn
+              </button>
+            </div>
           </div>
         )}
       />

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:ssl": "next dev --experimental-https --experimental-https-key ../ssl/private.key --experimental-https-cert ../ssl/certificate.crt --experimental-https-ca ../ssl/ca_bundle.crt",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

@@ -48,3 +48,10 @@ app.*.map.json
 .env
 .env.*
 !.env.example
+
+# SSL certificates
+/ssl/
+/web-app/ssl/
+*.key
+*.crt
+*.pem

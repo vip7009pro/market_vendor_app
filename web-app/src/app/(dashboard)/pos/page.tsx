@@ -7,6 +7,7 @@ import VoiceOrderModal from '@/components/pos/VoiceOrderModal';
 import Modal from '@/components/ui/Modal';
 import VietQrDisplay from '@/components/ui/VietQrDisplay';
 import { buildVietQrAddInfoFromItems } from '@/lib/vietqr';
+import { shareReceiptImage } from '@/lib/receiptShare';
 
 interface Product {
   id: string;
@@ -993,6 +994,27 @@ export default function PosPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-6 border-t border-slate-800 mt-6">
+              <button
+                onClick={async () => {
+                  if (completedOrder) {
+                    await shareReceiptImage({
+                      id: completedOrder.id,
+                      createdAt: completedOrder.createdAt,
+                      customerName: completedOrder.customerName,
+                      employeeName: completedOrder.employeeName,
+                      items: completedOrder.items,
+                      discount: completedOrder.discount,
+                      subtotal: completedOrder.subtotal,
+                      total: completedOrder.total,
+                      paidAmount: completedOrder.paidAmount,
+                      paymentType: completedOrder.paymentType,
+                    });
+                  }
+                }}
+                className="btn btn-secondary text-xs border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10"
+              >
+                📱 Chia sẻ ảnh HĐ
+              </button>
               <button onClick={() => window.print()} className="btn btn-secondary text-xs">🖨️ In hóa đơn</button>
               <button onClick={() => setReceiptModalOpen(false)} className="btn btn-primary text-xs shadow-glow">Hoàn thành</button>
             </div>

@@ -173,4 +173,22 @@ lib/
   - Sửa lỗi select dropdown bị che mất chữ sau khi chọn bằng cách reset padding đứng nhỏ hơn (`0.375rem`), ẩn arrow mặc định (`appearance: none`) và thiết lập arrow SVG tùy chỉnh mượt mà.
   - Thiết lập chiều cao linh hoạt tự co giãn theo viewport cho các bảng MUI DataGrid (dính xuống bottom trên desktop: `calc(100vh - ...px)`) và các trang sử dụng `MasterDetailLayout` (Sales, Purchases, Debts) có chiều cao dynamic 100% độc lập scrolling.
 
+### 5. Danh bạ máy & Chia sẻ hóa đơn trên Web di động (Phase 8 - ĐÃ HOÀN THÀNH)
+- **Truy cập Danh bạ di động**:
+  - Sử dụng Contact Picker API (`navigator.contacts.select`) để thêm nhanh khách hàng bằng cách chọn từ danh bạ gốc của điện thoại trong modal thêm đối tác tại `/customers`.
+  - Tích hợp hàm chuẩn hóa số điện thoại tự động chuyển đổi mã vùng quốc gia `+84` / `84` thành `0` và loại bỏ ký tự đặc biệt.
+- **Chia sẻ hóa đơn di động (PNG)**:
+  - Viết module `web-app/src/lib/receiptShare.ts` vẽ hóa đơn trực tiếp lên HTML5 Canvas với font monospace `Courier New` phong cách máy in nhiệt cao cấp, tính toán chiều cao hóa đơn tự động.
+  - Sử dụng Web Share API (`navigator.share`) chia sẻ file ảnh PNG trực tiếp đến các ứng dụng mạng xã hội (Zalo, Messenger, Telegram...).
+  - Tích hợp fallback tự động tải ảnh xuống nếu trình duyệt không hỗ trợ Web Share API (ví dụ trên desktop).
+  - Tích hợp nút **"📱 Chia sẻ ảnh HĐ"** tại modal thanh toán thành công của POS (`/pos`) và màn hình chi tiết đơn hàng lịch sử bán (`/sales`).
+- **Hỗ trợ truy cập mạng nội bộ LAN (`192.168.1.136`) & Tên miền custom (`cmsvina4285.com:3001`)**:
+  - Cấu hình `allowedDevOrigins` trong [next.config.ts](file:///g:/NODEJS/market_vendor_app/web-app/next.config.ts) để cho phép kết nối Webpack HMR WebSocket trên trình duyệt di động qua mạng nội bộ hoặc qua tên miền custom mà không bị chặn bảo mật cross-origin.
+  - Tự động hóa việc phân giải URL API thông qua hàm `getApiUrl()` trong [api.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/api.ts) để phát hiện hostname và giao thức (HTTP/HTTPS) động tại thời điểm chạy (client-side), tránh lỗi Mixed Content và chuyển hướng cuộc gọi chính xác sang IP hoặc tên miền custom trên cổng `3007`.
+  - Thêm tên miền `cmsvina4285.com` và các cổng tương ứng (cả giao thức `http://` và `https://`) vào danh sách CORS allowed origins trong [index.ts](file:///g:/NODEJS/market_vendor_app/backend-api/src/index.ts).
+- **Cấu hình HTTPS/SSL local cho dev & production**:
+  - Thêm script `"dev:ssl"` vào [package.json](file:///g:/NODEJS/market_vendor_app/web-app/package.json) để chạy server Next.js dev qua giao thức HTTPS sử dụng các file chứng chỉ SSL trong thư mục `ssl/`.
+  - Tích hợp module `https` và `fs` trong [index.ts](file:///g:/NODEJS/market_vendor_app/backend-api/src/index.ts) để tự động khởi chạy server backend dạng HTTPS bảo mật khi phát hiện cấu hình đường dẫn tệp tin chứng chỉ trong `.env`, tự động fallback về server HTTP thông thường nếu cấu hình rỗng hoặc thiếu file.
+  - Bảo mật bằng cách bỏ qua thư mục `ssl/` và các đuôi tệp tin khóa `.key`, `.crt`, `.pem` trong file [.gitignore](file:///g:/NODEJS/market_vendor_app/.gitignore) gốc.
+
 

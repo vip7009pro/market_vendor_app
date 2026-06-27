@@ -29,6 +29,7 @@ export default function CustomersPage() {
   const [note, setNote] = useState('');
   const [isSupplier, setIsSupplier] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [contactsSupported, setContactsSupported] = useState(false);
 
   const fetchCustomers = async () => {
     try {
@@ -51,6 +52,9 @@ export default function CustomersPage() {
 
   useEffect(() => {
     fetchCustomers();
+    if (typeof window !== 'undefined' && 'contacts' in navigator && 'ContactsManager' in window) {
+      setContactsSupported(true);
+    }
   }, []);
 
   const openAddModal = () => {
@@ -71,6 +75,34 @@ export default function CustomersPage() {
     setIsSupplier(c.isSupplier);
     setErrorMsg('');
     setModalOpen(true);
+  };
+
+  const handlePickContact = async () => {
+    try {
+      const props = ['name', 'tel'];
+      const opts = { multiple: false };
+      // @ts-ignore
+      const contacts = await navigator.contacts.select(props, opts);
+      if (contacts && contacts.length > 0) {
+        const contact = contacts[0];
+        const rawName = contact.name?.[0] || '';
+        const rawPhone = contact.tel?.[0] || '';
+        
+        if (rawName) setName(rawName);
+        
+        if (rawPhone) {
+          let cleanPhone = rawPhone.replace(/[\s\-\(\)]/g, '');
+          if (cleanPhone.startsWith('+84')) {
+            cleanPhone = '0' + cleanPhone.slice(3);
+          } else if (cleanPhone.startsWith('84') && cleanPhone.length > 9) {
+            cleanPhone = '0' + cleanPhone.slice(2);
+          }
+          setPhone(cleanPhone);
+        }
+      }
+    } catch (err) {
+      console.warn('Lỗi chọn liên hệ từ danh bạ:', err);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -226,6 +258,15 @@ export default function CustomersPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {contactsSupported && (
+                <button
+                  type="button"
+                  onClick={handlePickContact}
+                  className="w-full btn btn-secondary text-xs flex items-center justify-center gap-2 border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10 mb-2 py-2"
+                >
+                  📱 Chọn từ danh bạ máy
+                </button>
+              )}
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tên hiển thị</label>
                 <input
