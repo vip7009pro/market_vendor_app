@@ -27,6 +27,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
+  const scale = 3;
   const width = 400;
   const padding = 20;
   let y = padding;
@@ -43,8 +44,10 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   
   const totalHeight = padding * 2 + headerHeight + detailsHeight + itemsHeaderHeight + itemsHeight + totalsHeight + footerHeight;
   
-  canvas.width = width;
-  canvas.height = totalHeight;
+  canvas.width = width * scale;
+  canvas.height = totalHeight * scale;
+  
+  ctx.scale(scale, scale);
   
   // Fill background with solid white
   ctx.fillStyle = '#FFFFFF';

@@ -20,7 +20,7 @@ interface ApiOptions {
 }
 
 class ApiClient {
-  private baseUrl: string;
+  public baseUrl: string;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -230,6 +230,15 @@ class ApiClient {
     return this.fetch('/api/settings/store', { method: 'PUT', body: data });
   }
 
+  // Settings - AI Configuration
+  async getAiSettings() {
+    return this.fetch('/api/settings/ai');
+  }
+
+  async updateAiSettings(data: { provider: string; googleKey: string; openrouterKey: string }) {
+    return this.fetch('/api/settings/ai', { method: 'PUT', body: data });
+  }
+
   // Settings - VietQR Bank Accounts
   async getBankAccounts() {
     return this.fetch('/api/settings/bank-accounts');
@@ -241,6 +250,38 @@ class ApiClient {
 
   async deleteBankAccount(id: string) {
     return this.fetch(`/api/settings/bank-accounts/${id}`, { method: 'DELETE' });
+  }
+
+  // File Upload
+  async uploadFile(fileData: string, fileName: string) {
+    return this.fetch('/api/upload', { method: 'POST', body: { fileData, fileName } });
+  }
+
+  // Purchases updates
+  async getPurchaseById(id: string) {
+    return this.fetch(`/api/purchases/orders/${id}`);
+  }
+
+  async updatePurchase(id: string, data: any) {
+    return this.fetch(`/api/purchases/orders/${id}`, { method: 'PUT', body: data });
+  }
+
+  // Sales updates
+  async getSaleById(id: string) {
+    return this.fetch(`/api/sales/${id}`);
+  }
+
+  async updateSale(id: string, data: any) {
+    return this.fetch(`/api/sales/${id}`, { method: 'PUT', body: data });
+  }
+
+  // Expenses updates
+  async updateExpense(id: string, data: any) {
+    return this.fetch(`/api/expenses/${id}`, { method: 'PUT', body: data });
+  }
+
+  async deleteExpense(id: string) {
+    return this.fetch(`/api/expenses/${id}`, { method: 'DELETE' });
   }
 }
 

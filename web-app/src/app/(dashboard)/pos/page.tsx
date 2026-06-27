@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '@/lib/api';
 import { matchVietnamese } from '@/lib/text';
 import VoiceOrderModal from '@/components/pos/VoiceOrderModal';
@@ -61,6 +61,16 @@ export default function PosPage() {
   const [discount, setDiscount] = useState<number>(0);
   const [paymentType, setPaymentType] = useState<'CASH' | 'BANK'>('CASH');
   const [note, setNote] = useState('');
+
+  // Search Select Customer state
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  
+  // Quick Add Customer Modal State
+  const [quickAddCustomerOpen, setQuickAddCustomerOpen] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
   
   // Checkout Modal State
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
@@ -92,9 +102,6 @@ export default function PosPage() {
     if (result.customer) {
       setSelectedCustomerId(result.customer.id);
     }
-    if (result.paidAmount !== undefined) {
-      setPaidAmount(result.paidAmount);
-    }
     
     // Add items to cart
     const newCart = [...cart];
@@ -111,6 +118,64 @@ export default function PosPage() {
       }
     }
     setCart(newCart);
+
+    // Calculate new total to set debtMode
+    const newSubtotal = newCart.reduce((sum, item) => sum + (Number(item.product.price) * item.quantity), 0);
+    const newTotal = Math.max(0, newSubtotal - discount);
+    if (result.paidAmount !== undefined) {
+      setPaidAmount(result.paidAmount);
+      setDebtMode(result.paidAmount < newTotal);
+    } else {
+      setDebtMode(false);
+    }
+  };
+
+  const handlePickContact = async () => {
+    if (typeof window !== 'undefined' && 'contacts' in navigator && 'ContactsManager' in window) {
+      try {
+        const props = ['name', 'tel'];
+        const opts = { multiple: false };
+        const contacts = await (navigator as any).contacts.select(props, opts);
+        if (contacts && contacts.length > 0) {
+          const contact = contacts[0];
+          const nameVal = contact.name && contact.name[0] ? contact.name[0] : '';
+          const phoneVal = contact.tel && contact.tel[0] ? contact.tel[0] : '';
+          
+          // clean phone number
+          const cleanPhone = phoneVal.replace(/[\s\-\(\)]/g, '').replace(/^\+84/, '0');
+          
+          setNewCustName(nameVal);
+          setNewCustPhone(cleanPhone);
+        }
+      } catch (err) {
+        console.error('Contact picker error:', err);
+      }
+    } else {
+      alert('Tính năng chọn từ danh bạ chỉ khả dụng trên thiết bị di động (Chrome/Android) qua kết nối HTTPS bảo mật.');
+    }
+  };
+
+  const handleQuickAddCustomerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustName.trim()) return;
+
+    try {
+      setQuickAddSubmitting(true);
+      const res = await api.createCustomer({
+        name: newCustName.trim(),
+        phone: newCustPhone.trim() || undefined,
+        isSupplier: false,
+      });
+      setCustomers([res, ...customers]);
+      setSelectedCustomerId(res.id);
+      setQuickAddCustomerOpen(false);
+      setNewCustName('');
+      setNewCustPhone('');
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi thêm khách hàng mới');
+    } finally {
+      setQuickAddSubmitting(false);
+    }
   };
 
   const loadData = async () => {
@@ -148,13 +213,6 @@ export default function PosPage() {
     loadData();
   }, []);
 
-  // Auto-sync paid amount with order total unless in debt mode
-  useEffect(() => {
-    if (!debtMode) {
-      setPaidAmount(getTotal());
-    }
-  }, [cart, discount, debtMode]);
-
   const getSubtotal = () => {
     return cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
   };
@@ -163,6 +221,38 @@ export default function PosPage() {
     const sub = getSubtotal();
     return Math.max(0, sub - discount);
   };
+
+  const orderTotal = getTotal();
+  const effectivePaidAmount = debtMode ? paidAmount : orderTotal;
+
+  const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+  const displayCustomerName = selectedCustomerId === 'walk-in' ? 'Khách vãng lai' : (selectedCustomer ? `${selectedCustomer.name}${selectedCustomer.phone ? ` (${selectedCustomer.phone})` : ''}` : '');
+
+  const filteredCustomersList = useMemo(() => {
+    return customers.filter(c => 
+      matchVietnamese(c.name, customerSearch) || 
+      matchVietnamese(c.phone || '', customerSearch)
+    );
+  }, [customers, customerSearch]);
+
+  // Debounced QR code state to prevent flickering when modifying cart
+  const [debouncedQrAmount, setDebouncedQrAmount] = useState<number>(0);
+  const [debouncedQrDescription, setDebouncedQrDescription] = useState<string>('');
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedQrAmount(effectivePaidAmount);
+      setDebouncedQrDescription(buildVietQrAddInfoFromItems('pos-preview', cart.map(c => ({
+        name: c.displayName || c.product.name,
+        quantity: c.quantity,
+        unitPrice: c.product.price,
+      }))));
+    }, 400);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [cart, paymentType, debtMode, paidAmount, discount]);
 
   const addToCart = (product: Product) => {
     const existing = cart.find(item => item.product.id === product.id);
@@ -350,7 +440,7 @@ export default function PosPage() {
       employeeId: employee?.id || null,
       employeeName: employee?.name || null,
       discount: discount,
-      paidAmount: paidAmount,
+      paidAmount: effectivePaidAmount,
       paymentType: paymentType,
       totalCost: cart.reduce((sum, item) => sum + ((item.unitCost || item.product.costPrice) * item.quantity), 0),
       note: note,
@@ -398,7 +488,7 @@ export default function PosPage() {
 
   const getPosQrAmount = () => {
     const total = getTotal();
-    return paidAmount > 0 ? paidAmount : total;
+    return effectivePaidAmount > 0 ? effectivePaidAmount : total;
   };
 
   const filteredProducts = products.filter(p =>
@@ -590,17 +680,67 @@ export default function PosPage() {
 
           {/* Customer */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Khách hàng</label>
-            <select
-              className="input text-xs"
-              value={selectedCustomerId}
-              onChange={(e) => setSelectedCustomerId(e.target.value)}
-            >
-              <option value="walk-in">Khách vãng lai</option>
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>
-              ))}
-            </select>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Khách hàng</label>
+              <button 
+                type="button" 
+                onClick={() => setQuickAddCustomerOpen(true)}
+                className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-wider flex items-center gap-1 transition-colors"
+              >
+                ➕ Thêm nhanh
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                className="input text-xs pr-8 cursor-pointer bg-slate-950/40 border-white/5 focus:border-indigo-500/50"
+                placeholder="Tìm khách hàng theo tên, SĐT..."
+                value={customerDropdownOpen ? customerSearch : displayCustomerName}
+                onFocus={() => {
+                  setCustomerSearch('');
+                  setCustomerDropdownOpen(true);
+                }}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                onBlur={() => {
+                  // Delay closing to allow onMouseDown on options to fire
+                  setTimeout(() => setCustomerDropdownOpen(false), 200);
+                }}
+              />
+              <span className="absolute right-3 top-3 text-slate-500 text-[10px] pointer-events-none">
+                {customerDropdownOpen ? '▲' : '▼'}
+              </span>
+              
+              {customerDropdownOpen && (
+                <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-white/10 rounded-lg shadow-xl max-h-56 overflow-y-auto divide-y divide-white/5 backdrop-blur-md">
+                  <div 
+                    className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-slate-300 transition-colors"
+                    onMouseDown={() => {
+                      setSelectedCustomerId('walk-in');
+                      setCustomerDropdownOpen(false);
+                    }}
+                  >
+                    Khách vãng lai
+                  </div>
+                  {filteredCustomersList.length === 0 ? (
+                    <div className="px-3 py-2.5 text-xs text-slate-500">Không tìm thấy khách hàng nào</div>
+                  ) : (
+                    filteredCustomersList.map(c => (
+                      <div
+                        key={c.id}
+                        className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-white transition-colors"
+                        onMouseDown={() => {
+                          setSelectedCustomerId(c.id);
+                          setCustomerDropdownOpen(false);
+                        }}
+                      >
+                        <p className="font-semibold">{c.name}</p>
+                        {c.phone && <p className="text-[10px] text-slate-400 mt-0.5">{c.phone}</p>}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Discount */}
@@ -650,11 +790,11 @@ export default function PosPage() {
             <input
               type="number"
               className="input text-xs"
-              value={paidAmount === 0 && debtMode ? 0 : paidAmount || ''}
+              value={debtMode ? paidAmount : orderTotal || ''}
               onChange={(e) => {
                 const val = Number(e.target.value);
                 setPaidAmount(val);
-                setDebtMode(val < getTotal());
+                setDebtMode(val < orderTotal);
               }}
             />
             <div className="flex flex-wrap gap-2 mt-2">
@@ -667,7 +807,7 @@ export default function PosPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { setDebtMode(false); setPaidAmount(getTotal()); }}
+                onClick={() => { setDebtMode(false); setPaidAmount(orderTotal); }}
                 className="btn py-1 px-2.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all rounded-lg"
               >
                 Trả hết
@@ -676,16 +816,16 @@ export default function PosPage() {
                 <button
                   key={val}
                   type="button"
-                  onClick={() => { setPaidAmount(val); setDebtMode(val < getTotal()); }}
+                  onClick={() => { setPaidAmount(val); setDebtMode(val < orderTotal); }}
                   className="btn py-1 px-2.5 text-[10px] font-semibold bg-slate-800 text-slate-300 border border-white/5 hover:bg-slate-700 transition-all rounded-lg"
                 >
                   {val / 1000}k
                 </button>
               ))}
             </div>
-            {paidAmount < getTotal() && (
+            {effectivePaidAmount < orderTotal && (
               <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] leading-relaxed">
-                Còn nợ: <strong>{formatCurrency(getTotal() - paidAmount)}</strong>
+                Còn nợ: <strong>{formatCurrency(orderTotal - effectivePaidAmount)}</strong>
                 {selectedCustomerId === 'walk-in' && (
                   <span className="block mt-1 text-rose-400 font-bold">* Phải chọn khách hàng cụ thể để ghi nợ!</span>
                 )}
@@ -694,16 +834,12 @@ export default function PosPage() {
           </div>
 
           {/* VietQR live preview when bank transfer selected */}
-          {paymentType === 'BANK' && cart.length > 0 && getPosQrAmount() > 0 && (
+          {paymentType === 'BANK' && cart.length > 0 && (debouncedQrAmount > 0 || orderTotal > 0) && (
             <div className="bg-slate-950/30 p-3 rounded-xl border border-white/5">
               <VietQrDisplay
                 bank={bankAccount}
-                amount={getPosQrAmount()}
-                description={getVietQrDescription('pos-preview', cart.map(c => ({
-                  name: c.displayName || c.product.name,
-                  quantity: c.quantity,
-                  unitPrice: c.product.price,
-                })))}
+                amount={debouncedQrAmount}
+                description={debouncedQrDescription}
                 size="pos"
               />
             </div>
@@ -727,7 +863,7 @@ export default function PosPage() {
 
           <button
             onClick={validateBeforeCheckout}
-            disabled={cart.length === 0 || (paidAmount < getTotal() && selectedCustomerId === 'walk-in')}
+            disabled={cart.length === 0 || (effectivePaidAmount < orderTotal && selectedCustomerId === 'walk-in')}
             className="btn btn-primary w-full btn-lg font-bold shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Thanh toán
@@ -854,21 +990,21 @@ export default function PosPage() {
             </div>
             <div className="flex justify-between text-slate-400">
               <span>Tổng tiền đơn:</span>
-              <span className="text-white font-semibold">{formatCurrency(getTotal())}</span>
+              <span className="text-white font-semibold">{formatCurrency(orderTotal)}</span>
             </div>
             <div className="flex justify-between text-slate-400">
               <span>Khách trả:</span>
-              <span className="text-emerald-400 font-semibold">{formatCurrency(paidAmount)}</span>
+              <span className="text-emerald-400 font-semibold">{formatCurrency(effectivePaidAmount)}</span>
             </div>
-            {paidAmount < getTotal() && (
+            {effectivePaidAmount < orderTotal && (
               <div className="flex justify-between text-amber-400 font-bold">
                 <span>Còn nợ:</span>
-                <span>{formatCurrency(getTotal() - paidAmount)}</span>
+                <span>{formatCurrency(orderTotal - effectivePaidAmount)}</span>
               </div>
             )}
           </div>
 
-          {paidAmount < getTotal() && selectedCustomerId === 'walk-in' && (
+          {effectivePaidAmount < orderTotal && selectedCustomerId === 'walk-in' && (
             <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
               * Có nợ thì bắt buộc phải chọn khách hàng cụ thể! Khách vãng lai không được ghi nợ.
             </div>
@@ -889,7 +1025,7 @@ export default function PosPage() {
             <button
               onClick={handleCheckoutSubmit}
               className="btn btn-primary text-xs shadow-glow"
-              disabled={submitting || (paidAmount < getTotal() && selectedCustomerId === 'walk-in')}
+              disabled={submitting || (effectivePaidAmount < orderTotal && selectedCustomerId === 'walk-in')}
             >
               {submitting ? 'Đang tạo đơn...' : 'Xác nhận tạo đơn'}
             </button>
@@ -1020,6 +1156,59 @@ export default function PosPage() {
             </div>
           </>
         )}
+      </Modal>
+
+      {/* Quick Add Customer Modal */}
+      <Modal open={quickAddCustomerOpen} onClose={() => setQuickAddCustomerOpen(false)} title="Thêm khách hàng nhanh" maxWidth="max-w-md">
+        <form onSubmit={handleQuickAddCustomerSubmit} className="space-y-4 text-sm">
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tên khách hàng *</label>
+            <input
+              type="text"
+              required
+              className="input"
+              placeholder="Nhập tên khách hàng..."
+              value={newCustName}
+              onChange={(e) => setNewCustName(e.target.value)}
+            />
+          </div>
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Số điện thoại</label>
+              <button
+                type="button"
+                onClick={handlePickContact}
+                className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                📱 Chọn từ danh bạ
+              </button>
+            </div>
+            <input
+              type="tel"
+              className="input"
+              placeholder="Nhập số điện thoại..."
+              value={newCustPhone}
+              onChange={(e) => setNewCustPhone(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={() => setQuickAddCustomerOpen(false)}
+              className="btn btn-secondary text-xs"
+              disabled={quickAddSubmitting}
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary text-xs shadow-glow"
+              disabled={quickAddSubmitting}
+            >
+              {quickAddSubmitting ? 'Đang thêm...' : 'Thêm khách hàng'}
+            </button>
+          </div>
+        </form>
       </Modal>
 
       {/* Voice Order Modal */}

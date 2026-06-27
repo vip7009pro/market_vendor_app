@@ -140,7 +140,7 @@ lib/
   - **Chi phí (`/expenses`)**: Ghi chép và lọc các loại chi phí hoạt động.
   - **Báo cáo (`/reports`)**: Biểu đồ doanh thu/lợi nhuận động theo Tuần/Tháng/Năm, danh sách mặt hàng bán chạy. Bổ sung tính năng **Xuất báo cáo Excel (CSV)** chi tiết.
   - **Cài đặt (`/settings`)**: Thiết lập thông tin cửa hàng, tài khoản ngân hàng VietQR, quản lý tài khoản nhân viên (kết nối trực tiếp API backend). Thêm tab **Cấu hình AI** để quản lý API key và model của người dùng.
-- **PWA & Offline**: Tích hợp Service Worker (`sw.js`) và Manifest (`manifest.ts`) cho phép ứng dụng Next.js hoạt động offline và hiển thị giao diện POS ngay cả khi mất mạng.
+- **PWA & Offline**: Tích hợp Service Worker (`sw.js`) và Manifest (`manifest.ts`) cho phép ứng dụng Next.js hoạt động offline và hiển thị giao diện POS ngay cả khi mất mạng. Cấu hình loại trừ các yêu cầu không thuộc HTTP/HTTPS (như `chrome-extension://` từ các tiện ích Chrome) để tránh lỗi vòng lặp Cache Storage unsupport.
 - Biên dịch: Build tĩnh Next.js hoạt động hoàn hảo 100% không có lỗi type-checking.
 
 ### 3. Đồng bộ hóa toàn diện Web ↔ Mobile (Phase 6 - ĐÃ HOÀN THÀNH)
@@ -190,5 +190,30 @@ lib/
   - Thêm script `"dev:ssl"` vào [package.json](file:///g:/NODEJS/market_vendor_app/web-app/package.json) để chạy server Next.js dev qua giao thức HTTPS sử dụng các file chứng chỉ SSL trong thư mục `ssl/`.
   - Tích hợp module `https` và `fs` trong [index.ts](file:///g:/NODEJS/market_vendor_app/backend-api/src/index.ts) để tự động khởi chạy server backend dạng HTTPS bảo mật khi phát hiện cấu hình đường dẫn tệp tin chứng chỉ trong `.env`, tự động fallback về server HTTP thông thường nếu cấu hình rỗng hoặc thiếu file.
   - Bảo mật bằng cách bỏ qua thư mục `ssl/` và các đuôi tệp tin khóa `.key`, `.crt`, `.pem` trong file [.gitignore](file:///g:/NODEJS/market_vendor_app/.gitignore) gốc.
+- **Tối ưu hóa giao diện POS (Khử nháy & Debounce QR)**:
+  - Loại bỏ double re-rendering bằng cách tính toán đồng thì `effectivePaidAmount` tại thời điểm render thay vì dùng `useEffect` bất đồng bộ để cập nhật `paidAmount`.
+  - Tích hợp cơ chế trễ (debounce) 400ms khi sinh mã QR VietQR preview, ngăn chặn việc tải lại ảnh liên tục từ API bên ngoài khi người dùng click thay đổi số lượng giỏ hàng nhanh chóng, giúp giao diện POS hoàn toàn mượt mà.
+- **Bảo mật Cấu hình AI API Key & Đổ Model Động**:
+  - Di chuyển việc lưu trữ API key (Google Gemini, OpenRouter) và Provider đang hoạt động lên cơ sở dữ liệu PostgreSQL (lưu tập trung bảo mật vào bảng `sync_state`), đồng bộ qua API của backend tại `/api/settings/ai`.
+  - Hỗ trợ tự động gọi API chính thức của Google Gemini và OpenRouter để lấy danh sách models khả dụng ngay khi có API Key hợp lệ, đổ trực tiếp vào dropdown cho người dùng lựa chọn thay vì danh sách hardcode tĩnh.
+  - Lưu trữ model đã chọn vào `localStorage` của trình duyệt để giữ cấu hình hiển thị riêng biệt và linh hoạt cho từng loại thiết bị. Giao diện Voice POS tự động nạp cấu hình khóa từ DB trước khi chạy phân tích giọng nói.
+
+### 6. Chỉnh sửa Đơn hàng, Chứng từ Đính kèm & Nâng cao UI/UX (Phase 9 - ĐÃ HOÀN THÀNH)
+- **Chuẩn hóa Autocomplete & Chọn nhanh từ danh bạ**:
+  - Tích hợp ô tìm kiếm Autocomplete tùy chỉnh dạng dropdown mượt mà thay thế hoàn toàn cho thẻ `<select>` mặc định tại POS (`/pos`) và Nhập hàng (`/purchases`), hỗ trợ tìm kiếm Tiếng Việt không dấu và số điện thoại.
+  - Tích hợp nút **"Chọn từ danh bạ"** di động (W3C Contact Picker API) tại dialog thêm nhanh khách hàng POS và Nhà cung cấp ở trang Nhập hàng.
+- **Tải lên & Quản lý chứng từ đính kèm (PDF/Ảnh)**:
+  - Tạo route `POST /api/upload` hỗ trợ chuyển đổi tệp tin Base64 thành luồng Buffer và lưu file vật lý vào thư mục `/uploads`.
+  - Phục vụ static file uploads qua backend API.
+  - Tích hợp tính năng tải lên chứng từ đính kèm cho Đơn nhập hàng (`/purchases`) và Chi phí hoạt động (`/expenses`) hiển thị trực quan liên kết xem tệp tin/chứng từ gốc.
+- **Chỉnh sửa & Xóa Chi phí hoạt động**:
+  - Hỗ trợ thao tác cập nhật (Edit) và xóa bỏ (Delete) chi phí hoạt động trực tiếp trên giao diện DataGrid thông qua nút hành động, đồng bộ API.
+- **Cân đối Tồn kho & Công nợ tự động**:
+  - Cập nhật backend routes `PUT /api/sales/:id` và `PUT /api/purchases/orders/:id` tự động hoàn trả số dư tồn kho cũ, áp dụng lượng mới (phân rã cả nguyên liệu thô RAW cấu thành sản phẩm MIX đối với đơn bán hàng) và tự cân đối, chỉnh sửa hoặc xóa hóa đơn công nợ liên quan của khách hàng/nhà cung cấp.
+  - Thiết kế hộp thoại Chỉnh sửa Đơn bán hàng và Đơn nhập hàng trực quan đầy đủ trên frontend Web.
+- **Hiển thị giao dịch gốc trong Sổ ghi nợ**:
+  - Khi click chọn khoản nợ bất kỳ, Web-app tự động tải thông tin hóa đơn bán hàng (`Sale`) hoặc hóa đơn nhập kho (`PurchaseOrder`) liên kết, hiển thị chi tiết danh sách mặt hàng, số lượng và tổng tiền của đơn hàng đó ngay trên bảng lịch sử trả nợ.
+- **Tối ưu hóa hóa đơn chia sẻ (PNG)**:
+  - Nâng cấp hệ số tỷ lệ Canvas lên `3` (scale x3) giúp hóa đơn PNG tải về hoặc chia sẻ qua Zalo/Messenger đạt độ sắc nét tuyệt đối, không còn bị mờ nhòe font chữ in nhiệt trên di động.
 
 

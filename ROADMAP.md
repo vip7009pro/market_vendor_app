@@ -129,6 +129,39 @@ Tài liệu này theo dõi tiến độ các phase của dự án chuyển đổ
   - [x] Cấu hình script khởi chạy `dev:ssl` cho Next.js dev server sử dụng custom SSL certs.
   - [x] Tích hợp module HTTPS cho Express backend để tự động khởi chạy secure server nếu phát hiện chứng chỉ SSL.
   - [x] Loại bỏ các tệp tin chứng chỉ SSL ra khỏi Git bằng cách cập nhật `.gitignore` gốc.
+- [x] **8.5 Tối ưu hóa hiệu năng POS & Cải tiến Cấu hình AI Bảo mật**
+  - [x] Khử nháy màn hình POS bằng cách đồng bộ paidAmount khi render và thêm cơ chế Debounce 400ms cho QR preview.
+  - [x] Chuyển đổi lưu trữ AI API Keys lên cơ sở dữ liệu (lưu tập trung tại bảng `sync_state`).
+  - [x] Tự động tải danh sách Model thực tế từ API chính thức (Google/OpenRouter) dựa trên API Key.
+  - [x] Lưu trữ model đã lựa chọn vào localStorage riêng biệt của từng thiết bị.
+
+---
+
+### 📝 PHASE 9: Chỉnh sửa Đơn hàng, Chứng từ Đính kèm & Nâng cao UI/UX - ĐÃ HOÀN THÀNH
+- [x] **9.1 Chọn Khách hàng Autocomplete & Thêm nhanh**
+  - [x] Thay thế dropdown khách hàng trong POS bằng ô tìm kiếm Autocomplete hỗ trợ tìm bằng cả tên có dấu, không dấu và số điện thoại.
+  - [x] Thêm nút "Thêm nhanh" khách hàng trực tiếp tại màn hình POS mở Dialog điền thông tin và hỗ trợ nút "Chọn từ danh bạ" (W3C Contact Picker API).
+- [x] **9.2 Autocomplete & Danh bạ trong Nhập hàng**
+  - [x] Áp dụng ô tìm kiếm Autocomplete cho Nhà cung cấp trong hộp thoại Nhập hàng.
+  - [x] Hỗ trợ nút chọn thông tin Nhà cung cấp trực tiếp từ Danh bạ điện thoại di động (Contact Picker API).
+- [x] **9.3 Tải lên Chứng từ Đính kèm (Hóa đơn/PDF/Hình ảnh)**
+  - [x] Tạo API `POST /api/upload` tiếp nhận ảnh/file PDF mã hóa Base64 và lưu trữ an toàn trong thư mục phục vụ static `/uploads`.
+  - [x] Cho phép tải lên chứng từ đính kèm (dạng ảnh hoặc file PDF) cho Đơn nhập hàng trong trang Nhập hàng & Kho vận.
+  - [x] Cho phép tải lên chứng từ đính kèm trực tiếp trong hộp thoại Thêm/Sửa chi phí tại trang Chi phí hoạt động.
+- [x] **9.4 Chỉnh sửa & Xóa Chi phí hoạt động**
+  - [x] Tích hợp các nút hành động Sửa (✏️) và Xóa (🗑️) cho mỗi dòng chi phí hoạt động.
+  - [x] Hộp thoại sửa hiển thị đầy đủ thông tin chi tiết của chi phí và cho phép thay đổi file chứng từ đính kèm hoặc xóa bỏ.
+- [x] **9.5 Chỉnh sửa Đơn Nhập hàng & Tự động cân đối kho/nợ**
+  - [x] Tạo API `PUT /api/purchases/orders/:id` tự động tính toán chênh lệch tồn kho (trả lại số lượng cũ, trừ đi số lượng mới của sản phẩm RAW) và tự điều chỉnh công nợ Supplier nợ đối tác liên quan.
+  - [x] Thiết kế hộp thoại Chỉnh sửa Đơn nhập hàng hoàn chỉnh, cho phép sửa nhà cung cấp, giảm giá, số tiền đã trả và danh sách mặt hàng nhập.
+- [x] **9.6 Chỉnh sửa Đơn Bán hàng & Tự động cân đối kho/nợ**
+  - [x] Tạo API `PUT /api/sales/:id` hoàn trả nguyên liệu (bao gồm cả nguyên liệu thành phần RAW tạo nên sản phẩm MIX) của đơn cũ, trừ tồn kho cho đơn mới và tự động điều chỉnh, xóa bỏ hoặc tạo mới hóa đơn công nợ của khách hàng.
+  - [x] Hộp thoại sửa đơn bán hàng trực quan, cho phép thêm bớt sản phẩm, sửa số lượng, giá bán và cập nhật thông tin trả trước của khách hàng.
+- [x] **9.7 Hiển thị thông tin Đơn hàng trong Lịch sử Công nợ**
+  - [x] Tự động tải thông tin giao dịch gốc (Sale Order hoặc Purchase Order) khi người dùng chọn một khoản nợ trong Sổ ghi nợ.
+  - [x] Hiển thị chi tiết danh sách mặt hàng, số lượng và tổng tiền của đơn hàng tương ứng ngay phía trên lịch sử thanh toán nợ của khoản nợ đó.
+- [x] **9.8 Nâng cao độ sắc nét ảnh Hóa đơn Chia sẻ**
+  - [x] Nâng cấp tỷ lệ vẽ Canvas lên 3x (const scale = 3) giúp ảnh hóa đơn xuất ra đạt độ phân giải cao, rõ nét từng chữ, không bị mờ vỡ hình khi phóng to trên thiết bị di động.
 
 
 

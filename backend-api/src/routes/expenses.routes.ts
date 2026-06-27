@@ -45,7 +45,10 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const { occurredAt, amount, category, note } = req.body;
+    const { 
+      occurredAt, amount, category, note,
+      expenseDocUploaded, expenseDocFileId, expenseDocUpdatedAt
+    } = req.body;
 
     if (!occurredAt || !amount || !category) {
       res.status(400).json({ error: 'occurredAt, amount, and category are required' });
@@ -60,6 +63,9 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
         amount,
         category,
         note: note || null,
+        expenseDocUploaded: !!expenseDocUploaded,
+        expenseDocFileId: expenseDocFileId || null,
+        expenseDocUpdatedAt: expenseDocUpdatedAt ? new Date(expenseDocUpdatedAt) : null,
         updatedAt: new Date(),
       },
     });
@@ -75,7 +81,10 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const { occurredAt, amount, category, note } = req.body;
+    const { 
+      occurredAt, amount, category, note,
+      expenseDocUploaded, expenseDocFileId, expenseDocUpdatedAt 
+    } = req.body;
 
     const expense = await prisma.expense.update({
       where: { userId_id: { userId, id: req.params.id } },
@@ -84,6 +93,9 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         ...(amount !== undefined && { amount }),
         ...(category !== undefined && { category }),
         ...(note !== undefined && { note }),
+        ...(expenseDocUploaded !== undefined && { expenseDocUploaded }),
+        ...(expenseDocFileId !== undefined && { expenseDocFileId }),
+        ...(expenseDocUpdatedAt !== undefined && { expenseDocUpdatedAt: expenseDocUpdatedAt ? new Date(expenseDocUpdatedAt) : null }),
         updatedAt: new Date(),
       },
     });

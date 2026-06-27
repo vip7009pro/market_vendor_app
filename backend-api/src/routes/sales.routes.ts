@@ -331,4 +331,251 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
   }
 });
 
+// PUT /api/sales/:id
+router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const saleId = req.params.id;
+    const {
+      customerId, customerName, employeeId, employeeName,
+      items, discount = 0, paidAmount = 0, paymentType, note, createdAt,
+    } = req.body;
+
+    const now = new Date();
+
+    // 1. Fetch existing sale with items
+    const existingSale = await prisma.sale.findUnique({
+      where: { userId_id: { userId, id: saleId } },
+      include: { items: { where: notDeleted } },
+    });
+
+    if (!existingSale || existingSale.deletedAt) {
+      res.status(404).json({ error: 'Sale not found' });
+      return;
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: 'items are required' });
+      return;
+    }
+
+    // 2. Fetch product costs for totalCost calculations
+    const rawProductIds = items
+      .filter((it: any) => (it.itemType || '').toUpperCase() !== 'MIX')
+      .map((it: any) => it.productId)
+      .filter(Boolean);
+
+    const productMap: Record<string, number> = {};
+    if (rawProductIds.length > 0) {
+      const products = await prisma.product.findMany({
+        where: { userId, id: { in: rawProductIds }, ...notDeleted },
+        select: { id: true, costPrice: true },
+      });
+      for (const p of products) {
+        productMap[p.id] = Number(p.costPrice);
+      }
+    }
+
+    let totalCost = 0;
+    const saleItems: any[] = [];
+    const newStockChanges: Record<string, number> = {};
+
+    for (const item of items) {
+      const itemType = (item.itemType || '').toUpperCase().trim();
+      let snapUnitCost: number;
+
+      if (itemType === 'MIX') {
+        snapUnitCost = item.unitCost || 0;
+        totalCost += snapUnitCost * (item.quantity || 0);
+
+        if (item.mixItemsJson) {
+          try {
+            const mixItems = typeof item.mixItemsJson === 'string'
+              ? JSON.parse(item.mixItemsJson)
+              : item.mixItemsJson;
+            if (Array.isArray(mixItems)) {
+              for (const mi of mixItems) {
+                const rid = mi.rawProductId;
+                if (!rid) continue;
+                const rq = Number(mi.rawQty) || 0;
+                newStockChanges[rid] = (newStockChanges[rid] || 0) + rq;
+              }
+            }
+          } catch {}
+        }
+      } else {
+        snapUnitCost = item.unitCost > 0 ? item.unitCost : (productMap[item.productId] || 0);
+        totalCost += (productMap[item.productId] || snapUnitCost) * (item.quantity || 0);
+
+        if (item.productId) {
+          newStockChanges[item.productId] = (newStockChanges[item.productId] || 0) + (item.quantity || 0);
+        }
+      }
+
+      saleItems.push({
+        userId,
+        id: uuidv4(),
+        saleId,
+        productId: item.productId || null,
+        name: item.name,
+        unitPrice: item.unitPrice,
+        unitCost: snapUnitCost,
+        quantity: item.quantity,
+        unit: item.unit,
+        itemType: item.itemType || null,
+        displayName: item.displayName || null,
+        mixItemsJson: typeof item.mixItemsJson === 'object' ? JSON.stringify(item.mixItemsJson) : (item.mixItemsJson || null),
+        updatedAt: now,
+      });
+    }
+
+    const totalSelling = items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice) * Number(item.quantity)), 0);
+    const netSellingPrice = Math.max(0, totalSelling - Number(discount));
+    const debtAmount = netSellingPrice - Number(paidAmount);
+
+    await prisma.$transaction(async (tx) => {
+      // 3. Reverse stock of old items
+      const oldStockRestore: Record<string, number> = {};
+      for (const item of existingSale.items) {
+        const itemType = (item.itemType || '').toUpperCase().trim();
+        if (itemType === 'MIX' && item.mixItemsJson) {
+          try {
+            const mixItems = JSON.parse(item.mixItemsJson);
+            if (Array.isArray(mixItems)) {
+              for (const mi of mixItems) {
+                const rid = mi.rawProductId;
+                if (!rid) continue;
+                const rq = Number(mi.rawQty) || 0;
+                oldStockRestore[rid] = (oldStockRestore[rid] || 0) + rq;
+              }
+            }
+          } catch {}
+        } else if (item.productId) {
+          oldStockRestore[item.productId] = (oldStockRestore[item.productId] || 0) + Number(item.quantity);
+        }
+      }
+
+      for (const [productId, qty] of Object.entries(oldStockRestore)) {
+        await tx.product.update({
+          where: { userId_id: { userId, id: productId } },
+          data: {
+            currentStock: { increment: qty },
+            updatedAt: now,
+          },
+        });
+      }
+
+      // 4. Soft delete old sale items
+      await tx.saleItem.updateMany({
+        where: { userId, saleId, ...notDeleted },
+        data: { deletedAt: now, updatedAt: now },
+      });
+
+      // 5. Create new sale items
+      await tx.saleItem.createMany({ data: saleItems });
+
+      // 6. Deduct new stock
+      for (const [productId, qty] of Object.entries(newStockChanges)) {
+        await tx.product.update({
+          where: { userId_id: { userId, id: productId } },
+          data: {
+            currentStock: { decrement: qty },
+            updatedAt: now,
+          },
+        });
+      }
+
+      // 7. Update Sale record
+      const saleCreatedAt = createdAt ? new Date(createdAt) : existingSale.createdAt;
+      await tx.sale.update({
+        where: { userId_id: { userId, id: saleId } },
+        data: {
+          customerId: customerId || null,
+          customerName: customerName || null,
+          employeeId: employeeId || null,
+          employeeName: employeeName || null,
+          discount,
+          paidAmount,
+          paymentType: paymentType || null,
+          totalCost,
+          note: note || null,
+          createdAt: saleCreatedAt,
+          updatedAt: now,
+        },
+      });
+
+      // 8. Handle Debt Adjustment
+      const existingDebt = await tx.debt.findFirst({
+        where: { userId, sourceType: 'sale', sourceId: saleId, deletedAt: null },
+      });
+
+      if (debtAmount > 0 && customerId) {
+        if (existingDebt) {
+          await tx.debt.update({
+            where: { userId_id: { userId, id: existingDebt.id } },
+            data: {
+              partyId: customerId,
+              partyName: customerName || 'Khách hàng',
+              initialAmount: debtAmount,
+              amount: debtAmount,
+              updatedAt: now,
+            },
+          });
+        } else {
+          await tx.debt.create({
+            data: {
+              userId,
+              id: uuidv4(),
+              createdAt: saleCreatedAt,
+              type: 1, // othersOweMe
+              partyId: customerId,
+              partyName: customerName || 'Khách hàng',
+              initialAmount: debtAmount,
+              amount: debtAmount,
+              description: `Nợ tự động từ đơn hàng ${saleId.slice(0, 8).toUpperCase()}`,
+              sourceType: 'sale',
+              sourceId: saleId,
+              updatedAt: now,
+            },
+          });
+        }
+      } else {
+        // Delete debt if it exists since it's now fully paid or has no customer
+        if (existingDebt) {
+          await tx.debtPayment.updateMany({
+            where: { userId, debtId: existingDebt.id, deletedAt: null },
+            data: { deletedAt: now, updatedAt: now },
+          });
+          await tx.debt.update({
+            where: { userId_id: { userId, id: existingDebt.id } },
+            data: { deletedAt: now, updatedAt: now },
+          });
+        }
+      }
+
+      // Audit Log
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entity: 'sale',
+          entityId: saleId,
+          action: 'update',
+          at: now,
+          payload: JSON.stringify({ totalCost, discount, paidAmount }),
+        },
+      });
+    });
+
+    const updatedSale = await prisma.sale.findUnique({
+      where: { userId_id: { userId, id: saleId } },
+      include: { items: { where: notDeleted } },
+    });
+
+    res.json({ data: updatedSale });
+  } catch (error) {
+    console.error('Update sale error:', error);
+    res.status(500).json({ error: 'Failed to update sale' });
+  }
+});
+
 export default router;

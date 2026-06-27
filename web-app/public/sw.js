@@ -21,8 +21,8 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only cache GET requests
-  if (event.request.method !== 'GET') {
+  // Only cache HTTP/HTTPS GET requests
+  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) {
     return;
   }
   

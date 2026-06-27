@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { GridColDef } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import { fetchAvailableModels, presetModels } from '@/lib/ai';
 import Modal from '@/components/ui/Modal';
 import VietQrDisplay from '@/components/ui/VietQrDisplay';
 import AppDataGrid from '@/components/ui/AppDataGrid';
@@ -50,6 +51,8 @@ export default function SettingsPage() {
   const [googleKey, setGoogleKey] = useState('');
   const [openrouterKey, setOpenrouterKey] = useState('');
   const [aiSaveSuccess, setAiSaveSuccess] = useState(false);
+  const [modelsList, setModelsList] = useState<any[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
 
   // Common State
   const [loading, setLoading] = useState(false);
@@ -61,18 +64,40 @@ export default function SettingsPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    // Load AI settings from localStorage on client mount
+    // Load selected AI model from localStorage on client mount
     if (typeof window !== 'undefined') {
-      const provider = localStorage.getItem('ai_provider') as 'google' | 'openrouter' || 'google';
-      setAiProvider(provider);
-      setAiModel(localStorage.getItem('ai_model') || (provider === 'google' ? 'models/gemini-1.5-flash' : 'google/gemma-3-27b-it:free'));
-      setGoogleKey(localStorage.getItem('ai_api_key_google') || '');
-      setOpenrouterKey(localStorage.getItem('ai_api_key_openrouter') || '');
+      const savedModel = localStorage.getItem('ai_model');
+      if (savedModel) {
+        setAiModel(savedModel);
+      }
     }
   }, []);
 
+  // Fetch available models dynamically when provider or API key changes
+  useEffect(() => {
+    const key = aiProvider === 'google' ? googleKey : openrouterKey;
+    if (!key) {
+      setModelsList(presetModels(aiProvider));
+      return;
+    }
+
+    let active = true;
+    const loadModels = async () => {
+      setFetchingModels(true);
+      const list = await fetchAvailableModels(aiProvider, key);
+      if (active) {
+        setModelsList(list);
+        setFetchingModels(false);
+      }
+    };
+
+    loadModels();
+    return () => {
+      active = false;
+    };
+  }, [aiProvider, googleKey, openrouterKey]);
+
   const fetchData = async () => {
-    if (activeTab === 'AI') return;
     setLoading(true);
     setError('');
     try {
@@ -89,6 +114,21 @@ export default function SettingsPage() {
       } else if (activeTab === 'EMPLOYEE') {
         const empData = await api.getEmployees();
         setEmployees(empData || []);
+      } else if (activeTab === 'AI') {
+        const ai = await api.getAiSettings();
+        if (ai) {
+          const provider = (ai.provider || 'google') as 'google' | 'openrouter';
+          setAiProvider(provider);
+          setGoogleKey(ai.googleKey || '');
+          setOpenrouterKey(ai.openrouterKey || '');
+          
+          const savedModel = localStorage.getItem('ai_model');
+          if (savedModel) {
+            setAiModel(savedModel);
+          } else {
+            setAiModel(provider === 'google' ? 'models/gemini-1.5-flash' : 'google/gemma-3-27b-it:free');
+          }
+        }
       }
     } catch (err: any) {
       console.error('Failed to fetch settings:', err);
@@ -177,14 +217,27 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSaveAiSettings = (e: React.FormEvent) => {
+  const handleSaveAiSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem('ai_provider', aiProvider);
-    localStorage.setItem('ai_model', aiModel);
-    localStorage.setItem('ai_api_key_google', googleKey);
-    localStorage.setItem('ai_api_key_openrouter', openrouterKey);
-    setAiSaveSuccess(true);
-    setTimeout(() => setAiSaveSuccess(false), 3000);
+    setError('');
+    try {
+      await api.updateAiSettings({
+        provider: aiProvider,
+        googleKey,
+        openrouterKey,
+      });
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('ai_provider', aiProvider);
+        localStorage.setItem('ai_model', aiModel);
+      }
+
+      setAiSaveSuccess(true);
+      setTimeout(() => setAiSaveSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Failed to save AI settings:', err);
+      setError('Lưu cấu hình AI thất bại: ' + err.message);
+    }
   };
 
   const employeeRows = useMemo(() => employees.map((e) => ({
@@ -447,58 +500,47 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                {aiProvider === 'google' ? 'Gemini Model' : 'OpenRouter Model'}
+                {fetchingModels && <span className="text-[10px] text-indigo-400 ml-2 animate-pulse">(Đang lấy danh sách từ API...)</span>}
+              </label>
+              <select
+                className="input"
+                value={aiModel}
+                onChange={(e) => setAiModel(e.target.value)}
+              >
+                {modelsList.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+                {modelsList.length === 0 && (
+                  <option value={aiModel}>{aiModel}</option>
+                )}
+              </select>
+            </div>
+
             {aiProvider === 'google' ? (
-              <>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Gemini Model</label>
-                  <select
-                    className="input"
-                    value={aiModel}
-                    onChange={(e) => setAiModel(e.target.value)}
-                  >
-                    <option value="models/gemini-2.0-flash">Gemini 2.0 Flash</option>
-                    <option value="models/gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
-                    <option value="models/gemini-1.5-flash">Gemini 1.5 Flash</option>
-                    <option value="models/gemma-4-31b-it">Gemma 4 31B IT</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Google API Key</label>
-                  <input
-                    type="password"
-                    className="input font-mono"
-                    placeholder="AIzaSy..."
-                    value={googleKey}
-                    onChange={(e) => setGoogleKey(e.target.value)}
-                  />
-                </div>
-              </>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Google API Key</label>
+                <input
+                  type="password"
+                  className="input font-mono"
+                  placeholder="AIzaSy..."
+                  value={googleKey}
+                  onChange={(e) => setGoogleKey(e.target.value)}
+                />
+              </div>
             ) : (
-              <>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">OpenRouter Model</label>
-                  <select
-                    className="input"
-                    value={aiModel}
-                    onChange={(e) => setAiModel(e.target.value)}
-                  >
-                    <option value="google/gemma-3-27b-it:free">Google Gemma 3 27B IT (free)</option>
-                    <option value="nvidia/nemotron-3-nano-30b-a3b:free">NVIDIA Nemotron 3 (free)</option>
-                    <option value="deepseek/deepseek-chat-v3-0324:free">DeepSeek Chat V3 (free)</option>
-                    <option value="meta-llama/llama-4-maverick:free">Meta Llama 4 Maverick (free)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">OpenRouter API Key</label>
-                  <input
-                    type="password"
-                    className="input font-mono"
-                    placeholder="sk-or-v1-..."
-                    value={openrouterKey}
-                    onChange={(e) => setOpenrouterKey(e.target.value)}
-                  />
-                </div>
-              </>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">OpenRouter API Key</label>
+                <input
+                  type="password"
+                  className="input font-mono"
+                  placeholder="sk-or-v1-..."
+                  value={openrouterKey}
+                  onChange={(e) => setOpenrouterKey(e.target.value)}
+                />
+              </div>
             )}
 
             <button type="submit" className="btn btn-primary text-xs shadow-glow cursor-pointer">

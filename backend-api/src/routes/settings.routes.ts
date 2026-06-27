@@ -184,4 +184,61 @@ router.delete('/bank-accounts/:id', async (req: AuthRequest, res: Response): Pro
   }
 });
 
+// ═══ AI CONFIGURATION ═════════════════════════════════════
+
+// GET /api/settings/ai
+router.get('/ai', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const states = await prisma.syncState.findMany({
+      where: {
+        userId,
+        key: {
+          in: ['ai_provider', 'ai_api_key_google', 'ai_api_key_openrouter']
+        }
+      }
+    });
+
+    const aiSettings = {
+      provider: states.find(s => s.key === 'ai_provider')?.value || 'google',
+      googleKey: states.find(s => s.key === 'ai_api_key_google')?.value || '',
+      openrouterKey: states.find(s => s.key === 'ai_api_key_openrouter')?.value || '',
+    };
+
+    res.json({ data: aiSettings });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get AI settings' });
+  }
+});
+
+// PUT /api/settings/ai
+router.put('/ai', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const { provider, googleKey, openrouterKey } = req.body;
+
+    await prisma.$transaction([
+      prisma.syncState.upsert({
+        where: { userId_key: { userId, key: 'ai_provider' } },
+        update: { value: provider || 'google' },
+        create: { userId, key: 'ai_provider', value: provider || 'google' },
+      }),
+      prisma.syncState.upsert({
+        where: { userId_key: { userId, key: 'ai_api_key_google' } },
+        update: { value: googleKey || '' },
+        create: { userId, key: 'ai_api_key_google', value: googleKey || '' },
+      }),
+      prisma.syncState.upsert({
+        where: { userId_key: { userId, key: 'ai_api_key_openrouter' } },
+        update: { value: openrouterKey || '' },
+        create: { userId, key: 'ai_api_key_openrouter', value: openrouterKey || '' },
+      }),
+    ]);
+
+    res.json({ data: { provider, googleKey, openrouterKey } });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save AI settings' });
+  }
+});
+
 export default router;

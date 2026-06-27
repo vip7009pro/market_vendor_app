@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import api from '@/lib/api';
+import Modal from '@/components/ui/Modal';
 import AppDataGrid, { toRowSelectionModel } from '@/components/ui/AppDataGrid';
 import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
 import VietQrDisplay from '@/components/ui/VietQrDisplay';
@@ -45,6 +46,29 @@ export default function SalesPage() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [bankAccount, setBankAccount] = useState<any>(null);
 
+  // Edit Sale modal state
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editCustomerId, setEditCustomerId] = useState('walk-in');
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editCreatedAt, setEditCreatedAt] = useState('');
+  const [editDiscount, setEditDiscount] = useState(0);
+  const [editPaidAmount, setEditPaidAmount] = useState(0);
+  const [editPaymentType, setEditPaymentType] = useState<'CASH' | 'BANK'>('CASH');
+  const [editNote, setEditNote] = useState('');
+  const [editCart, setEditCart] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [submittingEdit, setSubmittingEdit] = useState(false);
+  const [editErrorMsg, setEditErrorMsg] = useState('');
+
+  // Search Customer in Edit Sale dropdown
+  const [editCustomerSearch, setEditCustomerSearch] = useState('');
+  const [editCustomerDropdownOpen, setEditCustomerDropdownOpen] = useState(false);
+
+  // Search Product to add in Edit Sale
+  const [addingProductId, setAddingProductId] = useState('');
+  const [addingQty, setAddingQty] = useState(1);
+
   const fetchSales = async () => {
     try {
       setLoading(true);
@@ -73,6 +97,10 @@ export default function SalesPage() {
       const defaultAcc = data?.find((acc: any) => acc.isDefault);
       setBankAccount(defaultAcc || data?.[0] || null);
     }).catch(() => null);
+
+    // Load products and customers for edit form
+    api.getCustomers().then(data => setCustomers(data || [])).catch(() => null);
+    api.getProducts().then(data => setProducts(data || [])).catch(() => null);
   }, []);
 
   const handleDeleteSale = async (id: string) => {
@@ -83,6 +111,134 @@ export default function SalesPage() {
       if (selectedSale?.id === id) setSelectedSale(null);
     } catch {
       alert('Lỗi khi hủy đơn hàng');
+    }
+  };
+
+  const handleOpenEditSale = () => {
+    if (!selectedSale) return;
+    setEditCustomerId(selectedSale.customerId || 'walk-in');
+    setEditCustomerName(selectedSale.customerName || 'Khách vãng lai');
+    setEditCreatedAt(selectedSale.createdAt);
+    setEditDiscount(Number(selectedSale.discount) || 0);
+    setEditPaidAmount(Number(selectedSale.paidAmount) || 0);
+    setEditPaymentType((selectedSale.paymentType || 'CASH') as 'CASH' | 'BANK');
+    setEditNote(selectedSale.note || '');
+    setEditCart(selectedSale.items.map(it => {
+      const originalProduct = products.find(p => p.name === it.name || p.id === (it as any).productId);
+      return {
+        productId: (it as any).productId || originalProduct?.id || null,
+        name: it.name,
+        unitPrice: Number(it.unitPrice) || 0,
+        quantity: Number(it.quantity) || 1,
+        unit: it.unit || 'cái',
+        itemType: (it as any).itemType || originalProduct?.itemType || 'RAW',
+        mixItemsJson: (it as any).mixItemsJson || (originalProduct?.mixItems ? JSON.stringify(originalProduct.mixItems) : null)
+      };
+    }));
+    setEditErrorMsg('');
+    setEditModalOpen(true);
+  };
+
+  const removeFromEditCart = (idx: number) => {
+    setEditCart(editCart.filter((_, i) => i !== idx));
+  };
+
+  const updateEditCartQty = (idx: number, delta: number) => {
+    setEditCart(editCart.map((item, i) => {
+      if (i !== idx) return item;
+      return { ...item, quantity: Math.max(1, item.quantity + delta) };
+    }));
+  };
+
+  const updateEditCartPrice = (idx: number, price: number) => {
+    setEditCart(editCart.map((item, i) => {
+      if (i !== idx) return item;
+      return { ...item, unitPrice: Math.max(0, price) };
+    }));
+  };
+
+  const addToEditCart = () => {
+    if (!addingProductId) return;
+    const prod = products.find(p => p.id === addingProductId);
+    if (!prod) return;
+
+    // Check if product already exists in edit cart
+    const existingIdx = editCart.findIndex(it => it.productId === prod.id);
+    if (existingIdx > -1) {
+      setEditCart(editCart.map((it, i) => i === existingIdx ? { ...it, quantity: it.quantity + addingQty } : it));
+    } else {
+      setEditCart([...editCart, {
+        productId: prod.id,
+        name: prod.name,
+        unitPrice: Number(prod.price) || 0,
+        quantity: addingQty,
+        unit: prod.unit || 'cái',
+        itemType: prod.itemType || 'RAW',
+        mixItemsJson: prod.mixItems ? JSON.stringify(prod.mixItems) : null
+      }]);
+    }
+    setAddingProductId('');
+    setAddingQty(1);
+  };
+
+  const getEditSubtotal = () => {
+    return editCart.reduce((sum, item) => sum + (Number(item.unitPrice) * Number(item.quantity)), 0);
+  };
+
+  const getEditTotal = () => {
+    return Math.max(0, getEditSubtotal() - editDiscount);
+  };
+
+  const handleEditSaleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditErrorMsg('');
+    if (editCart.length === 0) {
+      setEditErrorMsg('Đơn hàng phải có ít nhất 1 sản phẩm');
+      return;
+    }
+
+    try {
+      setSubmittingEdit(true);
+      const payload = {
+        customerId: editCustomerId === 'walk-in' ? null : editCustomerId,
+        customerName: editCustomerId === 'walk-in' ? 'Khách vãng lai' : editCustomerName,
+        discount: Number(editDiscount),
+        paidAmount: Number(editPaidAmount),
+        paymentType: editPaymentType,
+        note: editNote || null,
+        createdAt: editCreatedAt,
+        items: editCart.map(it => ({
+          productId: it.productId,
+          name: it.name,
+          unitPrice: Number(it.unitPrice),
+          quantity: Number(it.quantity),
+          unit: it.unit,
+          itemType: it.itemType,
+          mixItemsJson: it.mixItemsJson
+        }))
+      };
+
+      const res = await api.updateSale(selectedSale!.id, payload);
+      
+      const updatedSale = {
+        ...res.data,
+        discount: Number(res.data.discount),
+        paidAmount: Number(res.data.paidAmount),
+        totalCost: Number(res.data.totalCost),
+        items: (res.data.items || []).map((it: any) => ({
+          ...it,
+          unitPrice: Number(it.unitPrice),
+          quantity: Number(it.quantity),
+        })),
+      };
+
+      setSales(sales.map(s => s.id === selectedSale!.id ? updatedSale : s));
+      setSelectedSale(updatedSale);
+      setEditModalOpen(false);
+    } catch (err: any) {
+      setEditErrorMsg(err.message || 'Lỗi khi cập nhật đơn hàng');
+    } finally {
+      setSubmittingEdit(false);
     }
   };
 
@@ -198,7 +354,7 @@ export default function SalesPage() {
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={async () => {
                   if (selectedSale) {
@@ -221,20 +377,201 @@ export default function SalesPage() {
                     });
                   }
                 }}
-                className="btn btn-secondary text-xs border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10 flex-1 py-2 flex items-center justify-center gap-1.5"
+                className="btn btn-secondary text-[11px] px-1 border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10 py-2 flex items-center justify-center gap-1 font-semibold"
               >
-                📱 Chia sẻ ảnh HĐ
+                📱 Chia sẻ HĐ
+              </button>
+              <button
+                onClick={handleOpenEditSale}
+                className="btn btn-secondary text-[11px] px-1 border-emerald-500/20 text-emerald-300 bg-emerald-500/5 hover:bg-emerald-500/10 py-2 flex items-center justify-center gap-1 font-semibold"
+              >
+                ✏️ Sửa đơn
               </button>
               <button
                 onClick={() => handleDeleteSale(selectedSale.id)}
-                className="btn btn-secondary text-xs text-rose-400 border-rose-500/20 flex-1 py-2 flex items-center justify-center gap-1.5"
+                className="btn btn-secondary text-[11px] px-1 text-rose-400 border-rose-500/20 py-2 flex items-center justify-center gap-1 font-semibold"
               >
-                🗑️ Hủy & Hoàn trả đơn
+                🗑️ Hủy đơn
               </button>
             </div>
           </div>
         )}
       />
+      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="✏️ Chỉnh sửa chi tiết đơn hàng" maxWidth="max-w-4xl" closeOnBackdrop={false} contentClassName="max-h-[90vh] overflow-y-auto">
+        {editErrorMsg && <div className="mb-4 p-3 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">⚠️ {editErrorMsg}</div>}
+
+        <form onSubmit={handleEditSaleSubmit} className="space-y-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Customer Search Autocomplete */}
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Khách hàng</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  className="input text-xs pr-8 cursor-pointer"
+                  placeholder="Tìm khách hàng..."
+                  value={editCustomerDropdownOpen ? editCustomerSearch : (editCustomerId === 'walk-in' ? 'Khách vãng lai' : editCustomerName)}
+                  onFocus={() => {
+                    setEditCustomerSearch('');
+                    setEditCustomerDropdownOpen(true);
+                  }}
+                  onChange={(e) => setEditCustomerSearch(e.target.value)}
+                  onBlur={() => {
+                    setTimeout(() => setEditCustomerDropdownOpen(false), 200);
+                  }}
+                />
+                <span className="absolute right-3 top-3 text-slate-500 text-[10px] pointer-events-none">
+                  {editCustomerDropdownOpen ? '▲' : '▼'}
+                </span>
+                
+                {editCustomerDropdownOpen && (
+                  <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-white/10 rounded-lg shadow-xl max-h-56 overflow-y-auto divide-y divide-white/5 backdrop-blur-md">
+                    <div 
+                      className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-slate-300 transition-colors"
+                      onMouseDown={() => {
+                        setEditCustomerId('walk-in');
+                        setEditCustomerName('Khách vãng lai');
+                        setEditCustomerDropdownOpen(false);
+                      }}
+                    >
+                      Khách vãng lai
+                    </div>
+                    {customers
+                      .filter(c => matchVietnamese(c.name, editCustomerSearch) || matchVietnamese(c.phone || '', editCustomerSearch))
+                      .map(c => (
+                        <div
+                          key={c.id}
+                          className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-white transition-colors"
+                          onMouseDown={() => {
+                            setEditCustomerId(c.id);
+                            setEditCustomerName(c.name);
+                            setEditCustomerDropdownOpen(false);
+                          }}
+                        >
+                          <p className="font-semibold">{c.name}</p>
+                          {c.phone && <p className="text-[10px] text-slate-400 mt-0.5">{c.phone}</p>}
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Note */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Ghi chú</label>
+              <input type="text" className="input text-xs" value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="Ghi chú đơn hàng..." />
+            </div>
+          </div>
+
+          {/* Add products in edit modal */}
+          <div className="border border-white/5 bg-slate-950/20 p-4 rounded-xl space-y-3">
+            <h4 className="text-xs font-bold text-indigo-400 uppercase">Thêm sản phẩm mới</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div className="sm:col-span-8">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Sản phẩm</label>
+                <select className="input text-xs" value={addingProductId} onChange={(e) => setAddingProductId(e.target.value)}>
+                  <option value="">Chọn sản phẩm...</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({formatCurrency(Number(p.price))})</option>)}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">SL</label>
+                <input type="number" className="input text-xs" value={addingQty} onChange={(e) => setAddingQty(Number(e.target.value))} />
+              </div>
+              <div className="sm:col-span-2">
+                <button type="button" onClick={addToEditCart} disabled={!addingProductId || addingQty <= 0} className="btn btn-primary w-full text-xs">Thêm</button>
+              </div>
+            </div>
+          </div>
+
+          {/* Items Table */}
+          <div className="border border-white/5 rounded-xl overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-950/50 text-slate-500 uppercase">
+                  <th className="py-2.5 px-3 text-left">Sản phẩm</th>
+                  <th className="py-2.5 px-2 text-center w-32">Số lượng</th>
+                  <th className="py-2.5 px-2 text-right w-36">Đơn giá bán</th>
+                  <th className="py-2.5 px-3 text-right">Thành tiền</th>
+                  <th className="py-2.5 px-2 w-12"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {editCart.map((item, idx) => (
+                  <tr key={idx} className="hover:bg-white/[0.02]">
+                    <td className="py-3 px-3 text-white">
+                      <p className="font-semibold">{item.name}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{item.itemType === 'MIX' ? 'Sản phẩm MIX' : 'Sản phẩm thường'}</p>
+                    </td>
+                    <td className="py-3 px-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button type="button" onClick={() => updateEditCartQty(idx, -1)} className="w-6 h-6 rounded bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">-</button>
+                        <span className="w-8 text-center text-white">{item.quantity}</span>
+                        <button type="button" onClick={() => updateEditCartQty(idx, 1)} className="w-6 h-6 rounded bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold">+</button>
+                      </div>
+                    </td>
+                    <td className="py-3 px-2">
+                      <input 
+                        type="number" 
+                        className="input text-xs text-right py-1" 
+                        value={item.unitPrice} 
+                        onChange={(e) => updateEditCartPrice(idx, Number(e.target.value))} 
+                      />
+                    </td>
+                    <td className="py-3 px-3 text-right font-semibold text-white">
+                      {formatCurrency(Number(item.unitPrice) * item.quantity)}
+                    </td>
+                    <td className="py-3 px-2 text-center">
+                      <button type="button" onClick={() => removeFromEditCart(idx)} className="text-rose-400 hover:text-rose-300 text-xs">🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Checkout Info */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t border-slate-800">
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Giảm giá (VNĐ)</label>
+                <input type="number" className="input text-xs" value={editDiscount === 0 ? '' : editDiscount} onChange={(e) => setEditDiscount(Number(e.target.value))} />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Phương thức thanh toán</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setEditPaymentType('CASH')} className={`btn py-2 text-xs font-semibold ${editPaymentType === 'CASH' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-900 text-slate-500 border border-white/5'}`}>💵 Tiền mặt</button>
+                  <button type="button" onClick={() => setEditPaymentType('BANK')} className={`btn py-2 text-xs font-semibold ${editPaymentType === 'BANK' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-slate-900 text-slate-500 border border-white/5'}`}>🏦 Chuyển khoản</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-950/30 p-4 rounded-xl space-y-2.5 border border-white/5 text-xs">
+              <div className="flex justify-between text-slate-400"><span>Tạm tính</span><span>{formatCurrency(getEditSubtotal())}</span></div>
+              <div className="flex justify-between text-rose-400"><span>Giảm giá</span><span>-{formatCurrency(editDiscount)}</span></div>
+              <div className="flex justify-between font-bold text-white text-sm"><span>Tổng cộng</span><span className="text-cyan-400">{formatCurrency(getEditTotal())}</span></div>
+              
+              <div className="pt-3 border-t border-slate-800">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Khách đã trả (VNĐ)</label>
+                <input type="number" className="input text-xs text-right bg-slate-900 border-white/5" value={editPaidAmount} onChange={(e) => setEditPaidAmount(Number(e.target.value))} />
+              </div>
+              <div className="flex justify-between font-bold text-slate-400 mt-2">
+                <span>Còn nợ</span>
+                <span className={getEditTotal() - editPaidAmount > 0 ? 'text-amber-500' : 'text-emerald-400'}>
+                  {formatCurrency(Math.max(0, getEditTotal() - editPaidAmount))}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+            <button type="button" onClick={() => setEditModalOpen(false)} className="btn btn-secondary text-xs" disabled={submittingEdit}>Hủy</button>
+            <button type="submit" className="btn btn-primary text-xs shadow-glow" disabled={submittingEdit}>{submittingEdit ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

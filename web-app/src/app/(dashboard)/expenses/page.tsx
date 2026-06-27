@@ -15,19 +15,30 @@ interface Expense {
   category: string;
   createdAt: string;
   note?: string;
+  docFileId?: string | null;
 }
 
 function normalizeExpense(raw: any): Expense {
   const createdAt = raw.occurredAt || raw.createdAt || new Date().toISOString();
-  const note = raw.note || '';
+  const rawNote = raw.note || '';
   const category = raw.category || 'OTHER';
+  
+  let parsedName = rawNote;
+  let parsedNote = '';
+  const match = rawNote.match(/^(.*?)\s*\((.*?)\)$/);
+  if (match) {
+    parsedName = match[1];
+    parsedNote = match[2];
+  }
+
   return {
     id: raw.id,
-    name: raw.name || note || category || 'Chi phí',
+    name: parsedName || category || 'Chi phí',
     amount: Number(raw.amount) || 0,
     category,
     createdAt: typeof createdAt === 'string' ? createdAt : new Date(createdAt).toISOString(),
-    note: note || undefined,
+    note: parsedNote || undefined,
+    docFileId: raw.expenseDocFileId || raw.docFileId || null,
   };
 }
 
@@ -55,6 +66,12 @@ export default function ExpensesPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Edit and doc upload state
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [docFileBase64, setDocFileBase64] = useState<string | null>(null);
+  const [docFileName, setDocFileName] = useState<string | null>(null);
+  const [docFilePath, setDocFilePath] = useState<string | null>(null);
+
   const fetchExpenses = async () => {
     try {
       setLoading(true);
@@ -77,6 +94,61 @@ export default function ExpensesPage() {
     fetchExpenses();
   }, []);
 
+  const resetForm = () => {
+    setName('');
+    setAmount(0);
+    setCategory('MATERIALS');
+    setNote('');
+    setEditingExpenseId(null);
+    setDocFileBase64(null);
+    setDocFileName(null);
+    setDocFilePath(null);
+    setErrorMsg('');
+  };
+
+  const handleOpenAddModal = () => {
+    resetForm();
+    setModalOpen(true);
+  };
+
+  const handleOpenEditModal = (expense: Expense) => {
+    resetForm();
+    setEditingExpenseId(expense.id);
+    setName(expense.name);
+    setAmount(expense.amount);
+    setCategory(expense.category);
+    setNote(expense.note || '');
+    setDocFilePath(expense.docFileId || null);
+    setModalOpen(true);
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa chi phí này?')) return;
+    try {
+      setLoading(true);
+      await api.deleteExpense(id);
+      setExpenses(expenses.filter(e => e.id !== id));
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi xóa chi phí');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    setDocFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setDocFileBase64(base64);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -87,37 +159,37 @@ export default function ExpensesPage() {
     }
 
     setSubmitting(true);
-    const payload = {
-      occurredAt: new Date().toISOString(),
-      amount: Number(amount),
-      category,
-      note: name.trim() || note || undefined,
-      updatedAt: new Date().toISOString(),
-    };
-
     try {
-      try {
+      let finalDocFileId = docFilePath;
+      if (docFileBase64 && docFileName) {
+        const uploadRes = await api.uploadFile(docFileBase64, docFileName);
+        finalDocFileId = uploadRes.filePath;
+      }
+
+      const originalExpense = editingExpenseId ? expenses.find(e => e.id === editingExpenseId) : null;
+      const occurredAt = originalExpense ? originalExpense.createdAt : new Date().toISOString();
+
+      const payload = {
+        occurredAt,
+        amount: Number(amount),
+        category,
+        note: name.trim() + (note.trim() ? ` (${note.trim()})` : ''),
+        expenseDocFileId: finalDocFileId || null,
+        expenseDocUploaded: !!finalDocFileId,
+        expenseDocUpdatedAt: finalDocFileId ? new Date().toISOString() : null,
+      };
+
+      if (editingExpenseId) {
+        const updated = await api.updateExpense(editingExpenseId, payload);
+        setExpenses(expenses.map(e => e.id === editingExpenseId ? normalizeExpense(updated) : e));
+      } else {
         const newExp = await api.createExpense(payload);
         setExpenses([normalizeExpense(newExp), ...expenses]);
-      } catch (err) {
-        console.warn('API error creating expense, applying local fallback', err);
-        const mockNew: Expense = {
-          id: 'mock-exp-' + Math.random().toString(36).substr(2, 9),
-          name: name.trim() || category,
-          amount: Number(amount),
-          category,
-          createdAt: payload.occurredAt,
-          note: note || undefined,
-        };
-        setExpenses([mockNew, ...expenses]);
       }
       setModalOpen(false);
-      setName('');
-      setAmount(0);
-      setCategory('MATERIALS');
-      setNote('');
+      resetForm();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Lỗi khi ghi chi phí');
+      setErrorMsg(err.message || 'Lỗi khi lưu chi phí');
     } finally {
       setSubmitting(false);
     }
@@ -142,6 +214,8 @@ export default function ExpensesPage() {
     name: e.name,
     note: e.note || '—',
     amount: e.amount,
+    docFileId: e.docFileId,
+    rawExpense: e,
   })), [filteredExpenses]);
 
   const expenseColumns: GridColDef[] = useMemo(() => [
@@ -150,7 +224,59 @@ export default function ExpensesPage() {
     { field: 'name', headerName: 'Tên chi phí', flex: 1, minWidth: 140 },
     { field: 'note', headerName: 'Ghi chú', flex: 1, minWidth: 120 },
     { field: 'amount', headerName: 'Số tiền', width: 120, align: 'right', headerAlign: 'right', valueFormatter: (v) => formatCurrency(Number(v)) },
-  ], []);
+    {
+      field: 'docFileId',
+      headerName: 'Chứng từ',
+      width: 100,
+      align: 'center',
+      headerAlign: 'center',
+      sortable: false,
+      filterable: false,
+      renderCell: (params) => {
+        const fileId = params.value;
+        if (!fileId) return <span className="text-slate-600">—</span>;
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              window.open(`${api.baseUrl}/${fileId}`, '_blank');
+            }}
+            className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/40 text-xs font-semibold transition-colors cursor-pointer"
+          >
+            📎 Xem
+          </button>
+        );
+      }
+    },
+    {
+      field: 'actions',
+      headerName: 'Thao tác',
+      width: 100,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params) => {
+        const expense = params.row.rawExpense;
+        return (
+          <div className="flex gap-2.5">
+            <button
+              onClick={() => handleOpenEditModal(expense)}
+              className="text-emerald-400 hover:text-emerald-300 font-bold"
+              title="Sửa"
+            >
+              ✏️
+            </button>
+            <button
+              onClick={() => handleDeleteExpense(expense.id)}
+              className="text-rose-400 hover:text-rose-300 font-bold"
+              title="Xóa"
+            >
+              🗑️
+            </button>
+          </div>
+        );
+      }
+    }
+  ], [expenses]);
 
   return (
     <div className="space-y-8 animate-fade-in-up">
@@ -161,7 +287,7 @@ export default function ExpensesPage() {
           <p className="text-sm text-slate-400">Ghi nhận các khoản chi tiêu vận hành cửa hàng</p>
         </div>
         <button
-          onClick={() => setModalOpen(true)}
+          onClick={handleOpenAddModal}
           className="btn btn-primary shadow-glow flex items-center gap-2"
         >
           ➕ Ghi chi phí mới
@@ -229,7 +355,7 @@ export default function ExpensesPage() {
 
       <AppDataGrid rows={expenseRows} columns={expenseColumns} loading={loading} height="calc(100vh - 370px)" />
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Ghi nhận khoản chi mới" maxWidth="max-w-md">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingExpenseId ? '✏️ Cập nhật khoản chi' : 'Ghi nhận khoản chi mới'} maxWidth="max-w-md">
 
             {errorMsg && (
               <div className="mb-4 p-3 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
@@ -282,6 +408,44 @@ export default function ExpensesPage() {
                 />
               </div>
 
+              {/* Document upload inside creation/edit dialog */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Chứng từ đính kèm</label>
+                {docFilePath ? (
+                  <div className="flex items-center justify-between p-2.5 bg-slate-950/30 rounded-xl border border-white/5 text-xs">
+                    <span className="text-slate-300 truncate max-w-[200px]">📎 {docFilePath.split('/').pop()}</span>
+                    <button 
+                      type="button" 
+                      onClick={() => setDocFilePath(null)}
+                      className="text-rose-400 font-bold hover:text-rose-300"
+                    >
+                      Xóa
+                    </button>
+                  </div>
+                ) : docFileName ? (
+                  <div className="flex items-center justify-between p-2.5 bg-slate-950/30 rounded-xl border border-white/5 text-xs">
+                    <span className="text-slate-300 truncate max-w-[200px]">📎 {docFileName} (Mới)</span>
+                    <button 
+                      type="button" 
+                      onClick={() => { setDocFileBase64(null); setDocFileName(null); }}
+                      className="text-rose-400 font-bold hover:text-rose-300"
+                    >
+                      Xóa
+                    </button>
+                  </div>
+                ) : (
+                  <label className="btn btn-secondary py-1.5 px-3 text-xs border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10 cursor-pointer flex items-center justify-center gap-1.5 font-semibold">
+                    📤 Tải lên hóa đơn/file
+                    <input 
+                      type="file" 
+                      accept="image/*,application/pdf" 
+                      className="hidden" 
+                      onChange={handleFileChange} 
+                    />
+                  </label>
+                )}
+              </div>
+
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
                 <button
                   type="button"
@@ -296,7 +460,7 @@ export default function ExpensesPage() {
                   className="btn btn-primary text-xs shadow-glow"
                   disabled={submitting}
                 >
-                  {submitting ? 'Đang lưu...' : 'Ghi nhận chi'}
+                  {submitting ? 'Đang lưu...' : (editingExpenseId ? 'Lưu thay đổi' : 'Ghi nhận chi')}
                 </button>
               </div>
             </form>

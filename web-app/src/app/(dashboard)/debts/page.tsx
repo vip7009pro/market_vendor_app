@@ -64,6 +64,8 @@ export default function DebtsPage() {
   const [search, setSearch] = useState('');
   const [typeTab, setTypeTab] = useState<1 | 0>(1);
   const [selectedDebt, setSelectedDebt] = useState<Debt | null>(null);
+  const [linkedOrderDetails, setLinkedOrderDetails] = useState<any | null>(null);
+  const [loadingLinkedOrder, setLoadingLinkedOrder] = useState(false);
 
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [payAmount, setPayAmount] = useState(0);
@@ -99,6 +101,34 @@ export default function DebtsPage() {
   useEffect(() => {
     fetchDebts();
   }, []);
+
+  useEffect(() => {
+    if (selectedDebt && selectedDebt.sourceId && selectedDebt.sourceType) {
+      const sourceId = selectedDebt.sourceId;
+      const sourceType = selectedDebt.sourceType;
+      const fetchLinkedOrder = async () => {
+        try {
+          setLoadingLinkedOrder(true);
+          setLinkedOrderDetails(null);
+          if (sourceType === 'sale') {
+            const sale = await api.getSaleById(sourceId);
+            setLinkedOrderDetails({ ...sale, _orderType: 'sale' });
+          } else if (sourceType === 'purchase') {
+            const purchase = await api.getPurchaseById(sourceId);
+            setLinkedOrderDetails({ ...purchase, _orderType: 'purchase' });
+          }
+        } catch (err) {
+          console.error('Error loading linked order details:', err);
+          setLinkedOrderDetails(null);
+        } finally {
+          setLoadingLinkedOrder(false);
+        }
+      };
+      fetchLinkedOrder();
+    } else {
+      setLinkedOrderDetails(null);
+    }
+  }, [selectedDebt]);
 
   const filteredDebts = useMemo(() => {
     return debts.filter((d) => {
@@ -320,6 +350,51 @@ export default function DebtsPage() {
               <button onClick={() => openPaymentModal(selectedDebt)} className="btn btn-primary text-xs" disabled={selectedDebt.amount <= 0}>Trả nợ</button>
               <button onClick={() => openLinkModal(selectedDebt)} className="btn btn-secondary text-xs">Gán đơn hàng</button>
             </div>
+
+            {/* Linked order details */}
+            {loadingLinkedOrder && (
+              <div className="text-xs text-slate-500 italic">Đang tải thông tin đơn hàng liên kết...</div>
+            )}
+            
+            {!loadingLinkedOrder && linkedOrderDetails && (
+              <div className="bg-slate-950/20 border border-white/5 rounded-xl p-3.5 space-y-3">
+                <div className="flex justify-between items-center pb-2 border-b border-white/5">
+                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    {linkedOrderDetails._orderType === 'sale' ? '🛒 Chi tiết Đơn Bán Hàng' : '📦 Chi tiết Đơn Nhập Hàng'}
+                  </h4>
+                  <span className="text-[10px] bg-indigo-500/10 text-indigo-400 font-bold px-2 py-0.5 rounded">
+                    #{linkedOrderDetails.id.slice(-6).toUpperCase()}
+                  </span>
+                </div>
+                
+                <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                  {(linkedOrderDetails.items || []).map((it: any, idx: number) => {
+                    const price = Number(it.unitPrice || it.unitCost || 0);
+                    const qty = Number(it.quantity || 0);
+                    return (
+                      <div key={idx} className="flex justify-between items-center text-xs">
+                        <span className="text-slate-300 truncate max-w-[160px]">{it.name || it.productName}</span>
+                        <span className="text-slate-500 text-[10px]">{qty} x {it.unit || 'cái'}</span>
+                        <span className="text-slate-300 font-medium">{formatCurrency(price * qty)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div className="pt-2 border-t border-white/5 text-[11px] space-y-1 text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Tổng tiền đơn:</span>
+                    <span className="text-white font-semibold">
+                      {formatCurrency(Number(linkedOrderDetails.total || (linkedOrderDetails.items || []).reduce((sum: number, it: any) => sum + (Number(it.unitPrice || it.unitCost || 0) * Number(it.quantity || 0)), 0)) - Number(linkedOrderDetails.discount || 0))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Đã trả lúc mua:</span>
+                    <span className="text-emerald-400 font-medium">{formatCurrency(Number(linkedOrderDetails.paidAmount || 0))}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div>
               <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Lịch sử thanh toán ({selectedDebt.payments.length})</h4>

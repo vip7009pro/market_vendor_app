@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -17,7 +18,11 @@ import expensesRoutes from './routes/expenses.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import syncRoutes from './routes/sync.routes.js';
+import uploadRoutes from './routes/upload.routes.js';
 import { errorHandler } from './middleware/errorHandler.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3007', 10);
@@ -40,6 +45,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '12mb' }));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // ─── Health check ────────────────────────────────────
 app.get('/health', (req, res) => {
@@ -57,6 +63,7 @@ app.use('/api/expenses', expensesRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // ─── Error handler ───────────────────────────────────
 app.use(errorHandler);

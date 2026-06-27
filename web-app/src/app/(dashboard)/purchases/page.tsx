@@ -8,6 +8,7 @@ import AppDataGrid, { toRowSelectionModel } from '@/components/ui/AppDataGrid';
 import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
 import ProductSearchSelect from '@/components/ui/ProductSearchSelect';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { matchVietnamese } from '@/lib/text';
 
 interface PurchaseItem {
   id: string;
@@ -29,6 +30,7 @@ interface PurchaseOrder {
   paidAmount: number;
   note?: string;
   items: PurchaseItem[];
+  purchaseDocFileId?: string | null;
 }
 
 interface Product {
@@ -86,6 +88,16 @@ export default function PurchasesPage() {
   const [addingProductId, setAddingProductId] = useState('');
   const [addingQty, setAddingQty] = useState(1);
   const [addingCost, setAddingCost] = useState(0);
+
+  // Search supplier autocomplete
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false);
+
+  // Editing state
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+
+  // Document upload state
+  const [uploadingDocOrderId, setUploadingDocOrderId] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
@@ -182,6 +194,7 @@ export default function PurchasesPage() {
   };
 
   const openAddModal = () => {
+    setEditingOrderId(null);
     setSelectedSupplierId('new');
     setSupplierName('');
     setSupplierPhone('');
@@ -195,31 +208,186 @@ export default function PurchasesPage() {
     setModalOpen(true);
   };
 
+  const handlePickSupplierContact = async () => {
+    if (typeof window !== 'undefined' && 'contacts' in navigator && 'ContactsManager' in window) {
+      try {
+        const props = ['name', 'tel'];
+        const opts = { multiple: false };
+        const contacts = await (navigator as any).contacts.select(props, opts);
+        if (contacts && contacts.length > 0) {
+          const contact = contacts[0];
+          const nameVal = contact.name && contact.name[0] ? contact.name[0] : '';
+          const phoneVal = contact.tel && contact.tel[0] ? contact.tel[0] : '';
+          const cleanPhone = phoneVal.replace(/[\s\-\(\)]/g, '').replace(/^\+84/, '0');
+          setSupplierName(nameVal);
+          setSupplierPhone(cleanPhone);
+        }
+      } catch (err) {
+        console.error('Contact picker error:', err);
+      }
+    } else {
+      alert('Tính năng chọn từ danh bạ chỉ khả dụng trên thiết bị di động (Chrome/Android) qua kết nối HTTPS bảo mật.');
+    }
+  };
+
+  const handleEditOrder = (order: PurchaseOrder) => {
+    setEditingOrderId(order.id);
+    const found = suppliers.find(s => s.name === order.supplierName);
+    if (found) {
+      setSelectedSupplierId(found.id);
+    } else {
+      setSelectedSupplierId('new');
+    }
+    setSupplierName(order.supplierName || '');
+    setSupplierPhone(order.supplierPhone || '');
+    setDiscountType(order.discountType);
+    setDiscountValue(order.discountValue);
+    setPaidAmount(order.paidAmount);
+    setDebtMode(order.paidAmount < calcOrderTotal(order));
+    setNote(order.note || '');
+    
+    setPurchaseCart(order.items.map((item) => {
+      const product = products.find(p => p.id === item.productId) || {
+        id: item.productId,
+        name: item.productName,
+        price: 0,
+        costPrice: Number(item.unitCost),
+        currentStock: 0,
+        unit: 'cái',
+        itemType: 'RAW',
+      };
+      return {
+        product,
+        quantity: Number(item.quantity),
+        unitCost: Number(item.unitCost),
+      };
+    }));
+    
+    setErrorMsg('');
+    setModalOpen(true);
+  };
+
+  const handleUploadPurchaseDoc = async (orderId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const base64Data = e.target?.result as string;
+      if (!base64Data) return;
+
+      try {
+        setLoading(true);
+        const uploadRes = await api.uploadFile(base64Data, file.name);
+        const filePath = uploadRes.filePath;
+
+        const currentOrder = orders.find(o => o.id === orderId);
+        if (!currentOrder) return;
+
+        const updated = await api.updatePurchase(orderId, {
+          supplierName: currentOrder.supplierName,
+          supplierPhone: currentOrder.supplierPhone,
+          discountType: currentOrder.discountType,
+          discountValue: Number(currentOrder.discountValue),
+          paidAmount: Number(currentOrder.paidAmount),
+          note: currentOrder.note,
+          items: currentOrder.items.map(it => ({
+            productId: it.productId,
+            productName: it.productName,
+            quantity: Number(it.quantity),
+            unitCost: Number(it.unitCost)
+          })),
+          purchaseDocUploaded: true,
+          purchaseDocFileId: filePath,
+          purchaseDocUpdatedAt: new Date().toISOString()
+        });
+
+        setOrders(orders.map(o => o.id === orderId ? updated : o));
+        if (selectedOrder?.id === orderId) {
+          setSelectedOrder(updated);
+        }
+      } catch (err: any) {
+        alert(err.message || 'Lỗi tải lên chứng từ');
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePurchaseDoc = async (orderId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa chứng từ đính kèm này?')) return;
+    try {
+      setLoading(true);
+      const currentOrder = orders.find(o => o.id === orderId);
+      if (!currentOrder) return;
+
+      const updated = await api.updatePurchase(orderId, {
+        supplierName: currentOrder.supplierName,
+        supplierPhone: currentOrder.supplierPhone,
+        discountType: currentOrder.discountType,
+        discountValue: Number(currentOrder.discountValue),
+        paidAmount: Number(currentOrder.paidAmount),
+        note: currentOrder.note,
+        items: currentOrder.items.map(it => ({
+          productId: it.productId,
+          productName: it.productName,
+          quantity: Number(it.quantity),
+          unitCost: Number(it.unitCost)
+        })),
+        purchaseDocUploaded: false,
+        purchaseDocFileId: null,
+        purchaseDocUpdatedAt: null
+      });
+
+      setOrders(orders.map(o => o.id === orderId ? updated : o));
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder(updated);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi xóa chứng từ');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (purchaseCart.length === 0) { setErrorMsg('Vui lòng thêm sản phẩm'); return; }
     if (!supplierName.trim()) { setErrorMsg('Vui lòng nhập tên nhà cung cấp'); return; }
     setSubmitting(true);
+    
+    const payload = {
+      supplierName,
+      supplierPhone: supplierPhone || null,
+      discountType,
+      discountValue: Number(discountValue),
+      paidAmount: Number(paidAmount),
+      note: note || null,
+      items: purchaseCart.map((item) => ({
+        productId: item.product.id,
+        productName: item.product.name,
+        quantity: Number(item.quantity),
+        unitCost: Number(item.unitCost),
+      })),
+    };
+
     try {
-      const res = await api.createPurchase({
-        supplierName,
-        supplierPhone: supplierPhone || null,
-        discountType,
-        discountValue: Number(discountValue),
-        paidAmount: Number(paidAmount),
-        note: note || null,
-        items: purchaseCart.map((item) => ({
-          productId: item.product.id,
-          productName: item.product.name,
-          quantity: Number(item.quantity),
-          unitCost: Number(item.unitCost),
-        })),
-      });
-      setOrders([res, ...orders]);
+      if (editingOrderId) {
+        const res = await api.updatePurchase(editingOrderId, payload);
+        setOrders(orders.map((o) => o.id === editingOrderId ? res : o));
+        if (selectedOrder?.id === editingOrderId) {
+          setSelectedOrder(res);
+        }
+      } else {
+        const res = await api.createPurchase(payload);
+        setOrders([res, ...orders]);
+      }
       setModalOpen(false);
       fetchOrdersAndHistory();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Lỗi tạo đơn nhập hàng');
+      setErrorMsg(err.message || 'Lỗi lưu đơn nhập hàng');
     } finally {
       setSubmitting(false);
     }
@@ -339,7 +507,53 @@ export default function PurchasesPage() {
                 <div className="flex justify-between"><span className="text-slate-500">Đã trả</span><span className="text-emerald-400">{formatCurrency(Number(selectedOrder.paidAmount))}</span></div>
                 <div className="flex justify-between"><span className="text-slate-500">Còn nợ</span><span className="text-rose-400">{formatCurrency(Math.max(0, calcOrderTotal(selectedOrder) - Number(selectedOrder.paidAmount)))}</span></div>
               </div>
-              <button onClick={() => handleDeleteOrder(selectedOrder.id)} className="btn btn-secondary text-xs text-rose-400 border-rose-500/20">🗑️ Xóa đơn nhập</button>
+              {/* Document upload / preview */}
+              <div className="bg-slate-950/20 p-3 rounded-xl border border-white/5 space-y-2">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Chứng từ đính kèm</p>
+                {selectedOrder.purchaseDocFileId ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-300 truncate max-w-[150px]">📎 {selectedOrder.purchaseDocFileId.split('/').pop()}</span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(`${api.baseUrl}/${selectedOrder.purchaseDocFileId}`, '_blank');
+                        }}
+                        className="btn btn-secondary py-1 px-2.5 text-[10px] font-semibold text-indigo-400 border-indigo-500/20 cursor-pointer"
+                      >
+                        👁️ Xem
+                      </button>
+                      <button 
+                        onClick={() => handleRemovePurchaseDoc(selectedOrder.id)}
+                        className="btn btn-secondary py-1 px-2.5 text-[10px] font-semibold text-rose-400 border-rose-500/20"
+                      >
+                        ❌ Xóa
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <label className="btn btn-secondary py-1 px-3 text-xs border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10 cursor-pointer flex items-center justify-center gap-1.5 flex-1 font-semibold">
+                      📤 Tải lên chứng từ
+                      <input 
+                        type="file" 
+                        accept="image/*,application/pdf" 
+                        className="hidden" 
+                        onChange={(e) => handleUploadPurchaseDoc(selectedOrder.id, e)} 
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => handleEditOrder(selectedOrder)} className="btn btn-secondary text-xs border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10 flex-1 py-2 flex items-center justify-center gap-1.5 font-semibold">
+                  ✏️ Sửa đơn nhập
+                </button>
+                <button onClick={() => handleDeleteOrder(selectedOrder.id)} className="btn btn-secondary text-xs text-rose-400 border-rose-500/20 flex-1 py-2 flex items-center justify-center gap-1.5 font-semibold">
+                  🗑️ Xóa đơn nhập
+                </button>
+              </div>
             </div>
           )}
         />
@@ -352,20 +566,81 @@ export default function PurchasesPage() {
 
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Supplier Select */}
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nhà cung cấp</label>
-              <select className="input text-xs" value={selectedSupplierId} onChange={(e) => handleSupplierChange(e.target.value)}>
-                <option value="new">+ Thêm mới</option>
-                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+              <div className="relative">
+                <input
+                  type="text"
+                  className="input text-xs pr-8 cursor-pointer"
+                  placeholder="Tìm kiếm nhà cung cấp..."
+                  value={supplierDropdownOpen ? supplierSearch : (selectedSupplierId === 'new' ? '+ Thêm mới' : suppliers.find(s => s.id === selectedSupplierId)?.name || '')}
+                  onFocus={() => {
+                    setSupplierSearch('');
+                    setSupplierDropdownOpen(true);
+                  }}
+                  onChange={(e) => setSupplierSearch(e.target.value)}
+                  onBlur={() => {
+                    setTimeout(() => setSupplierDropdownOpen(false), 200);
+                  }}
+                />
+                <span className="absolute right-3 top-3 text-slate-500 text-[10px] pointer-events-none">
+                  {supplierDropdownOpen ? '▲' : '▼'}
+                </span>
+                
+                {supplierDropdownOpen && (
+                  <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-white/10 rounded-lg shadow-xl max-h-56 overflow-y-auto divide-y divide-white/5 backdrop-blur-md">
+                    <div 
+                      className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-indigo-400 font-bold transition-colors"
+                      onMouseDown={() => {
+                        handleSupplierChange('new');
+                        setSupplierDropdownOpen(false);
+                      }}
+                    >
+                      ➕ Thêm mới nhà cung cấp
+                    </div>
+                    {suppliers
+                      .filter(s => matchVietnamese(s.name, supplierSearch) || matchVietnamese(s.phone || '', supplierSearch))
+                      .map(s => (
+                        <div
+                          key={s.id}
+                          className="px-3 py-2.5 text-xs hover:bg-indigo-500/10 cursor-pointer text-white transition-colors"
+                          onMouseDown={() => {
+                            handleSupplierChange(s.id);
+                            setSupplierDropdownOpen(false);
+                          }}
+                        >
+                          <p className="font-semibold">{s.name}</p>
+                          {s.phone && <p className="text-[10px] text-slate-400 mt-0.5">{s.phone}</p>}
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* Supplier Name */}
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Tên NCC</label>
-              <input className="input text-xs" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} disabled={selectedSupplierId !== 'new'} />
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Tên nhà cung cấp</label>
+              <input className="input text-xs" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} disabled={selectedSupplierId !== 'new'} placeholder="Tên nhà cung cấp mới..." />
             </div>
+
+            {/* Supplier Phone */}
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">SĐT</label>
-              <input className="input text-xs" value={supplierPhone} onChange={(e) => setSupplierPhone(e.target.value)} disabled={selectedSupplierId !== 'new'} />
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs font-bold text-slate-400 uppercase">SĐT nhà cung cấp</label>
+                {selectedSupplierId === 'new' && (
+                  <button
+                    type="button"
+                    onClick={handlePickSupplierContact}
+                    className="text-[9px] text-indigo-400 hover:text-indigo-300 font-bold uppercase flex items-center gap-1 transition-colors"
+                  >
+                    📱 Danh bạ
+                  </button>
+                )}
+              </div>
+              <input className="input text-xs" value={supplierPhone} onChange={(e) => setSupplierPhone(e.target.value)} disabled={selectedSupplierId !== 'new'} placeholder="Số điện thoại..." />
             </div>
           </div>
 
