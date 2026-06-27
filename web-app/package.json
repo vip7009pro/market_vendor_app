@@ -6,7 +6,7 @@
     "dev": "next dev",
     "dev:ssl": "next dev --experimental-https --experimental-https-key ../ssl/private.key --experimental-https-cert ../ssl/certificate.crt --experimental-https-ca ../ssl/ca_bundle.crt",
     "build": "next build",
-    "start": "next start",
+    "start": "node server.js",
     "lint": "eslint"
   },
   "dependencies": {
@@ -16,7 +16,8 @@
     "@mui/x-data-grid": "^9.6.0",
     "next": "16.2.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

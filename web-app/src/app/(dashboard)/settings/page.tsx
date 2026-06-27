@@ -30,7 +30,30 @@ export default function SettingsPage() {
   const [storeName, setStoreName] = useState('');
   const [storePhone, setStorePhone] = useState('');
   const [storeAddress, setStoreAddress] = useState('');
+  const [storeLogo, setStoreLogo] = useState<string | null>(null);
   const [storeSaveSuccess, setStoreSaveSuccess] = useState(false);
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Vui lòng chọn hình ảnh có dung lượng nhỏ hơn 2MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        setStoreLogo(event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveLogo = () => {
+    setStoreLogo(null);
+  };
 
   // Bank Accounts Settings State
   const [banks, setBanks] = useState<BankAccount[]>([]);
@@ -73,6 +96,11 @@ export default function SettingsPage() {
       }
       const savedTheme = localStorage.getItem('app_theme') || 'midnight';
       setCurrentTheme(savedTheme);
+      
+      const savedLogo = localStorage.getItem('app_shop_logo');
+      if (savedLogo) {
+        setStoreLogo(savedLogo);
+      }
     }
   }, []);
 
@@ -110,6 +138,10 @@ export default function SettingsPage() {
           setStoreName(store.name || '');
           setStorePhone(store.phone || '');
           setStoreAddress(store.address || '');
+        }
+        if (typeof window !== 'undefined') {
+          const savedLogo = localStorage.getItem('app_shop_logo');
+          setStoreLogo(savedLogo);
         }
       } else if (activeTab === 'BANK') {
         const bankData = await api.getBankAccounts();
@@ -154,6 +186,15 @@ export default function SettingsPage() {
         phone: storePhone,
         address: storeAddress,
       });
+      
+      if (typeof window !== 'undefined') {
+        if (storeLogo) {
+          localStorage.setItem('app_shop_logo', storeLogo);
+        } else {
+          localStorage.removeItem('app_shop_logo');
+        }
+      }
+
       setStoreSaveSuccess(true);
       setTimeout(() => setStoreSaveSuccess(false), 3000);
     } catch (err: any) {
@@ -391,6 +432,44 @@ export default function SettingsPage() {
                 onChange={(e) => setStoreAddress(e.target.value)}
                 placeholder="Nhập địa chỉ cửa hàng..."
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Logo cửa hàng</label>
+              <div className="flex items-center gap-4 p-4 bg-slate-950/40 border border-white/5 rounded-xl">
+                <div className="shrink-0">
+                  {storeLogo ? (
+                    <img src={storeLogo} className="w-16 h-16 rounded-xl object-cover border border-white/10 shadow-md" alt="Shop logo" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white text-3xl shadow-lg shadow-indigo-500/20">
+                      {storeName ? storeName.charAt(0).toUpperCase() : 'M'}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex gap-2">
+                    <label className="btn btn-secondary text-[11px] py-1.5 px-3 cursor-pointer">
+                      <span>Chọn file logo</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={handleLogoUpload} 
+                      />
+                    </label>
+                    {storeLogo && (
+                      <button 
+                        type="button" 
+                        onClick={handleRemoveLogo} 
+                        className="btn border-rose-500/20 text-rose-400 hover:bg-rose-500/10 text-[11px] py-1.5 px-3 cursor-pointer"
+                      >
+                        Xóa logo
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-500">Hỗ trợ định dạng PNG, JPG. Dung lượng tối đa 2MB.</p>
+                </div>
+              </div>
             </div>
 
             <button type="submit" className="btn btn-primary text-xs shadow-glow cursor-pointer">

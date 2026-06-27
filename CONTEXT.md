@@ -238,5 +238,20 @@ lib/
     - Danh sách sản phẩm được chọn thêm trong giỏ hàng POS (các card sản phẩm bỏ bo góc, tăng cỡ tên mặt hàng lên `text-base` và giá tiền lên `text-sm`, bỏ bo góc các nút tăng/giảm và nút xóa).
     - Hộp thoại chọn Khách hàng, chọn Nhân viên và chọn Sản phẩm trên giao diện di động (bỏ bo góc các khung danh sách cuộn, chuyển cỡ chữ tên khách/nhân viên lên `text-sm sm:text-base` rõ nét).
     - Bảng sản phẩm được thêm trong dialog Nhập hàng (chuyển sang phông chữ lớn `text-sm` cho toàn bảng, bỏ bo góc các nút cộng/trừ số lượng và ô nhập liệu).
+- **Tự động chuyển hướng Landing Page khi đã đăng nhập**:
+  - Cập nhật trang chủ `/` ([page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/page.tsx)): Kiểm tra trạng thái xác thực `useAuth`. Nếu người dùng đã đăng nhập thành công, hệ thống tự động chuyển hướng (`router.replace('/dashboard')`) ngay khi truy cập trang chủ, đi kèm hiệu ứng vòng quay chờ tải (spinner) mượt mà để tránh nháy giật layout.
+- **Tùy biến Logo và Tên cửa hàng ở Headerbar**:
+  - **Trang Cài đặt** ([settings/page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/settings/page.tsx)): Bổ sung mục chọn hình ảnh upload logo cửa hàng tại tab Cửa hàng, hỗ trợ đọc file ảnh dưới dạng Base64 và lưu trữ cục bộ vào `localStorage` (`app_shop_logo`) kèm nút Xóa logo.
+  - **Dashboard Layout** ([layout.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/layout.tsx)): Load tên cửa hàng động lấy từ cơ sở dữ liệu (`api.getStoreInfo()`). Nếu cửa hàng đã thiết lập hình ảnh logo, hệ thống sẽ tự động vẽ hình ảnh logo lên Headerbar trên máy tính (Sidebar) và điện thoại (Mobile Headerbar). Nếu chưa thiết lập logo, hệ thống sẽ tự động vẽ một ô avatar màu gradient nổi bật chứa ký tự đầu tiên của tên shop thay thế làm mặc định.
+  - **Tải lại tức thì**: Thêm cơ chế lắng nghe thay đổi thông qua dependency `pathname`, giúp cập nhật logo ngay lập tức khi người dùng chuyển hướng sau khi cài đặt mà không cần tải lại trang.
+- **Đổi tên PWA và Cập nhật Icon Bán hàng mới**:
+  - **Cấu hình PWA** ([manifest.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/app/manifest.ts)): Đổi tên ứng dụng thành "Bán hàng" (name và short_name).
+  - **Tạo Icon PWA** ([icon.svg](file:///g:/NODEJS/market_vendor_app/web-app/public/icon.svg)): Thiết kế một file SVG logo mới dạng xe đẩy siêu thị (shopping cart) tối giản màu trắng nổi bật trên nền gradient chuyển sắc Indigo ➔ Cyan cực kỳ hiện đại để phù hợp với ứng dụng bán hàng bán lẻ.
+- **Nút tải Excel riêng lẻ cho 14 bảng dữ liệu KPI chi tiết**:
+  - **Trang Báo cáo** ([page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/reports/page.tsx)):
+    - Cài đặt thư viện `xlsx` (SheetJS) để thay thế toàn bộ giải pháp xuất file XML cũ vốn gây ra lỗi cảnh báo định dạng không khớp trên Microsoft Excel.
+    - Cả nút **📥 Xuất Excel 12 Sheet** (tổng hợp) và nút **📥 Xuất file Excel** (trong modal chi tiết KPI) hiện nay đều lưu trực tiếp dưới định dạng **`.xlsx`** chuẩn chỉnh của Microsoft Excel (không còn cảnh báo "corrupted or unsafe" hay "file format mismatch").
+    - Thêm cơ chế tự động co giãn độ rộng cột (autofit column width) dựa trên độ dài dữ liệu, giúp giao diện bảng excel tải về luôn gọn gàng và dễ nhìn.
+    - Hàm `exportBackdataExcel` tự động duyệt qua các cột cấu hình và dữ liệu đang hiển thị, gọi định dạng tương ứng (`valueFormatter`) và xuất ra trang tính `.xlsx` hoàn hảo.
 
 

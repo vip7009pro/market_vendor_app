@@ -2,8 +2,8 @@ import { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Market Vendor App',
-    short_name: 'MarketVendor',
+    name: 'Bán hàng',
+    short_name: 'Bán hàng',
     description: 'Hệ thống quản lý bán hàng và công nợ dành cho tiểu thương',
     start_url: '/',
     display: 'standalone',
@@ -11,12 +11,12 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: '#6366f1',
     icons: [
       {
-        src: '/globe.svg',
+        src: '/icon.svg',
         sizes: '192x192',
         type: 'image/svg+xml',
       },
       {
-        src: '/globe.svg',
+        src: '/icon.svg',
         sizes: '512x512',
         type: 'image/svg+xml',
       },

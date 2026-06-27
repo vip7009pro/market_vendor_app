@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import MuiProvider from '@/components/providers/MuiProvider';
+import api from '@/lib/api';
 
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Tổng quan', icon: '📊' },
@@ -23,7 +24,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  
+
+  const [storeName, setStoreName] = useState('Market Vendor');
+  const [storeLogo, setStoreLogo] = useState<string | null>(null);
+
+  // Fetch store name on mount / auth state change
+  useEffect(() => {
+    if (user) {
+      api.getStoreInfo()
+        .then((res: any) => {
+          if (res && res.name) {
+            setStoreName(res.name);
+          }
+        })
+        .catch(err => console.error('Failed to get store info in layout:', err));
+    }
+  }, [user]);
+
+  // Read logo from localStorage whenever pathname (route) changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedLogo = localStorage.getItem('app_shop_logo');
+      setStoreLogo(savedLogo);
+    }
+  }, [pathname]);
+
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
@@ -53,12 +78,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar for Desktop */}
       <aside className="hidden md:flex flex-col w-64 border-r border-white/5 bg-[var(--color-bg-secondary)] shrink-0">
         {/* Brand */}
-        <div className="p-6 border-b border-white/5 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white text-lg shadow-md shadow-indigo-500/10">
-            M
-          </div>
-          <div>
-            <h1 className="font-bold text-sm leading-none tracking-tight">Market Vendor</h1>
+        <div className="p-6 border-b border-white/5 flex items-center gap-3 min-w-0">
+          {storeLogo ? (
+            <img src={storeLogo} className="w-8 h-8 rounded-lg object-cover shadow-md" alt="Logo" />
+          ) : (
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white text-lg shadow-md shadow-indigo-500/10 shrink-0">
+              {storeName ? storeName.charAt(0).toUpperCase() : 'M'}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h1 className="font-bold text-sm leading-none tracking-tight truncate" title={storeName}>{storeName}</h1>
             <span className="text-[9px] text-cyan-400 uppercase tracking-widest font-semibold">Dashboard</span>
           </div>
         </div>
@@ -109,12 +138,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {/* Mobile Header */}
         <header className="md:hidden flex justify-between items-center px-6 py-3 bg-[var(--color-bg-secondary)] border-b border-white/5 relative z-40 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white text-xs">
-              M
-            </div>
-            <div>
-              <h1 className="font-bold text-xs leading-none tracking-tight text-white">Market Vendor</h1>
+          <div className="flex items-center gap-2.5 min-w-0">
+            {storeLogo ? (
+              <img src={storeLogo} className="w-7 h-7 rounded-lg object-cover shadow-md" alt="Logo" />
+            ) : (
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white text-xs shrink-0">
+                {storeName ? storeName.charAt(0).toUpperCase() : 'M'}
+              </div>
+            )}
+            <div className="min-w-0">
+              <h1 className="font-bold text-xs leading-none tracking-tight text-white truncate max-w-[120px]" title={storeName}>{storeName}</h1>
               <span className="text-[7px] text-cyan-400 uppercase tracking-widest font-semibold">Dashboard</span>
             </div>
           </div>

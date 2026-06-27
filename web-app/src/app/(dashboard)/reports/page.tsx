@@ -7,6 +7,7 @@ import { GridColDef } from '@mui/x-data-grid';
 import { matchVietnamese } from '@/lib/text';
 import Modal from '@/components/ui/Modal';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import * as XLSX from 'xlsx';
 
 interface Employee {
   id: string;
@@ -490,137 +491,89 @@ export default function ReportsPage() {
         }
       });
 
-      // Build XML sheets
-      let xml = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
- <Styles>
-  <Style ss:ID="Header">
-   <Font ss:FontName="Arial" ss:Bold="1" ss:Color="#FFFFFF"/>
-   <Interior ss:Color="#4F46E5" ss:Pattern="Solid"/>
-  </Style>
-  <Style ss:ID="Total">
-   <Font ss:FontName="Arial" ss:Bold="1"/>
-   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>
-  </Style>
- </Styles>`;
-
       // ─── 1. SHEET CUSTOMERS ─────────────────────────────
-      xml += `\n <Worksheet ss:Name="list khách hàng">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('ID')}${xmlCell('Tên')}${xmlCell('Số điện thoại')}${xmlCell('Ghi chú')}${xmlCell('Là nhà cung cấp')}${xmlCell('Ngày cập nhật')}
-   </Row>`;
-      customers.forEach((c: Customer) => {
-        xml += `\n   <Row>
-    ${xmlCell(c.id)}${xmlCell(c.name)}${xmlCell(c.phone || '')}${xmlCell(c.note || '')}${xmlCell(c.isSupplier ? 'Đúng' : 'Không')}${xmlCell(c.updatedAt || '')}
-   </Row>`;
-      });
-      xml += `\n  </Table>
- </Worksheet>`;
+      const customersSheet = customers.map((c: Customer) => ({
+        'ID': c.id,
+        'Tên': c.name,
+        'Số điện thoại': c.phone || '',
+        'Ghi chú': c.note || '',
+        'Là nhà cung cấp': c.isSupplier ? 'Đúng' : 'Không',
+        'Ngày cập nhật': c.updatedAt || ''
+      }));
 
       // ─── 2. SHEET PRODUCTS ──────────────────────────────
-      xml += `\n <Worksheet ss:Name="list sản phẩm">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('ID')}${xmlCell('Tên sản phẩm')}${xmlCell('Đơn vị')}${xmlCell('Mã vạch')}${xmlCell('Giá bán')}${xmlCell('Giá vốn')}${xmlCell('Tồn kho')}${xmlCell('Hoạt động')}${xmlCell('Phân loại')}
-   </Row>`;
-      products.forEach((p: Product) => {
-        xml += `\n   <Row>
-    ${xmlCell(p.id)}${xmlCell(p.name)}${xmlCell(p.unit)}${xmlCell(p.barcode || '')}${xmlCell(p.price, 'Number')}${xmlCell(p.costPrice, 'Number')}${xmlCell(p.currentStock, 'Number')}${xmlCell(p.isActive ? 'Đang bán' : 'Ngừng bán')}${xmlCell(p.itemType)}
-   </Row>`;
-      });
-      xml += `\n  </Table>
- </Worksheet>`;
+      const productsSheet = products.map((p: Product) => ({
+        'ID': p.id,
+        'Tên sản phẩm': p.name,
+        'Đơn vị': p.unit,
+        'Mã vạch': p.barcode || '',
+        'Giá bán': p.price,
+        'Giá vốn': p.costPrice,
+        'Tồn kho': p.currentStock,
+        'Hoạt động': p.isActive ? 'Đang bán' : 'Ngừng bán',
+        'Phân loại': p.itemType
+      }));
 
       // ─── 3. SHEET DEBTS ─────────────────────────────────
-      xml += `\n <Worksheet ss:Name="list công nợ">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('Mã công nợ')}${xmlCell('Tên khách/Đối tác')}${xmlCell('Số nợ ban đầu')}${xmlCell('Đã trả')}${xmlCell('Còn lại')}${xmlCell('Ngày nợ')}${xmlCell('Hạn trả')}${xmlCell('Nguồn gốc')}${xmlCell('Trạng thái')}
-   </Row>`;
-      let sumInitial = 0;
-      let sumPaid = 0;
-      let sumRemain = 0;
-      debts.forEach((d: Debt) => {
+      const debtsSheet = debts.map((d: Debt) => {
         const initial = Number(d.initialAmount || d.amount || 0);
         const paid = debtPaidById[d.id] || 0;
         const remain = Number(d.amount || 0);
-
-        sumInitial += initial;
-        sumPaid += paid;
-        sumRemain += remain;
-
-        xml += `\n   <Row>
-    ${xmlCell(d.id)}${xmlCell(d.customerName || d.partyName || 'Khách lẻ')}${xmlCell(initial, 'Number')}${xmlCell(paid, 'Number')}${xmlCell(remain, 'Number')}${xmlCell(d.createdAt)}${xmlCell(d.dueDate || '')}${xmlCell(d.sourceType ? `${d.sourceType} (${d.sourceId})` : 'Tự ghi nợ')}${xmlCell(d.isPaid ? 'Đã thanh toán' : 'Chưa trả')}
-   </Row>`;
+        return {
+          'Mã công nợ': d.id,
+          'Tên khách/Đối tác': d.customerName || d.partyName || 'Khách lẻ',
+          'Số nợ ban đầu': initial,
+          'Đã trả': paid,
+          'Còn lại': remain,
+          'Ngày nợ': d.createdAt,
+          'Hạn trả': d.dueDate || '',
+          'Nguồn gốc': d.sourceType ? `${d.sourceType} (${d.sourceId})` : 'Tự ghi nợ',
+          'Trạng thái': d.isPaid ? 'Đã thanh toán' : 'Chưa trả'
+        };
       });
-      // Append Total Row
-      xml += `\n   <Row ss:StyleID="Total">
-    ${xmlCell('')}${xmlCell('TỔNG')}${xmlCell(sumInitial, 'Number')}${xmlCell(sumPaid, 'Number')}${xmlCell(sumRemain, 'Number')}${xmlCell('')}${xmlCell('')}${xmlCell('')}${xmlCell('')}
-   </Row>`;
-      xml += `\n  </Table>
- </Worksheet>`;
 
       // ─── 4. SHEET DEBT PAYMENTS ────────────────────────
-      xml += `\n <Worksheet ss:Name="lịch sử trả nợ">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('Mã thanh toán')}${xmlCell('Mã công nợ')}${xmlCell('Loại công nợ')}${xmlCell('Tên đối tác')}${xmlCell('Số tiền trả')}${xmlCell('Phương thức')}${xmlCell('Ghi chú')}${xmlCell('Ngày trả')}
-   </Row>`;
-      debtPayments.forEach((p: DebtPayment) => {
-        xml += `\n   <Row>
-    ${xmlCell(p.id || p.paymentId || '')}${xmlCell(p.debtId)}${xmlCell(p.debtType || '')}${xmlCell(p.partyName || 'Khách lẻ')}${xmlCell(p.amount, 'Number')}${xmlCell(p.paymentType)}${xmlCell(p.note || '')}${xmlCell(p.createdAt)}
-   </Row>`;
-      });
-      xml += `\n  </Table>
- </Worksheet>`;
+      const debtPaymentsSheet = debtPayments.map((p: DebtPayment) => ({
+        'Mã thanh toán': p.id || p.paymentId || '',
+        'Mã công nợ': p.debtId,
+        'Loại công nợ': p.debtType || '',
+        'Tên đối tác': p.partyName || 'Khách lẻ',
+        'Số tiền trả': p.amount,
+        'Phương thức': p.paymentType,
+        'Ghi chú': p.note || '',
+        'Ngày trả': p.createdAt
+      }));
 
       // ─── 5. SHEET EXPENSES ─────────────────────────────
-      xml += `\n <Worksheet ss:Name="list chi phí">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('Mã chi phí')}${xmlCell('Ngày chi')}${xmlCell('Số tiền')}${xmlCell('Danh mục')}${xmlCell('Ghi chú')}
-   </Row>`;
-      expenses.forEach((e: Expense) => {
-        xml += `\n   <Row>
-    ${xmlCell(e.id)}${xmlCell(e.occurredAt)}${xmlCell(e.amount, 'Number')}${xmlCell(e.category)}${xmlCell(e.note || '')}
-   </Row>`;
-      });
-      xml += `\n  </Table>
- </Worksheet>`;
+      const expensesSheet = expenses.map((e: Expense) => ({
+        'Mã chi phí': e.id,
+        'Ngày chi': e.occurredAt,
+        'Số tiền': e.amount,
+        'Danh mục': e.category,
+        'Ghi chú': e.note || ''
+      }));
 
       // ─── 6. SHEET PURCHASE HISTORY ─────────────────────
-      xml += `\n <Worksheet ss:Name="lịch sử nhập kho">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('Mã nhập')}${xmlCell('Ngày nhập')}${xmlCell('Mã SP')}${xmlCell('Tên sản phẩm')}${xmlCell('Số lượng')}${xmlCell('Đơn giá vốn')}${xmlCell('Thành tiền')}${xmlCell('Nhà cung cấp')}${xmlCell('Ghi chú')}
-   </Row>`;
-      purchasesHistory.forEach((ph: any) => {
-        xml += `\n   <Row>
-    ${xmlCell(ph.id)}${xmlCell(ph.createdAt)}${xmlCell(ph.productId)}${xmlCell(ph.productName)}${xmlCell(ph.quantity, 'Number')}${xmlCell(ph.unitCost, 'Number')}${xmlCell(ph.totalCost, 'Number')}${xmlCell(ph.supplierName || 'NCC vãng lai')}${xmlCell(ph.note || '')}
-   </Row>`;
-      });
-      xml += `\n  </Table>
- </Worksheet>`;
+      const purchaseHistorySheet = purchasesHistory.map((ph: any) => ({
+        'Mã nhập': ph.id,
+        'Ngày nhập': ph.createdAt,
+        'Mã SP': ph.productId,
+        'Tên sản phẩm': ph.productName,
+        'Số lượng': ph.quantity,
+        'Đơn giá vốn': ph.unitCost,
+        'Thành tiền': ph.totalCost,
+        'Nhà cung cấp': ph.supplierName || 'NCC vãng lai',
+        'Ghi chú': ph.note || ''
+      }));
 
       // ─── 7. SHEET EXPORT HISTORY ─────────────────────
-      xml += `\n <Worksheet ss:Name="lịch sử xuất kho">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('Mã đơn hàng')}${xmlCell('Ngày xuất')}${xmlCell('Tên khách')}${xmlCell('Nhân viên')}${xmlCell('Mã SP')}${xmlCell('Tên sản phẩm')}${xmlCell('Đơn vị')}${xmlCell('Số lượng')}${xmlCell('Đơn giá bán')}${xmlCell('Doanh thu')}${xmlCell('Giá vốn')}${xmlCell('Tổng vốn')}${xmlCell('Phân loại')}
-   </Row>`;
+      const exportHistorySheet: any[] = [];
       sales.forEach((s: Sale) => {
         s.items.forEach((it: SaleItem) => {
           if (it.itemType === 'MIX' && it.mixItemsJson) {
             try {
               const mixItems = JSON.parse(it.mixItemsJson);
               if (Array.isArray(mixItems)) {
-                // Decompose MIX to RAW products snapped
                 const mixQty = Number(it.quantity || 1);
                 const mixPrice = Number(it.unitPrice || 0);
                 
@@ -639,9 +592,21 @@ export default function ReportsPage() {
                   const lineTotalSnap = unitPriceSnap * Number(m.rawQty || 0);
                   const lineCostTotalSnap = Number(m.rawUnitCost || 0) * Number(m.rawQty || 0);
 
-                  xml += `\n   <Row>
-    ${xmlCell(s.id)}${xmlCell(s.createdAt)}${xmlCell(s.customerName || 'Khách vãng lai')}${xmlCell(s.employeeName || '')}${xmlCell(m.rawProductId)}${xmlCell(m.rawName)}${xmlCell(m.rawUnit)}${xmlCell(Number(m.rawQty || 0) * mixQty, 'Number')}${xmlCell(unitPriceSnap, 'Number')}${xmlCell(lineTotalSnap * mixQty, 'Number')}${xmlCell(m.rawUnitCost, 'Number')}${xmlCell(lineCostTotalSnap * mixQty, 'Number')}${xmlCell('MIX-DECOMPOSED')}
-   </Row>`;
+                  exportHistorySheet.push({
+                    'Mã đơn hàng': s.id,
+                    'Ngày xuất': s.createdAt,
+                    'Tên khách': s.customerName || 'Khách vãng lai',
+                    'Nhân viên': s.employeeName || '',
+                    'Mã SP': m.rawProductId,
+                    'Tên sản phẩm': m.rawName,
+                    'Đơn vị': m.rawUnit,
+                    'Số lượng': Number(m.rawQty || 0) * mixQty,
+                    'Đơn giá bán': unitPriceSnap,
+                    'Doanh thu': lineTotalSnap * mixQty,
+                    'Giá vốn': m.rawUnitCost,
+                    'Tổng vốn': lineCostTotalSnap * mixQty,
+                    'Phân loại': 'MIX-DECOMPOSED'
+                  });
                 });
               }
             } catch (_) {}
@@ -649,85 +614,169 @@ export default function ReportsPage() {
             const qty = Number(it.quantity || 0);
             const price = Number(it.unitPrice || 0);
             const cost = Number(it.unitCost || 0);
-            xml += `\n   <Row>
-    ${xmlCell(s.id)}${xmlCell(s.createdAt)}${xmlCell(s.customerName || 'Khách vãng lai')}${xmlCell(s.employeeName || '')}${xmlCell(it.productId)}${xmlCell(it.name)}${xmlCell(it.unit)}${xmlCell(qty, 'Number')}${xmlCell(price, 'Number')}${xmlCell(qty * price, 'Number')}${xmlCell(cost, 'Number')}${xmlCell(qty * cost, 'Number')}${xmlCell('RAW')}
-   </Row>`;
+            exportHistorySheet.push({
+              'Mã đơn hàng': s.id,
+              'Ngày xuất': s.createdAt,
+              'Tên khách': s.customerName || 'Khách vãng lai',
+              'Nhân viên': s.employeeName || '',
+              'Mã SP': it.productId,
+              'Tên sản phẩm': it.name,
+              'Đơn vị': it.unit,
+              'Số lượng': qty,
+              'Đơn giá bán': price,
+              'Doanh thu': qty * price,
+              'Giá vốn': cost,
+              'Tổng vốn': qty * cost,
+              'Phân loại': 'RAW'
+            });
           }
         });
       });
-      xml += `\n  </Table>
- </Worksheet>`;
 
       // ─── 8. SHEET LIST ORDER SALES ────────────────────
-      xml += `\n <Worksheet ss:Name="list đơn hàng">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('Mã đơn hàng')}${xmlCell('Ngày bán')}${xmlCell('Khách hàng')}${xmlCell('Nhân viên')}${xmlCell('Doanh thu gộp')}${xmlCell('Giảm giá')}${xmlCell('Doanh thu thuần')}${xmlCell('Tổng vốn')}${xmlCell('Đã trả ban đầu')}${xmlCell('Còn nợ')}${xmlCell('Phương thức')}${xmlCell('Ghi chú')}
-   </Row>`;
-      sales.forEach((s: Sale) => {
+      const salesOrdersSheet = sales.map((s: Sale) => {
         const subtotal = s.items.reduce((sum, item) => sum + (Number(item.unitPrice) * Number(item.quantity)), 0);
         const discount = Number(s.discount || 0);
         const net = subtotal - discount;
         const remainDebt = Math.max(0, net - Number(s.paidAmount || 0));
 
-        xml += `\n   <Row>
-    ${xmlCell(s.id)}${xmlCell(s.createdAt)}${xmlCell(s.customerName || 'Khách lẻ')}${xmlCell(s.employeeName || '')}${xmlCell(subtotal, 'Number')}${xmlCell(discount, 'Number')}${xmlCell(net, 'Number')}${xmlCell(s.totalCost, 'Number')}${xmlCell(s.paidAmount, 'Number')}${xmlCell(remainDebt, 'Number')}${xmlCell(s.paymentType)}${xmlCell(s.note || '')}
-   </Row>`;
+        return {
+          'Mã đơn hàng': s.id,
+          'Ngày bán': s.createdAt,
+          'Khách hàng': s.customerName || 'Khách lẻ',
+          'Nhân viên': s.employeeName || '',
+          'Doanh thu gộp': subtotal,
+          'Giảm giá': discount,
+          'Doanh thu thuần': net,
+          'Tổng vốn': s.totalCost,
+          'Đã trả ban đầu': s.paidAmount,
+          'Còn nợ': remainDebt,
+          'Phương thức': s.paymentType,
+          'Ghi chú': s.note || ''
+        };
       });
-      xml += `\n  </Table>
- </Worksheet>`;
 
       // ─── 9. SHEET OPENING STOCK ──────────────────────
-      xml += `\n <Worksheet ss:Name="list tồn đầu kỳ">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('Năm')}${xmlCell('Tháng')}${xmlCell('Mã sản phẩm')}${xmlCell('Tên sản phẩm')}${xmlCell('Đơn vị')}${xmlCell('Số lượng tồn đầu')}
-   </Row>`;
-      products.forEach((p: Product) => {
+      const openingStockSheet = products.map((p: Product) => {
         const opStock = openingByProductId[p.id] || 0;
-        xml += `\n   <Row>
-    ${xmlCell(year, 'Number')}${xmlCell(month, 'Number')}${xmlCell(p.id)}${xmlCell(p.name)}${xmlCell(p.unit)}${xmlCell(opStock, 'Number')}
-   </Row>`;
+        return {
+          'Năm': year,
+          'Tháng': month,
+          'Mã sản phẩm': p.id,
+          'Tên sản phẩm': p.name,
+          'Đơn vị': p.unit,
+          'Số lượng tồn đầu': opStock
+        };
       });
-      xml += `\n  </Table>
- </Worksheet>`;
 
       // ─── 10. SHEET CLOSING STOCK ─────────────────────
-      xml += `\n <Worksheet ss:Name="list tồn cuối kỳ">
-  <Table>
-   <Row ss:StyleID="Header">
-    ${xmlCell('Năm')}${xmlCell('Tháng')}${xmlCell('Mã SP')}${xmlCell('Tên sản phẩm')}${xmlCell('Đơn vị')}${xmlCell('Tồn đầu')}${xmlCell('Nhập trong kỳ')}${xmlCell('Xuất trong kỳ')}${xmlCell('Tồn cuối')}${xmlCell('Giá vốn')}${xmlCell('Trị giá tồn (vốn)')}${xmlCell('Giá bán')}${xmlCell('Trị giá tồn (bán)')}
-   </Row>`;
-      products.forEach((p: Product) => {
+      const closingStockSheet = products.map((p: Product) => {
         const opStock = openingByProductId[p.id] || 0;
         const imp = importQtyByProductId[p.id] || 0;
         const exp = exportQtyByProductId[p.id] || 0;
         const ending = opStock + imp - exp;
 
-        xml += `\n   <Row>
-    ${xmlCell(year, 'Number')}${xmlCell(month, 'Number')}${xmlCell(p.id)}${xmlCell(p.name)}${xmlCell(p.unit)}${xmlCell(opStock, 'Number')}${xmlCell(imp, 'Number')}${xmlCell(exp, 'Number')}${xmlCell(ending, 'Number')}${xmlCell(p.costPrice, 'Number')}${xmlCell(ending * p.costPrice, 'Number')}${xmlCell(p.price, 'Number')}${xmlCell(ending * p.price, 'Number')}
-   </Row>`;
+        return {
+          'Năm': year,
+          'Tháng': month,
+          'Mã SP': p.id,
+          'Tên sản phẩm': p.name,
+          'Đơn vị': p.unit,
+          'Tồn đầu': opStock,
+          'Nhập trong kỳ': imp,
+          'Xuất trong kỳ': exp,
+          'Tồn cuối': ending,
+          'Giá vốn': p.costPrice,
+          'Trị giá tồn (vốn)': ending * p.costPrice,
+          'Giá bán': p.price,
+          'Trị giá tồn (bán)': ending * p.price
+        };
       });
-      xml += `\n  </Table>
- </Worksheet>`;
 
-      // Close Excel File XML structure
-      xml += `\n</Workbook>`;
+      // Create workbook using SheetJS
+      const wb = XLSX.utils.book_new();
 
-      // Trigger download
-      const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
+      const addSheet = (data: any[], name: string) => {
+        const ws = XLSX.utils.json_to_sheet(data);
+        if (data.length > 0) {
+          const maxLen = data.reduce((w, r) => {
+            Object.keys(r).forEach((key) => {
+              w[key] = Math.max(w[key] || 0, String(r[key] || '').length, key.length);
+            });
+            return w;
+          }, {} as Record<string, number>);
+          ws['!cols'] = Object.keys(maxLen).map(key => ({ wch: Math.min(50, maxLen[key] + 3) }));
+        }
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      };
+
+      addSheet(customersSheet, "list khách hàng");
+      addSheet(productsSheet, "list sản phẩm");
+      addSheet(debtsSheet, "list công nợ");
+      addSheet(debtPaymentsSheet, "lịch sử trả nợ");
+      addSheet(expensesSheet, "list chi phí");
+      addSheet(purchaseHistorySheet, "lịch sử nhập kho");
+      addSheet(exportHistorySheet, "lịch sử xuất kho");
+      addSheet(salesOrdersSheet, "list đơn hàng");
+      addSheet(openingStockSheet, "list tồn đầu kỳ");
+      addSheet(closingStockSheet, "list tồn cuối kỳ");
+
       const ts = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
-      link.setAttribute("href", url);
-      link.setAttribute("download", `bao_cao_tong_hop_${ts}.xls`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      XLSX.writeFile(wb, `bao_cao_tong_hop_${ts}.xlsx`);
     } catch (err) {
       alert('Có lỗi xảy ra khi xuất Excel: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setExporting(false);
+    }
+  };
+
+  const exportBackdataExcel = () => {
+    try {
+      const cols = getBackdataColumns();
+      
+      const formattedRows = backdataRows.map(row => {
+        const obj: Record<string, any> = {};
+        cols.forEach(col => {
+          let val = '';
+          if (col.valueGetter) {
+            val = (col.valueGetter as any)(row[col.field], row, col, {} as any);
+          } else {
+            val = row[col.field];
+          }
+
+          if (col.valueFormatter && val !== null && val !== undefined) {
+            obj[col.headerName || col.field] = (col.valueFormatter as any)(val);
+          } else {
+            obj[col.headerName || col.field] = val;
+          }
+        });
+        return obj;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(formattedRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Chi tiết KPI");
+
+      if (formattedRows.length > 0) {
+        const maxLen = formattedRows.reduce((w, r) => {
+          Object.keys(r).forEach((key) => {
+            w[key] = Math.max(w[key] || 0, String(r[key] || '').length, key.length);
+          });
+          return w;
+        }, {} as Record<string, number>);
+        ws['!cols'] = Object.keys(maxLen).map(key => ({ wch: Math.min(50, maxLen[key] + 3) }));
+      }
+
+      const cleanTitle = (backdataTitle || 'bao_cao')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/[^a-z0-9_]/g, '_');
+
+      XLSX.writeFile(wb, `${cleanTitle}.xlsx`);
+    } catch (err) {
+      alert('Lỗi xuất Excel: ' + (err instanceof Error ? err.message : String(err)));
     }
   };
 
@@ -1832,10 +1881,17 @@ export default function ReportsPage() {
             />
           </div>
 
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={exportBackdataExcel}
+              disabled={backdataRows.length === 0}
+              className="btn btn-primary text-xs py-2 px-4 rounded-xl font-semibold shadow-glow cursor-pointer flex items-center gap-1.5"
+            >
+              📥 Xuất file Excel
+            </button>
             <button
               onClick={() => setBackdataModalOpen(false)}
-              className="btn btn-secondary text-xs py-2 px-4 rounded-xl font-semibold hover:bg-slate-800"
+              className="btn btn-secondary text-xs py-2 px-4 rounded-xl font-semibold hover:bg-slate-800 cursor-pointer"
             >
               Đóng
             </button>
