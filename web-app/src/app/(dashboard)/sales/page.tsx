@@ -45,6 +45,7 @@ export default function SalesPage() {
   const [debtFilter, setDebtFilter] = useState<'ALL' | 'PAID' | 'DEBT'>('ALL');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [bankAccount, setBankAccount] = useState<any>(null);
+  const [storeInfo, setStoreInfo] = useState<any>(null);
 
   // Edit Sale modal state
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -96,6 +97,10 @@ export default function SalesPage() {
     api.getBankAccounts().then((data) => {
       const defaultAcc = data?.find((acc: any) => acc.isDefault);
       setBankAccount(defaultAcc || data?.[0] || null);
+    }).catch(() => null);
+    
+    api.getStoreInfo().then((store) => {
+      setStoreInfo(store);
     }).catch(() => null);
 
     // Load products and customers for edit form
@@ -374,7 +379,7 @@ export default function SalesPage() {
                       total: saleTotal,
                       paidAmount: selectedSale.paidAmount,
                       paymentType: selectedSale.paymentType,
-                    });
+                    }, storeInfo);
                   }
                 }}
                 className="btn btn-secondary text-[11px] px-1 border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10 py-2 flex items-center justify-center gap-1 font-semibold"

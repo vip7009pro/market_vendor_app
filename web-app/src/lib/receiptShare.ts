@@ -20,10 +20,15 @@ export interface ReceiptData {
   paymentType?: string;
 }
 
+export interface StoreInfo {
+  name?: string;
+  phone?: string;
+}
+
 /**
  * Draws the receipt onto a canvas element with thermal printer styling
  */
-export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptData) {
+export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptData, store?: StoreInfo | null) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
@@ -64,7 +69,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   // Title
   ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
   y += 24;
-  ctx.fillText('MARKET VENDOR APPS', width / 2, y);
+  ctx.fillText((store?.name || 'MARKET VENDOR APPS').toUpperCase(), width / 2, y);
   
   // Subtitle
   ctx.font = '11px system-ui, -apple-system, sans-serif';
@@ -72,7 +77,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   y += 18;
   ctx.fillText('Đồng hành cùng tiểu thương Việt', width / 2, y);
   y += 16;
-  ctx.fillText('ĐT: 0987.654.321', width / 2, y);
+  ctx.fillText('ĐT: ' + (store?.phone || '0987.654.321'), width / 2, y);
   
   // Separator line
   const drawDashedLine = (yPos: number) => {
@@ -218,10 +223,10 @@ export function downloadReceiptImage(canvas: HTMLCanvasElement, filenameId: stri
 /**
  * Generates and shares or downloads the receipt
  */
-export async function shareReceiptImage(order: ReceiptData): Promise<boolean> {
+export async function shareReceiptImage(order: ReceiptData, store?: StoreInfo | null): Promise<boolean> {
   // Create offscreen canvas
   const canvas = document.createElement('canvas');
-  drawReceiptToCanvas(canvas, order);
+  drawReceiptToCanvas(canvas, order, store);
 
   if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
     try {

@@ -265,6 +265,9 @@ lib/
 - **Hiển thị đơn giá sản phẩm trên ảnh hóa đơn & phiếu nợ**:
   - **Tái thiết kế luồng vẽ sản phẩm** ([receiptShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/receiptShare.ts), [debtShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/debtShare.ts)):
     - Chuyển sang bố cục hiển thị 2 dòng chuyên nghiệp cho mỗi mặt hàng. Dòng 1 vẽ tên sản phẩm bằng chữ đậm (`bold`). Dòng 2 thụt lề đầu dòng vẽ công thức đơn giá rõ ràng dạng `<Số lượng> <Đơn vị> x <Đơn giá>` (ví dụ: `2 cái x 5.000 đ` hoặc `1.5 kg x 80.000 đ`) và vẽ thành tiền ở phía bên phải.
+- **Liên kết Cài đặt Cửa hàng với ảnh hóa đơn POS**:
+  - **Cập nhật giao thức chia sẻ** ([receiptShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/receiptShare.ts)): Bổ sung tham số cấu hình cửa hàng `store` cho hàm `drawReceiptToCanvas` và `shareReceiptImage`. Tên cửa hàng và Hotline (số điện thoại) được vẽ động lên tiêu đề ảnh hóa đơn theo đúng thông tin được thiết lập trong Cài đặt (nếu chưa cấu hình sẽ lấy giá trị mặc định là "MARKET VENDOR APPS" và "0987.654.321").
+  - **Tích hợp giao diện bán hàng & đơn hàng** ([pos/page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/pos/page.tsx), [sales/page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/sales/page.tsx)): Truy vấn thông tin cửa hàng hiện tại (`api.getStoreInfo()`) trên `useEffect` hook và lưu trữ vào state, sau đó truyền vào hàm `shareReceiptImage` khi người dùng bấm nút chia sẻ ảnh hóa đơn.
     - Cập nhật công thức tính toán chiều cao Canvas động (`itemsHeight` và `linkedOrderHeight`) tăng từ 30-35px lên 40px cho mỗi sản phẩm để đảm bảo ảnh xuất ra có khoảng cách rộng rãi, cân đối và không bị tràn hay lỗi bố cục đè chữ.
 
 

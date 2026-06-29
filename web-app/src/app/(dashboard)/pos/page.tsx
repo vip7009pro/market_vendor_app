@@ -81,6 +81,7 @@ export default function PosPage() {
   // Success Receipt Modal
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<any>(null);
+  const [storeInfo, setStoreInfo] = useState<any>(null);
 
   // Voice Order Modal State
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
@@ -187,11 +188,12 @@ export default function PosPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [prodData, custData, empData, bankData] = await Promise.all([
+      const [prodData, custData, empData, bankData, storeData] = await Promise.all([
         api.getProducts().catch(() => null),
         api.getCustomers().catch(() => null),
         api.getEmployees().catch(() => null),
         api.getBankAccounts().catch(() => null),
+        api.getStoreInfo().catch(() => null),
       ]);
 
       if (prodData) {
@@ -209,6 +211,9 @@ export default function PosPage() {
       if (bankData) {
         const defaultAcc = bankData.find((acc: any) => acc.isDefault);
         setBankAccount(defaultAcc || bankData[0] || null);
+      }
+      if (storeData) {
+        setStoreInfo(storeData);
       }
     } finally {
       setLoading(false);
@@ -1200,7 +1205,7 @@ export default function PosPage() {
                       total: completedOrder.total,
                       paidAmount: completedOrder.paidAmount,
                       paymentType: completedOrder.paymentType,
-                    });
+                    }, storeInfo);
                   }
                 }}
                 className="btn btn-secondary text-xs border-indigo-500/20 text-indigo-300 bg-indigo-500/5 hover:bg-indigo-500/10"
