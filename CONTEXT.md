@@ -253,5 +253,18 @@ lib/
     - Cả nút **📥 Xuất Excel 12 Sheet** (tổng hợp) và nút **📥 Xuất file Excel** (trong modal chi tiết KPI) hiện nay đều lưu trực tiếp dưới định dạng **`.xlsx`** chuẩn chỉnh của Microsoft Excel (không còn cảnh báo "corrupted or unsafe" hay "file format mismatch").
     - Thêm cơ chế tự động co giãn độ rộng cột (autofit column width) dựa trên độ dài dữ liệu, giúp giao diện bảng excel tải về luôn gọn gàng và dễ nhìn.
     - Hàm `exportBackdataExcel` tự động duyệt qua các cột cấu hình và dữ liệu đang hiển thị, gọi định dạng tương ứng (`valueFormatter`) và xuất ra trang tính `.xlsx` hoàn hảo.
+- **Tính năng chia sẻ công nợ (Debt Sharing)**:
+  - **Thư viện chia sẻ** ([debtShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/debtShare.ts)): Thiết kế hàm vẽ phiếu ghi nhận công nợ lên Canvas (tương tự như hóa đơn thanh toán), hiển thị đầy đủ thông tin: tên đối tác, loại công nợ (thu/trả), ngày ghi, hạn thanh toán, chi tiết đơn hàng nợ (sản phẩm, số lượng, đơn giá), lịch sử thanh toán nợ, tổng nợ ban đầu, tổng đã trả và số nợ còn lại.
+  - **Tích hợp giao diện Sổ ghi nợ** ([page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/debts/page.tsx)): Thêm nút **📤 Chia sẻ** trong cột thông tin chi tiết công nợ, cho phép gửi ảnh qua Zalo, Messenger... bằng API `navigator.share` trên điện thoại hoặc tải ảnh PNG trực tiếp trên máy tính.
+- **Tối ưu hóa phông chữ Canvas & Giao diện Báo cáo di động**:
+  - **Phông chữ hóa đơn & công nợ** ([receiptShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/receiptShare.ts), [debtShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/debtShare.ts)): Thay thế toàn bộ font `Courier New` bằng font chữ hệ thống sans-serif chuyên nghiệp (`system-ui, -apple-system, sans-serif`). Giải quyết triệt để lỗi hiển thị dấu tiếng Việt làm chữ bị đậm/nhạt không đều nhau trên Canvas. Kết quả xuất ảnh hóa đơn và phiếu nợ cực kỳ đồng đều, sắc nét và chuyên nghiệp.
+  - **Bố cục báo cáo di động** ([page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/reports/page.tsx)):
+    - Chuyển đổi cách hiển thị các Widget báo cáo từ 1 cột (1 widget/dòng) thành **2 đến 3 cột** trên thiết bị di động (`grid-cols-2 min-[450px]:grid-cols-3`), giúp tiết kiệm không gian màn hình tối đa.
+    - Nâng cỡ chữ tiêu đề widget lên `text-[11px] sm:text-xs`, số tiền chỉ số lên `text-sm sm:text-base/lg` và mô tả lên `text-[10px] sm:text-[11px]` để đảm bảo hiển thị rõ ràng chỉ số ngay cả ở chế độ nhiều cột.
+    - Tối ưu padding các card chỉ số thành `p-3 sm:p-4` để căn lề cân đối và đẹp mắt trên màn hình nhỏ.
+- **Hiển thị đơn giá sản phẩm trên ảnh hóa đơn & phiếu nợ**:
+  - **Tái thiết kế luồng vẽ sản phẩm** ([receiptShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/receiptShare.ts), [debtShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/debtShare.ts)):
+    - Chuyển sang bố cục hiển thị 2 dòng chuyên nghiệp cho mỗi mặt hàng. Dòng 1 vẽ tên sản phẩm bằng chữ đậm (`bold`). Dòng 2 thụt lề đầu dòng vẽ công thức đơn giá rõ ràng dạng `<Số lượng> <Đơn vị> x <Đơn giá>` (ví dụ: `2 cái x 5.000 đ` hoặc `1.5 kg x 80.000 đ`) và vẽ thành tiền ở phía bên phải.
+    - Cập nhật công thức tính toán chiều cao Canvas động (`itemsHeight` và `linkedOrderHeight`) tăng từ 30-35px lên 40px cho mỗi sản phẩm để đảm bảo ảnh xuất ra có khoảng cách rộng rãi, cân đối và không bị tràn hay lỗi bố cục đè chữ.
 
 

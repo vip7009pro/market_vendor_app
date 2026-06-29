@@ -8,6 +8,7 @@ import AppDataGrid, { toRowSelectionModel } from '@/components/ui/AppDataGrid';
 import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { matchVietnamese } from '@/lib/text';
+import { shareDebtImage } from '@/lib/debtShare';
 
 interface DebtPayment {
   uuid: string;
@@ -66,6 +67,7 @@ export default function DebtsPage() {
   const [selectedDebt, setSelectedDebt] = useState<Debt | null>(null);
   const [linkedOrderDetails, setLinkedOrderDetails] = useState<any | null>(null);
   const [loadingLinkedOrder, setLoadingLinkedOrder] = useState(false);
+  const [storeInfo, setStoreInfo] = useState<any>(null);
 
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [payAmount, setPayAmount] = useState(0);
@@ -90,11 +92,24 @@ export default function DebtsPage() {
       setLoading(true);
       const data = await api.getDebts();
       setDebts((Array.isArray(data) ? data : []).map(normalizeDebt));
+      
+      const store = await api.getStoreInfo().catch(() => null);
+      if (store) {
+        setStoreInfo(store);
+      }
     } catch (err) {
       console.warn('Could not fetch debts', err);
       setDebts([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleShareDebt = async (debt: Debt) => {
+    try {
+      await shareDebtImage(debt, linkedOrderDetails, storeInfo);
+    } catch (err) {
+      console.error('Error sharing debt:', err);
     }
   };
 
@@ -349,6 +364,9 @@ export default function DebtsPage() {
             <div className="flex flex-wrap gap-2">
               <button onClick={() => openPaymentModal(selectedDebt)} className="btn btn-primary text-xs" disabled={selectedDebt.amount <= 0}>Trả nợ</button>
               <button onClick={() => openLinkModal(selectedDebt)} className="btn btn-secondary text-xs">Gán đơn hàng</button>
+              <button onClick={() => handleShareDebt(selectedDebt)} className="btn btn-secondary text-xs flex items-center gap-1.5">
+                📤 Chia sẻ
+              </button>
             </div>
 
             {/* Linked order details */}

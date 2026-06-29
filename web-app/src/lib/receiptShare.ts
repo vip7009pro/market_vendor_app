@@ -38,7 +38,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   const headerHeight = 70; // Title, subtitle, hotline
   const detailsHeight = 85 + (order.employeeName ? 20 : 0);
   const itemsHeaderHeight = 30;
-  const itemsHeight = items.length * 35;
+  const itemsHeight = items.length * 40;
   const totalsHeight = 110 + (order.total - order.paidAmount > 0 ? 25 : 0);
   const footerHeight = 50;
   
@@ -62,12 +62,12 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   ctx.textAlign = 'center';
   
   // Title
-  ctx.font = 'bold 18px Courier New, Courier, monospace';
+  ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
   y += 24;
   ctx.fillText('MARKET VENDOR APPS', width / 2, y);
   
   // Subtitle
-  ctx.font = '11px Courier New, Courier, monospace';
+  ctx.font = '11px system-ui, -apple-system, sans-serif';
   ctx.fillStyle = '#52525B';
   y += 18;
   ctx.fillText('Đồng hành cùng tiểu thương Việt', width / 2, y);
@@ -92,7 +92,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   // Details
   ctx.fillStyle = '#000000';
   ctx.textAlign = 'left';
-  ctx.font = '12px Courier New, Courier, monospace';
+  ctx.font = '12px system-ui, -apple-system, sans-serif';
   
   y += 22;
   ctx.fillText(`Số HĐ:      ${order.id.slice(-6).toUpperCase()}`, padding, y);
@@ -111,7 +111,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   drawDashedLine(y);
   
   // Items Header
-  ctx.font = 'bold 12px Courier New, Courier, monospace';
+  ctx.font = 'bold 12px system-ui, -apple-system, sans-serif';
   y += 22;
   ctx.fillText('Tên SP', padding, y);
   ctx.textAlign = 'right';
@@ -119,22 +119,27 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   ctx.fillText('T.Tiền', width - padding, y);
   
   // Draw Items
-  ctx.font = '12px Courier New, Courier, monospace';
   items.forEach((item) => {
-    y += 25;
+    y += 22;
     ctx.textAlign = 'left';
+    ctx.font = 'bold 12px system-ui, -apple-system, sans-serif';
+    ctx.fillStyle = '#000000';
     
-    // Truncate name if too long
-    const maxNameLen = 20;
+    const maxNameLen = 32;
     let nameText = item.name;
     if (nameText.length > maxNameLen) {
       nameText = nameText.slice(0, maxNameLen - 3) + '...';
     }
     ctx.fillText(nameText, padding, y);
     
-    ctx.textAlign = 'right';
+    y += 18;
+    ctx.font = '11px system-ui, -apple-system, sans-serif';
+    ctx.fillStyle = '#52525B';
     const qtyUnit = item.unit ? `${item.quantity} ${item.unit}` : `${item.quantity}`;
-    ctx.fillText(qtyUnit, width - padding - 130, y);
+    ctx.fillText(`${qtyUnit} x ${formatCurrency(item.unitPrice)}`, padding, y);
+    
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#000000';
     ctx.fillText(formatCurrency(item.unitPrice * item.quantity), width - padding, y);
   });
   
@@ -143,7 +148,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   
   // Totals
   ctx.textAlign = 'left';
-  ctx.font = '12px Courier New, Courier, monospace';
+  ctx.font = '12px system-ui, -apple-system, sans-serif';
   
   y += 22;
   ctx.fillText('Tạm tính:', padding, y);
@@ -159,14 +164,14 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   
   y += 24;
   ctx.textAlign = 'left';
-  ctx.font = 'bold 14px Courier New, Courier, monospace';
+  ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
   ctx.fillText('Tổng cộng:', padding, y);
   ctx.textAlign = 'right';
   ctx.fillText(formatCurrency(order.total), width - padding, y);
   
   y += 22;
   ctx.textAlign = 'left';
-  ctx.font = '12px Courier New, Courier, monospace';
+  ctx.font = '12px system-ui, -apple-system, sans-serif';
   ctx.fillText('Khách trả:', padding, y);
   ctx.textAlign = 'right';
   ctx.fillText(formatCurrency(order.paidAmount), width - padding, y);
@@ -175,7 +180,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   if (debt > 0) {
     y += 20;
     ctx.textAlign = 'left';
-    ctx.font = 'bold 12px Courier New, Courier, monospace';
+    ctx.font = 'bold 12px system-ui, -apple-system, sans-serif';
     ctx.fillStyle = '#DC2626'; // Red for debt
     ctx.fillText('Còn nợ:', padding, y);
     ctx.textAlign = 'right';
@@ -190,7 +195,7 @@ export function drawReceiptToCanvas(canvas: HTMLCanvasElement, order: ReceiptDat
   y += 28;
   ctx.fillStyle = '#71717A';
   ctx.textAlign = 'center';
-  ctx.font = 'bold 11px Courier New, Courier, monospace';
+  ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
   ctx.fillText('CẢM ƠN QUÝ KHÁCH & HẸN GẶP LẠI!', width / 2, y);
 }
 

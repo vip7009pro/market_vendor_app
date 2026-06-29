@@ -1509,145 +1509,145 @@ export default function ReportsPage() {
           {/* 14 KPIs Dashboard Grid */}
           <div className="space-y-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tóm tắt 14 KPIs kinh doanh (Click để xem chi tiết)</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 min-[450px]:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">
               {/* Doanh thu gộp */}
               <div
                 onClick={() => openBackdata('revenue', '1. Chi tiết doanh thu gộp')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">1. Doanh thu gộp</span>
-                <span className="text-base font-extrabold text-white mt-1.5">{formatCurrency(kpis?.totalRevenue || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Tổng tiền mặt bán hàng gốc</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">1. Doanh thu gộp</span>
+                <span className="text-sm sm:text-base font-extrabold text-white mt-1.5">{formatCurrency(kpis?.totalRevenue || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Tổng tiền mặt bán hàng gốc</span>
               </div>
 
               {/* Giảm giá */}
               <div
                 onClick={() => openBackdata('discount', '2. Chi tiết giảm giá')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">2. Tổng giảm giá</span>
-                <span className="text-base font-extrabold text-amber-500 mt-1.5">-{formatCurrency(kpis?.totalDiscount || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Chiết khấu trực tiếp trên bill</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">2. Tổng giảm giá</span>
+                <span className="text-sm sm:text-base font-extrabold text-amber-500 mt-1.5">-{formatCurrency(kpis?.totalDiscount || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Chiết khấu trực tiếp trên bill</span>
               </div>
 
               {/* Doanh thu thuần */}
               <div
                 onClick={() => openBackdata('net_revenue', '3. Chi tiết doanh thu thuần')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">3. Doanh thu thuần</span>
-                <span className="text-base font-extrabold text-indigo-400 mt-1.5">{formatCurrency(kpis?.netRevenue || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Doanh thu gộp - giảm giá</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">3. Doanh thu thuần</span>
+                <span className="text-sm sm:text-base font-extrabold text-indigo-400 mt-1.5">{formatCurrency(kpis?.netRevenue || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Doanh thu gộp - giảm giá</span>
               </div>
 
               {/* Giá vốn */}
               <div
                 onClick={() => openBackdata('cost', '4. Chi tiết giá vốn')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">4. Tổng giá vốn</span>
-                <span className="text-base font-extrabold text-slate-300 mt-1.5">{formatCurrency(kpis?.totalCost || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Gồm giá thô và MIX phân rã</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">4. Tổng giá vốn</span>
+                <span className="text-sm sm:text-base font-extrabold text-slate-300 mt-1.5">{formatCurrency(kpis?.totalCost || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Gồm giá thô và MIX phân rã</span>
               </div>
 
               {/* Lợi nhuận gộp */}
               <div
                 onClick={() => openBackdata('profit', '5. Chi tiết lợi nhuận gộp')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">5. Lợi nhuận gộp</span>
-                <span className="text-base font-extrabold text-cyan-400 mt-1.5">{formatCurrency(kpis?.grossProfit || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Doanh thu thuần - giá vốn</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">5. Lợi nhuận gộp</span>
+                <span className="text-sm sm:text-base font-extrabold text-cyan-400 mt-1.5">{formatCurrency(kpis?.grossProfit || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Doanh thu thuần - giá vốn</span>
               </div>
 
               {/* Thu tiền mặt */}
               <div
                 onClick={() => openBackdata('cash', '6. Chi tiết thu tiền mặt')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">6. Thu TM (Đơn hàng)</span>
-                <span className="text-base font-extrabold text-emerald-400 mt-1.5">{formatCurrency(kpis?.cashRevenue || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Tiền mặt đơn + Thu nợ gốc</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">6. Thu TM (Đơn hàng)</span>
+                <span className="text-sm sm:text-base font-extrabold text-emerald-400 mt-1.5">{formatCurrency(kpis?.cashRevenue || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Tiền mặt đơn + Thu nợ gốc</span>
               </div>
 
               {/* Thu chuyển khoản */}
               <div
                 onClick={() => openBackdata('bank', '7. Chi tiết thu chuyển khoản')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">7. Thu CK (Đơn hàng)</span>
-                <span className="text-base font-extrabold text-sky-400 mt-1.5">{formatCurrency(kpis?.bankRevenue || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Banking đơn + Thu nợ chuyển khoản</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">7. Thu CK (Đơn hàng)</span>
+                <span className="text-sm sm:text-base font-extrabold text-sky-400 mt-1.5">{formatCurrency(kpis?.bankRevenue || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Banking đơn + Thu nợ chuyển khoản</span>
               </div>
 
               {/* Nợ phát sinh */}
               <div
                 onClick={() => openBackdata('outstanding', '8. Chi tiết nợ bán hàng còn lại')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">8. Nợ bán hàng còn lại</span>
-                <span className="text-base font-extrabold text-rose-400 mt-1.5">{formatCurrency(kpis?.outstandingDebt || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Nợ chưa thu từ các đơn trong kỳ</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">8. Nợ bán hàng còn lại</span>
+                <span className="text-sm sm:text-base font-extrabold text-rose-400 mt-1.5">{formatCurrency(kpis?.outstandingDebt || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Nợ chưa thu từ các đơn trong kỳ</span>
               </div>
 
               {/* Tổng chi phí */}
               <div
                 onClick={() => openBackdata('expenses', '9. Chi tiết tổng chi phí')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">9. Tổng chi phí</span>
-                <span className="text-base font-extrabold text-rose-300 mt-1.5">{formatCurrency(kpis?.totalExpenses || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Mọi khoản chi phát sinh</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">9. Tổng chi phí</span>
+                <span className="text-sm sm:text-base font-extrabold text-rose-300 mt-1.5">{formatCurrency(kpis?.totalExpenses || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Mọi khoản chi phát sinh</span>
               </div>
 
               {/* Chi phí hợp lý */}
               <div
                 onClick={() => openBackdata('expense_reasonable', '10. Chi tiết chi phí hợp lý')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">10. Chi phí hợp lý</span>
-                <span className="text-base font-extrabold text-slate-200 mt-1.5">{formatCurrency(kpis?.expenseReasonable || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Chi phí kinh doanh phục vụ vận hành</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">10. Chi phí hợp lý</span>
+                <span className="text-sm sm:text-base font-extrabold text-slate-200 mt-1.5">{formatCurrency(kpis?.expenseReasonable || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Chi phí kinh doanh phục vụ vận hành</span>
               </div>
 
               {/* Ngoài kinh doanh */}
               <div
                 onClick={() => openBackdata('expense_outside', '11. Chi tiết chi tiêu ngoài kinh doanh')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">11. Chi tiêu ngoài KD</span>
-                <span className="text-base font-extrabold text-purple-400 mt-1.5">{formatCurrency(kpis?.expenseOutsideBusiness || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Rút vốn chi cá nhân</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">11. Chi tiêu ngoài KD</span>
+                <span className="text-sm sm:text-base font-extrabold text-purple-400 mt-1.5">{formatCurrency(kpis?.expenseOutsideBusiness || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Rút vốn chi cá nhân</span>
               </div>
 
               {/* Nợ phải trả */}
               <div
                 onClick={() => openBackdata('owe', '12. Chi tiết nợ phải trả (Owe)')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">12. Nợ phải trả (Owe)</span>
-                <span className="text-base font-extrabold text-orange-400 mt-1.5">{formatCurrency(kpis?.totalOwe || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Tiền nợ NCC còn lại lũy kế</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">12. Nợ phải trả (Owe)</span>
+                <span className="text-sm sm:text-base font-extrabold text-orange-400 mt-1.5">{formatCurrency(kpis?.totalOwe || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Tiền nợ NCC còn lại lũy kế</span>
               </div>
 
               {/* Nợ phải thu */}
               <div
                 onClick={() => openBackdata('owed', '13. Chi tiết nợ phải thu (Owed)')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">13. Nợ phải thu (Owed)</span>
-                <span className="text-base font-extrabold text-yellow-500 mt-1.5">{formatCurrency(kpis?.totalOwed || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Tiền khách nợ tôi lũy kế</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">13. Nợ phải thu (Owed)</span>
+                <span className="text-sm sm:text-base font-extrabold text-yellow-500 mt-1.5">{formatCurrency(kpis?.totalOwed || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Tiền khách nợ tôi lũy kế</span>
               </div>
 
               {/* Lợi nhuận ròng */}
               <div
                 onClick={() => openBackdata('net_profit', '14. Chi tiết lợi nhuận ròng')}
-                className="card bg-gradient-to-tr from-indigo-500/10 to-cyan-500/10 border-indigo-500/20 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all shadow-md cursor-pointer hover:border-indigo-500/40 hover:brightness-110"
+                className="card bg-gradient-to-tr from-indigo-500/10 to-cyan-500/10 border-indigo-500/20 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all shadow-md cursor-pointer hover:border-indigo-500/40 hover:brightness-110"
               >
-                <span className="text-[10px] text-indigo-300 font-extrabold uppercase">14. Lợi nhuận ròng</span>
-                <span className="text-lg font-black text-emerald-400 mt-1.5">{formatCurrency(kpis?.netProfit || 0)}</span>
-                <span className="text-[9px] text-slate-400 mt-1">Lợi nhuận gộp - chi phí hợp lý</span>
+                <span className="text-[11px] sm:text-xs text-indigo-300 font-extrabold uppercase">14. Lợi nhuận ròng</span>
+                <span className="text-base sm:text-lg font-black text-emerald-400 mt-1.5">{formatCurrency(kpis?.netProfit || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-400 mt-1">Lợi nhuận gộp - chi phí hợp lý</span>
               </div>
             </div>
           </div>
@@ -1655,35 +1655,35 @@ export default function ReportsPage() {
           {/* Dòng tiền thực thu trong kỳ */}
           <div className="space-y-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dòng tiền thực thu trong kỳ (Tiền thực tế nhận & Thu nợ)</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 min-[450px]:grid-cols-3 gap-2 sm:gap-4">
               {/* Tổng thực thu */}
               <div
                 onClick={() => openBackdata('total_paid', 'Chi tiết Tổng thực thu trong kỳ')}
-                className="card bg-gradient-to-tr from-indigo-500/10 to-emerald-500/10 border-indigo-500/20 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-gradient-to-tr from-indigo-500/10 to-emerald-500/10 border-indigo-500/20 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-indigo-300 font-bold uppercase">Tổng thực thu (trong kỳ)</span>
-                <span className="text-base font-extrabold text-white mt-1.5">{formatCurrency((kpis?.cashPaid || 0) + (kpis?.bankPaid || 0))}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Tổng tiền mặt + Chuyển khoản thực nhận</span>
+                <span className="text-[11px] sm:text-xs text-indigo-300 font-bold uppercase">Tổng thực thu (trong kỳ)</span>
+                <span className="text-sm sm:text-base font-extrabold text-white mt-1.5">{formatCurrency((kpis?.cashPaid || 0) + (kpis?.bankPaid || 0))}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Tổng tiền mặt + Chuyển khoản thực nhận</span>
               </div>
 
               {/* Thu TM trong kỳ */}
               <div
                 onClick={() => openBackdata('cash', 'Chi tiết Thu tiền mặt thực tế trong kỳ')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Thu TM (Thực tế trong kỳ)</span>
-                <span className="text-base font-extrabold text-emerald-400 mt-1.5">{formatCurrency(kpis?.cashPaid || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Tiền mặt từ đơn hàng và thu nợ</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">Thu TM (Thực tế trong kỳ)</span>
+                <span className="text-sm sm:text-base font-extrabold text-emerald-400 mt-1.5">{formatCurrency(kpis?.cashPaid || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Tiền mặt từ đơn hàng và thu nợ</span>
               </div>
 
               {/* Thu CK trong kỳ */}
               <div
                 onClick={() => openBackdata('bank', 'Chi tiết Thu chuyển khoản thực tế trong kỳ')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Thu CK (Thực tế trong kỳ)</span>
-                <span className="text-base font-extrabold text-sky-400 mt-1.5">{formatCurrency(kpis?.bankPaid || 0)}</span>
-                <span className="text-[9px] text-slate-500 mt-1">Banking từ đơn hàng và thu nợ</span>
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">Thu CK (Thực tế trong kỳ)</span>
+                <span className="text-sm sm:text-base font-extrabold text-sky-400 mt-1.5">{formatCurrency(kpis?.bankPaid || 0)}</span>
+                <span className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Banking từ đơn hàng và thu nợ</span>
               </div>
             </div>
           </div>
@@ -1691,15 +1691,15 @@ export default function ReportsPage() {
           {/* Tổng quan tồn kho RAW */}
           <div className="space-y-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tổng quan tồn kho RAW (Click để xem chi tiết)</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 min-[450px]:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">
               {/* Tồn đầu kỳ */}
               <div
                 onClick={() => openBackdata('opening_stock', 'Chi tiết tồn đầu kỳ')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Tồn đầu kỳ</span>
-                <span className="text-base font-extrabold text-white mt-1.5">{inventorySummary.openingQty.toLocaleString('vi-VN')}</span>
-                <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">Tồn đầu kỳ</span>
+                <span className="text-sm sm:text-base font-extrabold text-white mt-1.5">{inventorySummary.openingQty.toLocaleString('vi-VN')}</span>
+                <div className="flex justify-between items-center text-[10px] sm:text-[11px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
                   <span>Vốn: {formatCurrency(inventorySummary.openingCost)}</span>
                   <span>Bán: {formatCurrency(inventorySummary.openingSell)}</span>
                 </div>
@@ -1708,11 +1708,11 @@ export default function ReportsPage() {
               {/* Nhập trong kỳ */}
               <div
                 onClick={() => openBackdata('import_history', 'Chi tiết nhập kho trong kỳ')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Nhập trong kỳ</span>
-                <span className="text-base font-extrabold text-emerald-400 mt-1.5">+{inventorySummary.importQty.toLocaleString('vi-VN')}</span>
-                <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">Nhập trong kỳ</span>
+                <span className="text-sm sm:text-base font-extrabold text-emerald-400 mt-1.5">+{inventorySummary.importQty.toLocaleString('vi-VN')}</span>
+                <div className="flex justify-between items-center text-[10px] sm:text-[11px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
                   <span>Vốn: {formatCurrency(inventorySummary.importCost)}</span>
                   <span>Bán: {formatCurrency(inventorySummary.importSell)}</span>
                 </div>
@@ -1721,11 +1721,11 @@ export default function ReportsPage() {
               {/* Xuất trong kỳ */}
               <div
                 onClick={() => openBackdata('export_history', 'Chi tiết xuất kho trong kỳ')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Xuất trong kỳ</span>
-                <span className="text-base font-extrabold text-rose-400 mt-1.5">-{inventorySummary.exportQty.toLocaleString('vi-VN')}</span>
-                <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">Xuất trong kỳ</span>
+                <span className="text-sm sm:text-base font-extrabold text-rose-400 mt-1.5">-{inventorySummary.exportQty.toLocaleString('vi-VN')}</span>
+                <div className="flex justify-between items-center text-[10px] sm:text-[11px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
                   <span>Vốn: {formatCurrency(inventorySummary.exportCost)}</span>
                   <span>Bán: {formatCurrency(inventorySummary.exportSell)}</span>
                 </div>
@@ -1734,11 +1734,11 @@ export default function ReportsPage() {
               {/* Tồn cuối kỳ */}
               <div
                 onClick={() => openBackdata('ending_stock', 'Chi tiết tồn cuối kỳ')}
-                className="card bg-slate-900/50 border-white/5 p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
+                className="card bg-slate-900/50 border-white/5 p-3 sm:p-4 flex flex-col justify-between hover:scale-[1.02] transition-all cursor-pointer hover:border-indigo-500/40 hover:bg-slate-900/80"
               >
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Tồn cuối kỳ</span>
-                <span className="text-base font-extrabold text-indigo-400 mt-1.5">{inventorySummary.endingQty.toLocaleString('vi-VN')}</span>
-                <div className="flex justify-between items-center text-[9px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
+                <span className="text-[11px] sm:text-xs text-slate-500 font-bold uppercase">Tồn cuối kỳ</span>
+                <span className="text-sm sm:text-base font-extrabold text-indigo-400 mt-1.5">{inventorySummary.endingQty.toLocaleString('vi-VN')}</span>
+                <div className="flex justify-between items-center text-[10px] sm:text-[11px] text-slate-500 mt-1.5 border-t border-white/5 pt-1.5">
                   <span>Vốn: {formatCurrency(inventorySummary.endingCost)}</span>
                   <span>Bán: {formatCurrency(inventorySummary.endingSell)}</span>
                 </div>
