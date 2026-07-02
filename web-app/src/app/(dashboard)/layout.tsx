@@ -74,9 +74,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <MuiProvider>
-    <div className="h-screen w-screen bg-[var(--color-bg)] text-[var(--color-text)] font-sans flex flex-row overflow-hidden">
+    <div className="h-screen w-screen bg-[var(--color-bg)] text-[var(--color-text)] font-sans flex flex-row overflow-hidden md:p-4 md:gap-4">
       {/* Sidebar for Desktop */}
-      <aside className="hidden md:flex flex-col w-64 border-r border-white/5 bg-[var(--color-bg-secondary)] shrink-0">
+      <aside className="hidden md:flex flex-col w-64 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shrink-0 shadow-lg shadow-black/15 z-20">
         {/* Brand */}
         <div className="p-6 border-b border-white/5 flex items-center gap-3 min-w-0">
           {storeLogo ? (
@@ -135,9 +135,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main Container sandwich for Mobile and Desktop Content */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--color-bg-secondary)] md:border md:border-[var(--color-border)] shadow-md shadow-black/5">
         {/* Mobile Header */}
-        <header className="md:hidden flex justify-between items-center px-6 py-3 bg-[var(--color-bg-secondary)] border-b border-white/5 relative z-40 shrink-0">
+        <header className="md:hidden flex justify-between items-center px-6 py-3 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] relative z-40 shrink-0 shadow-sm">
           <div className="flex items-center gap-2.5 min-w-0">
             {storeLogo ? (
               <img src={storeLogo} className="w-7 h-7 rounded-lg object-cover shadow-md" alt="Logo" />
@@ -173,7 +173,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Scrollable Content Area */}
         <main className="flex-1 flex flex-col min-h-0 bg-[var(--color-bg)]/50 relative z-10 overflow-y-auto">
           {/* Top bar (for Desktop) */}
-          <header className="hidden md:flex justify-between items-center py-5 px-8 border-b border-white/5 bg-[var(--color-bg-secondary)]">
+          <header className="hidden md:flex justify-between items-center py-5 px-8 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
             <div className="flex items-center gap-2">
               <span className="text-sm text-slate-500">Dashboard</span>
               <span className="text-slate-600 text-sm">/</span>
@@ -205,7 +205,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </main>
 
         {/* Mobile Bottom Navigation Bar */}
-        <nav className="md:hidden bg-[var(--color-bg-secondary)]/95 backdrop-blur-md border-t border-white/5 flex overflow-x-auto whitespace-nowrap py-2 px-3 gap-1.5 items-center justify-start select-none scrollbar-none snap-x shrink-0">
+        <nav className="md:hidden bg-[var(--color-bg-secondary)]/95 backdrop-blur-md border-t border-[var(--color-border)] flex overflow-x-auto whitespace-nowrap py-2.5 px-4 sm:px-6 gap-2 items-center justify-start select-none scrollbar-none snap-x shrink-0">
           {NAV_ITEMS.map((item) => {
             const isActive = pathname === item.path || pathname.startsWith(item.path + '/');
             return (

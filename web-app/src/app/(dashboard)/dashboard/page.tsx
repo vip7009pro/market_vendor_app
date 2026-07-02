@@ -193,7 +193,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Main Sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-6 md:pt-8">
         {/* Recent transactions */}
         <div className="lg:col-span-2 card bg-slate-900 border-white/5 space-y-6">
           <div className="flex justify-between items-center">

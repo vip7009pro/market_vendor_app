@@ -262,12 +262,23 @@ lib/
     - Chuyển đổi cách hiển thị các Widget báo cáo từ 1 cột (1 widget/dòng) thành **2 đến 3 cột** trên thiết bị di động (`grid-cols-2 min-[450px]:grid-cols-3`), giúp tiết kiệm không gian màn hình tối đa.
     - Nâng cỡ chữ tiêu đề widget lên `text-[11px] sm:text-xs`, số tiền chỉ số lên `text-sm sm:text-base/lg` và mô tả lên `text-[10px] sm:text-[11px]` để đảm bảo hiển thị rõ ràng chỉ số ngay cả ở chế độ nhiều cột.
     - Tối ưu padding các card chỉ số thành `p-3 sm:p-4` để căn lề cân đối và đẹp mắt trên màn hình nhỏ.
+- **Tối ưu hóa khoảng cách bố cục toàn trang (Spacing & Separation)**:
+  - **Tách biệt Sidebar & Tiêu đề** ([layout.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/layout.tsx)):
+    - Thay thế các màu viền cứng `border-white/5` bằng biến màu viền chủ đề động `border-[var(--color-border)]` đồng bộ trên toàn bộ Header điện thoại, Header máy tính, và Sidebar.
+    - Thêm đổ bóng nổi khối cao cấp `shadow-lg shadow-black/15 z-20` cho Sidebar máy tính để tách biệt rõ ràng khu vực Menu điều hướng bên trái và vùng nội dung hiển thị bên phải.
+    - Căn chỉnh đều Padding ngang trên di động giữa mobile header, bottom nav, và content thành `px-4 sm:px-6` để giao diện cân đối, không bị lệch lề.
+  - **Tạo khoảng cách giữa Sidebar và Nội dung bằng thẻ card nổi phẳng (Flat Card Layout)** ([layout.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/layout.tsx)):
+    - Thêm `md:p-4 md:gap-4` cho root layout trên máy tính để chừa khoảng cách 16px giữa Sidebar và Khung nội dung chính, đồng thời tạo lề xung quanh viền màn hình cực kỳ thoáng mắt.
+    - Biến toàn bộ khung nội dung bên phải thành một khối Card phẳng chuyên nghiệp nhờ các lớp `bg-[var(--color-bg-secondary)] md:border md:border-[var(--color-border)] shadow-md shadow-black/5`.
+    - Loại bỏ hoàn toàn thuộc tính bo góc (`rounded-xl` và `md:rounded-*`) ở cả Sidebar bên trái và Khung nội dung bên phải theo yêu cầu của người dùng để giao diện mang phong cách phẳng góc cạnh, tinh giản và đồng bộ.
+  - **Nâng cấp Master-Detail Layout** ([MasterDetailLayout.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/components/ui/MasterDetailLayout.tsx)): Tăng khoảng cách Grid Column từ `gap-4` lên `gap-6` (24px) giữa bảng dữ liệu bên trái và bảng chi tiết bên phải. Thay thế viền cứng bằng `border-[var(--color-border)]` trên card chi tiết để giao diện mềm mại, có chiều sâu.
+  - **Giải quyết lỗi dính sát các mục Báo cáo** ([page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/reports/page.tsx)): Thay thế thẻ bọc Fragment `<>` bằng `<div className="flex flex-col gap-10">` để tách biệt rõ ràng và tạo khoảng cách 40px giữa các khối: 14 KPIs Dashboard, Dòng tiền thực tế nhận, Tổng quan tồn kho RAW, Biểu đồ doanh thu/lợi nhuận, và Bảng tỷ lệ chi phí/top sản phẩm bán chạy.
 - **Hiển thị đơn giá sản phẩm trên ảnh hóa đơn & phiếu nợ**:
   - **Tái thiết kế luồng vẽ sản phẩm** ([receiptShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/receiptShare.ts), [debtShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/debtShare.ts)):
     - Chuyển sang bố cục hiển thị 2 dòng chuyên nghiệp cho mỗi mặt hàng. Dòng 1 vẽ tên sản phẩm bằng chữ đậm (`bold`). Dòng 2 thụt lề đầu dòng vẽ công thức đơn giá rõ ràng dạng `<Số lượng> <Đơn vị> x <Đơn giá>` (ví dụ: `2 cái x 5.000 đ` hoặc `1.5 kg x 80.000 đ`) và vẽ thành tiền ở phía bên phải.
+    - Cập nhật công thức tính toán chiều cao Canvas động (`itemsHeight` và `linkedOrderHeight`) tăng từ 30-35px lên 40px cho mỗi sản phẩm để đảm bảo ảnh xuất ra có khoảng cách rộng rãi, cân đối và không bị tràn hay lỗi bố cục đè chữ.
 - **Liên kết Cài đặt Cửa hàng với ảnh hóa đơn POS**:
   - **Cập nhật giao thức chia sẻ** ([receiptShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/receiptShare.ts)): Bổ sung tham số cấu hình cửa hàng `store` cho hàm `drawReceiptToCanvas` và `shareReceiptImage`. Tên cửa hàng và Hotline (số điện thoại) được vẽ động lên tiêu đề ảnh hóa đơn theo đúng thông tin được thiết lập trong Cài đặt (nếu chưa cấu hình sẽ lấy giá trị mặc định là "MARKET VENDOR APPS" và "0987.654.321").
   - **Tích hợp giao diện bán hàng & đơn hàng** ([pos/page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/pos/page.tsx), [sales/page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/sales/page.tsx)): Truy vấn thông tin cửa hàng hiện tại (`api.getStoreInfo()`) trên `useEffect` hook và lưu trữ vào state, sau đó truyền vào hàm `shareReceiptImage` khi người dùng bấm nút chia sẻ ảnh hóa đơn.
-    - Cập nhật công thức tính toán chiều cao Canvas động (`itemsHeight` và `linkedOrderHeight`) tăng từ 30-35px lên 40px cho mỗi sản phẩm để đảm bảo ảnh xuất ra có khoảng cách rộng rãi, cân đối và không bị tràn hay lỗi bố cục đè chữ.
 
 

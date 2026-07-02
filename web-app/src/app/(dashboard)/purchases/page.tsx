@@ -558,7 +558,9 @@ export default function PurchasesPage() {
           )}
         />
       ) : (
-        <AppDataGrid rows={historyRows} columns={historyColumns} loading={loading} height="calc(100vh - 270px)" />
+        <div className="mt-10 md:mt-12">
+          <AppDataGrid rows={historyRows} columns={historyColumns} loading={loading} height="calc(100vh - 310px)" />
+        </div>
       )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="📦 Nhập hàng vào kho" maxWidth="max-w-3xl" closeOnBackdrop={false} contentClassName="max-h-[90vh] overflow-y-auto">

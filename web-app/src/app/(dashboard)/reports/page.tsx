@@ -1505,7 +1505,7 @@ export default function ReportsPage() {
           Đang truy vấn dữ liệu báo cáo từ database thực tế...
         </div>
       ) : (
-        <>
+        <div className="flex flex-col gap-10">
           {/* 14 KPIs Dashboard Grid */}
           <div className="space-y-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tóm tắt 14 KPIs kinh doanh (Click để xem chi tiết)</h3>
@@ -1856,7 +1856,7 @@ export default function ReportsPage() {
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
 
       {/* Backdata Modal */}

@@ -296,7 +296,7 @@ export default function ExpensesPage() {
 
       {/* Summary Stat */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        <div className="card bg-slate-900 border-white/5 flex items-center gap-4">
+        <div className="card bg-slate-900 border-[var(--color-border)] flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-rose-500/10 flex items-center justify-center text-xl text-rose-400">
             💸
           </div>
@@ -311,7 +311,7 @@ export default function ExpensesPage() {
           </div>
         </div>
 
-        <div className="card bg-slate-900 border-white/5 flex items-center gap-4">
+        <div className="card bg-slate-900 border-[var(--color-border)] flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center text-xl text-indigo-400">
             📆
           </div>
@@ -353,7 +353,9 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      <AppDataGrid rows={expenseRows} columns={expenseColumns} loading={loading} height="calc(100vh - 370px)" />
+      <div className="mt-10 md:mt-12">
+        <AppDataGrid rows={expenseRows} columns={expenseColumns} loading={loading} height="calc(100vh - 410px)" />
+      </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingExpenseId ? '✏️ Cập nhật khoản chi' : 'Ghi nhận khoản chi mới'} maxWidth="max-w-md">
 

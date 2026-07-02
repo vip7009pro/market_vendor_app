@@ -519,9 +519,9 @@ export default function PosPage() {
   return (
     <div className="flex-1 lg:h-[calc(100vh-140px)] min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-6 overflow-hidden">
       {/* Left side: Product catalog (Desktop only) */}
-      <div className="hidden lg:flex flex-1 flex-col bg-slate-900 border border-white/5 rounded-2xl p-6 overflow-hidden">
+      <div className="hidden lg:flex flex-1 flex-col bg-slate-900 border border-white/5 p-6 overflow-hidden">
         {/* Search & Voice Order */}
-        <div className="relative mb-6 flex gap-2">
+        <div className="relative mb-10 flex gap-2">
           <div className="relative flex-1">
             <input
               type="text"
@@ -575,7 +575,7 @@ export default function PosPage() {
       </div>
 
       {/* Right side: Cart / Invoice Checkout */}
-      <div className="w-full lg:w-[min(100%,28rem)] lg:shrink-0 flex flex-col bg-slate-900 border border-white/5 rounded-2xl p-4 lg:p-5 min-h-0 overflow-y-auto">
+      <div className="w-full lg:w-[min(100%,28rem)] lg:shrink-0 flex flex-col bg-slate-900 border border-white/5 p-4 lg:p-5 min-h-0 overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h3 className="font-bold text-white text-base flex items-center gap-2">
             <span>🛒</span> Giỏ hàng ({cart.reduce((sum, item) => sum + item.quantity, 0)})

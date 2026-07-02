@@ -332,19 +332,19 @@ export default function DebtsPage() {
         detail={selectedDebt && (
           <div className="space-y-5 text-sm">
             <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="bg-slate-950/40 p-3 rounded-xl border border-white/5">
+              <div className="bg-slate-950/40 p-3 rounded-xl border border-[var(--color-border)]">
                 <p className="text-slate-500">Nợ ban đầu</p>
                 <p className="font-bold text-white mt-1">{formatCurrency(selectedDebt.initialAmount)}</p>
               </div>
-              <div className="bg-slate-950/40 p-3 rounded-xl border border-white/5">
+              <div className="bg-slate-950/40 p-3 rounded-xl border border-[var(--color-border)]">
                 <p className="text-slate-500">Đã trả</p>
                 <p className="font-bold text-emerald-400 mt-1">{formatCurrency(paidTotal)}</p>
               </div>
-              <div className="bg-slate-950/40 p-3 rounded-xl border border-white/5">
+              <div className="bg-slate-950/40 p-3 rounded-xl border border-[var(--color-border)]">
                 <p className="text-slate-500">Còn lại</p>
                 <p className="font-bold text-amber-400 mt-1">{formatCurrency(selectedDebt.amount)}</p>
               </div>
-              <div className="bg-slate-950/40 p-3 rounded-xl border border-white/5">
+              <div className="bg-slate-950/40 p-3 rounded-xl border border-[var(--color-border)]">
                 <p className="text-slate-500">Hạn trả</p>
                 <p className="font-bold text-white mt-1">{selectedDebt.dueDate ? new Date(selectedDebt.dueDate).toLocaleDateString('vi-VN') : '—'}</p>
               </div>

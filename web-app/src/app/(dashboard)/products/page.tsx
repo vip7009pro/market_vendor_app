@@ -556,7 +556,9 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          <AppDataGrid rows={productRows} columns={productColumns} loading={loadingProducts} height="calc(100vh - 280px)" />
+          <div className="mt-10 md:mt-12">
+            <AppDataGrid rows={productRows} columns={productColumns} loading={loadingProducts} height="calc(100vh - 320px)" />
+          </div>
         </div>
       )}
 
@@ -611,7 +613,9 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          <AppDataGrid rows={importRows} columns={importColumns} loading={loadingImports} height="calc(100vh - 410px)" />
+          <div className="mt-10 md:mt-12">
+            <AppDataGrid rows={importRows} columns={importColumns} loading={loadingImports} height="calc(100vh - 450px)" />
+          </div>
         </div>
       )}
 
@@ -666,7 +670,9 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          <AppDataGrid rows={exportRows} columns={exportColumns} loading={loadingExports} height="calc(100vh - 410px)" />
+          <div className="mt-10 md:mt-12">
+            <AppDataGrid rows={exportRows} columns={exportColumns} loading={loadingExports} height="calc(100vh - 450px)" />
+          </div>
         </div>
       )}
 

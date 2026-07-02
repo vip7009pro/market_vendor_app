@@ -242,7 +242,9 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      <AppDataGrid rows={customerRows} columns={customerColumns} loading={loading} height="calc(100vh - 270px)" />
+      <div className="mt-10 md:mt-12">
+        <AppDataGrid rows={customerRows} columns={customerColumns} loading={loading} height="calc(100vh - 310px)" />
+      </div>
 
       <Modal
         open={modalOpen}
