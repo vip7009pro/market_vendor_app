@@ -311,6 +311,33 @@ lib/
   - Giữ nguyên cấu hình căn lề uncompressed trong zip `packaging { jniLibs { useLegacyPackaging = false } }`.
   - **Kiểm định thực tế**: Đã biên dịch thành công file release bundle `build/app/outputs/bundle/release/app-release.aab` (78.2 MB). Dùng công cụ `llvm-readelf.exe` của NDK r28 kiểm tra trích xuất 100% 18 file `.so` (cả 3 kiến trúc `arm64-v8a`, `x86_64`, `armeabi-v7a`) đều đạt chuẩn căn lề LOAD segment `0x4000` (16 KB) hoặc `0x10000` (64 KB).
 
+### Sửa Lỗi Chính Sách Quyền Ảnh & Video Google Play (Photo & Video Permissions Policy) & Nâng Version Code 39 (2026-09-05)
+- **Nguyên nhân lỗi Google Play**:
+  - Google Play Console từ chối các bản bundle yêu cầu quyền rộng `READ_MEDIA_IMAGES` và `READ_MEDIA_VIDEO` trên Android 13+ (API 33+) khi không phải ứng dụng quản lý ảnh lõi.
+  - Phân tích báo cáo hợp nhất manifest (`manifest-merger-release-report.txt`) cho thấy thư viện `open_filex` tự động chèn các quyền `android.permission.READ_MEDIA_IMAGES`, `android.permission.READ_MEDIA_VIDEO`, và `android.permission.READ_MEDIA_AUDIO` vào manifest cuối cùng.
+  - Trong code Dart, `lib/utils/file_helper.dart` có đoạn gọi `Permission.photos.request()` khi xuất file trên Android 13+.
+- **Giải pháp xử lý**:
+  - **`android/app/src/main/AndroidManifest.xml`**:
+    - Khai báo namespace `xmlns:tools="http://schemas.android.com/tools"`.
+    - Sử dụng `tools:node="remove"` để triệt tiêu hoàn toàn các thẻ `<uses-permission>` liên quan đến media từ thư viện bên thứ 3:
+      - `android.permission.READ_MEDIA_IMAGES`
+      - `android.permission.READ_MEDIA_VIDEO`
+      - `android.permission.READ_MEDIA_AUDIO`
+      - `android.permission.READ_MEDIA_VISUAL_USER_SELECTED`
+    - Giới hạn quyền lưu trữ cũ: Gán `android:maxSdkVersion="29"` cho `WRITE_EXTERNAL_STORAGE` và `android:maxSdkVersion="32"` cho `READ_EXTERNAL_STORAGE` với `tools:replace="android:maxSdkVersion"`.
+  - **`lib/utils/file_helper.dart`**:
+    - Bỏ yêu cầu `Permission.photos.request()` trên Android 13+ (trả về `true` trực tiếp do hệ thống dùng MediaStore / Scoped Storage không cần quyền lưu trữ).
+  - **`pubspec.yaml`**:
+    - Tăng `version` từ `1.0.0+38` lên **`1.0.0+39`** (`versionCode = 39`).
+- **Kiểm định & Biên dịch**:
+  - Đã chạy `flutter build appbundle --release`.
+  - File kết quả: `build/app/outputs/bundle/release/app-release.aab` (78.2 MB, 82,030,642 bytes).
+  - Đã đối soát merged manifest `build/app/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml`:
+    - `READ_MEDIA_*` đã hoàn toàn sạch sẽ (0 kết quả).
+    - `versionCode="39"`, `versionName="1.0.0"`.
+    - `WRITE_EXTERNAL_STORAGE` giới hạn `maxSdkVersion="29"`, `READ_EXTERNAL_STORAGE` giới hạn `maxSdkVersion="32"`.
+
+
 
 
 

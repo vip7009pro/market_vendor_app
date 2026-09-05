@@ -229,18 +229,8 @@ class FileHelper {
       final androidInfo = await deviceInfo.androidInfo;
       final sdkInt = androidInfo.version.sdkInt;
       
-      // Android 13 (API 33) trở lên sử dụng quyền cụ thể
+      // Android 13 (API 33) trở lên sử dụng Scoped Storage / MediaStore, không cần xin quyền media/storage
       if (sdkInt >= 33) {
-        // Yêu cầu quyền truy cập ảnh và video
-        final photos = await Permission.photos.request();
-        if (!photos.isGranted) {
-          if (!context.mounted) return false;
-          _showErrorMessage(
-            context, 
-            'Cần quyền truy cập ảnh và video để lưu file. Vui lòng cấp quyền trong cài đặt ứng dụng.'
-          );
-          return false;
-        }
         return true;
       } 
       // Android 11-12 (API 30-32)

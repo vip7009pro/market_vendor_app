@@ -191,7 +191,11 @@ Tài liệu này theo dõi tiến độ các phase của dự án chuyển đổ
   - [x] Chuyển `mobile_scanner` sang Unbundled mode (`useUnbundled=true`) loại bỏ `libbarhopper_v3.so` 4KB.
   - [x] Áp dụng `resolutionStrategy` ép CameraX lên `1.4.2` đưa `libimage_processing_util_jni.so` đạt căn lề 16 KB (`0x4000`).
   - [x] Đảm bảo cấu hình căn lề không nén `packaging { jniLibs { useLegacyPackaging = false } }` và NDK r28 (`28.2.13676358`).
-  - [x] Biên dịch release AAB (`app-release.aab` - 78.2 MB) và dùng `llvm-readelf` xác minh 100% 18 file `.so` đạt chuẩn 16KB/64KB.
+- [x] **11.4 Đáp ứng Chính sách Quyền Ảnh & Video Google Play (Photo and Video Permissions Policy)**
+  - [x] Dùng `tools:node="remove"` loại bỏ triệt để các quyền broad media permissions (`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO`, `READ_MEDIA_VISUAL_USER_SELECTED`) bị chèn từ thư viện bên thứ ba (`open_filex`).
+  - [x] Giới hạn phạm vi quyền lưu trữ cũ: gán `android:maxSdkVersion="29"` cho `WRITE_EXTERNAL_STORAGE` và `maxSdkVersion="32"` cho `READ_EXTERNAL_STORAGE`.
+  - [x] Tối ưu `lib/utils/file_helper.dart` không xin quyền ảnh/video runtime trên Android 13+ (sử dụng Scoped Storage / MediaStore).
+  - [x] Tăng `versionCode` lên **39** (`1.0.0+39`) và biên dịch thành công `build/app/outputs/bundle/release/app-release.aab` sạch quyền media.
 
 
 
