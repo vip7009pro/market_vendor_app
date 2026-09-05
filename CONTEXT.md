@@ -281,4 +281,38 @@ lib/
   - **Cập nhật giao thức chia sẻ** ([receiptShare.ts](file:///g:/NODEJS/market_vendor_app/web-app/src/lib/receiptShare.ts)): Bổ sung tham số cấu hình cửa hàng `store` cho hàm `drawReceiptToCanvas` và `shareReceiptImage`. Tên cửa hàng và Hotline (số điện thoại) được vẽ động lên tiêu đề ảnh hóa đơn theo đúng thông tin được thiết lập trong Cài đặt (nếu chưa cấu hình sẽ lấy giá trị mặc định là "MARKET VENDOR APPS" và "0987.654.321").
   - **Tích hợp giao diện bán hàng & đơn hàng** ([pos/page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/pos/page.tsx), [sales/page.tsx](file:///g:/NODEJS/market_vendor_app/web-app/src/app/(dashboard)/sales/page.tsx)): Truy vấn thông tin cửa hàng hiện tại (`api.getStoreInfo()`) trên `useEffect` hook và lưu trữ vào state, sau đó truyền vào hàm `shareReceiptImage` khi người dùng bấm nút chia sẻ ảnh hóa đơn.
 
+### Kiểm tra & Đánh giá Đồng bộ (2026-07-02)
+- Thực hiện đánh giá chi tiết tính tương thích của Schema Database giữa Flutter SQLite và PostgreSQL (Prisma).
+- Chỉ ra các điểm bất tương thích và lỗ hổng kiến trúc lớn bao gồm:
+  1. Thiếu cơ chế tạo sync event khi thực hiện ghi dữ liệu trực tiếp trên Web App Next.js.
+  2. Nguy cơ trùng lặp và ghi đè dữ liệu đối với bảng `debt_payments` do khóa chính SQLite không khớp và thiếu chỉ mục duy nhất cho trường `uuid`.
+  3. Bất tương thích tên trường casing (`swift_code` vs `swiftCode`) ở bảng `vietqr_bank_accounts`.
+  4. Bỏ sót 3 bảng nghiệp vụ chưa đưa vào danh sách đồng bộ (`store_info`, `product_opening_stocks`, `debt_reminder_settings`).
+  5. **Sai lệch kết nối API trên Mobile:** Mobile đang kết nối tới cổng mặc định cũ `3006` (thay vì `3007` của backend mới) và gọi trực tiếp các đường dẫn `/sync/push` / `/sync/pull` (thay vì `/api/sync/push` / `/api/sync/pull`).
+- **Đánh giá Khôi phục Bản sao lưu (Restore Backup):** Việc khôi phục bản sao lưu vật lý từ bản cũ lên bản app mới sẽ kích hoạt nâng cấp schema thông qua hàm `_migrateDatabase` một cách an toàn. Trạng thái đồng bộ sẽ được khôi phục và đồng bộ đuổi qua cursor. Đã bổ sung phân tích rủi ro trùng lặp UUID trong migration v34 và rủi ro hạ cấp app.
+- Kế hoạch nâng cấp và hướng khắc phục chi tiết được lưu trữ tại [sync_readiness_assessment.md](file:///C:/Users/vip70/.gemini/antigravity-ide/brain/0455d8d3-9edd-49a7-b280-b7bc2bea7db2/sync_readiness_assessment.md).
+
+### Hoàn thiện Môi trường Windows Mới & Chuẩn Google Play Store (2026-09-05)
+- **Rà soát & Cấu hình Môi trường Phát triển**:
+  - Flutter SDK 3.47.2 (Stable), Dart 3.13.2 tại `G:\FlutterSDK\flutter`.
+  - Android SDK v36.0.0 (Platform 37) tại `C:\Users\Admin\AppData\Local\Android\sdk`.
+  - Android NDK r28 (`28.2.13676358`) tại `C:\Users\Admin\AppData\Local\Android\Sdk\ndk`.
+  - Microsoft OpenJDK 17.0.20.1 LTS.
+  - Sửa `android/local.properties` cập nhật đúng đường dẫn Flutter SDK và Android SDK mới.
+  - Sửa `android/app/build.gradle.kts` trỏ đường dẫn file ký phát hành hợp lệ `G:/NODEJS/ghinoflutter.jks`.
+  - Nâng cấp chuỗi công cụ Gradle/AGP/Kotlin đáp ứng Flutter 3.47: Gradle 8.14, AGP 8.11.1, Kotlin Gradle Plugin 2.2.20.
+  - Cập nhật `debugSymbolLevel = "SYMBOL_TABLE"` trong `build.gradle.kts` và `gradle.properties` để hỗ trợ trích xuất native debug symbols lên Google Play Console.
+- **Đáp ứng Google Play Billing Library version 8.0.0+**:
+  - Nâng cấp `in_app_purchase: ^3.3.0` và tích hợp `in_app_purchase_android: ^0.5.3`.
+  - Tự động tích hợp native dependency `com.android.billingclient:billing:8.0.0`, đáp ứng chuẩn bắt buộc mới nhất của Play Store.
+- **Đáp ứng Chuẩn Kích thước Trang Bộ nhớ 16 KB (16 KB Memory Page Sizes)**:
+  - Cấu hình `dev.steenbakker.mobile_scanner.useUnbundled=true` và khai báo `<meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode" />` trong `AndroidManifest.xml` (loại bỏ thư viện native 4KB cũ `libbarhopper_v3.so`, chuyển sang dùng model quản lý bởi Google Play Services).
+  - Thêm `resolutionStrategy` ép CameraX lên `1.4.2` (`camera-core:1.4.2`, `camera-camera2:1.4.2`, `camera-lifecycle:1.4.2`), giúp `libimage_processing_util_jni.so` căn lề chuẩn 16 KB (`0x4000`).
+  - Giữ nguyên cấu hình căn lề uncompressed trong zip `packaging { jniLibs { useLegacyPackaging = false } }`.
+  - **Kiểm định thực tế**: Đã biên dịch thành công file release bundle `build/app/outputs/bundle/release/app-release.aab` (78.2 MB). Dùng công cụ `llvm-readelf.exe` của NDK r28 kiểm tra trích xuất 100% 18 file `.so` (cả 3 kiến trúc `arm64-v8a`, `x86_64`, `armeabi-v7a`) đều đạt chuẩn căn lề LOAD segment `0x4000` (16 KB) hoặc `0x10000` (64 KB).
+
+
+
+
+
 

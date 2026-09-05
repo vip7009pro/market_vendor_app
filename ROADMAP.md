@@ -177,5 +177,22 @@ Tài liệu này theo dõi tiến độ các phase của dự án chuyển đổ
   - [x] Tích hợp phần chọn Giao diện trong trang Cài đặt, tự động lưu lựa chọn vào localStorage và áp dụng tức thời cho toàn app.
   - [x] Đồng bộ hóa load theme từ client-side bằng thẻ `<script>` nhúng trong `<head>` tránh hiện tượng nháy màu khi tải trang.
 
+---
+
+### 🛡️ PHASE 11: Chuẩn hóa Phát hành Google Play Store & Hoàn thiện Môi trường - ĐÃ HOÀN THÀNH
+- [x] **11.1 Rà soát & Cấu hình môi trường Windows mới**
+  - [x] Sửa đường dẫn SDK trong `local.properties` và sửa đường dẫn keystore `storeFile` sang `G:/NODEJS/ghinoflutter.jks`.
+  - [x] Cập nhật Gradle 8.14, AGP 8.11.1, Kotlin Gradle Plugin 2.2.20 tương thích Flutter 3.47.2.
+  - [x] Xử lý conflict marker `pubspec.lock` và loại bỏ unused imports.
+- [x] **11.2 Đáp ứng Google Play Billing Library 8.0.0+**
+  - [x] Nâng cấp `in_app_purchase: ^3.3.0` & `in_app_purchase_android: ^0.5.3`.
+  - [x] Tích hợp `com.android.billingclient:billing:8.0.0`.
+- [x] **11.3 Hỗ trợ Kích thước Trang Bộ nhớ 16 KB (16 KB Memory Page Sizes)**
+  - [x] Chuyển `mobile_scanner` sang Unbundled mode (`useUnbundled=true`) loại bỏ `libbarhopper_v3.so` 4KB.
+  - [x] Áp dụng `resolutionStrategy` ép CameraX lên `1.4.2` đưa `libimage_processing_util_jni.so` đạt căn lề 16 KB (`0x4000`).
+  - [x] Đảm bảo cấu hình căn lề không nén `packaging { jniLibs { useLegacyPackaging = false } }` và NDK r28 (`28.2.13676358`).
+  - [x] Biên dịch release AAB (`app-release.aab` - 78.2 MB) và dùng `llvm-readelf` xác minh 100% 18 file `.so` đạt chuẩn 16KB/64KB.
+
+
 
 
