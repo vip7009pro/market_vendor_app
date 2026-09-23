@@ -48,7 +48,9 @@ router.get('/pull', async (req: AuthRequest, res: Response): Promise<void> => {
 router.get('/snapshot', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
+    console.log(`📸 [Sync Snapshot] Yêu cầu tải dữ liệu từ userId=${userId} (${req.user?.email || 'unknown'})`);
     const snapshot = await SyncService.getSnapshot(userId);
+    console.log(`📸 [Sync Snapshot] Đang gửi về: ${snapshot.products.length} SP, ${snapshot.customers.length} KH, ${snapshot.sales.length} Đơn, ${snapshot.debts.length} Nợ, ${snapshot.expenses.length} Chi phí`);
     res.json({ success: true, data: snapshot });
   } catch (error: any) {
     console.error('Snapshot error:', error);

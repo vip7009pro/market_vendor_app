@@ -59,7 +59,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const { name, price, costPrice, unit, barcode, isActive, itemType, isStocked, imagePath, currentStock } = req.body;
+    const { id, name, price, costPrice, unit, barcode, isActive, itemType, isStocked, imagePath, currentStock } = req.body;
 
     if (!name || price === undefined || !unit) {
       res.status(400).json({ error: 'name, price, and unit are required' });
@@ -69,7 +69,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const product = await prisma.product.create({
       data: {
         userId,
-        id: uuidv4(),
+        id: id || uuidv4(),
         name,
         price,
         costPrice: costPrice || 0,

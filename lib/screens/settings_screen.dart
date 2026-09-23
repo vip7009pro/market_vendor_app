@@ -48,14 +48,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.1)),
+        side: BorderSide(
+          color: Theme.of(context).dividerColor.withOpacity(0.1),
+        ),
       ),
       child: InkWell(
-        onTap: onTap == null
-            ? null
-            : () {
-                onTap();
-              },
+        onTap:
+            onTap == null
+                ? null
+                : () {
+                  onTap();
+                },
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
@@ -98,7 +101,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (!purchaseProvider.isStoreAvailable) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cửa hàng không khả dụng trên thiết bị này')),
+        const SnackBar(
+          content: Text('Cửa hàng không khả dụng trên thiết bị này'),
+        ),
       );
       return;
     }
@@ -106,57 +111,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final product = purchaseProvider.backupRestoreProduct;
     if (product == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Không tìm thấy sản phẩm. Vui lòng thử lại sau.')),
+        const SnackBar(
+          content: Text('Không tìm thấy sản phẩm. Vui lòng thử lại sau.'),
+        ),
       );
       return;
     }
 
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nâng cấp Premium'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              product.title,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Nâng cấp Premium'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  product.title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(product.description),
+                const SizedBox(height: 16),
+                const Text(
+                  'Tính năng Premium bao gồm:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text('• Sao lưu dữ liệu lên Google Drive'),
+                const Text('• Khôi phục dữ liệu từ Google Drive'),
+                const Text('• Đồng bộ tự động'),
+                const Text('• Hỗ trợ ưu tiên'),
+                const SizedBox(height: 16),
+                Text(
+                  'Giá: ${product.price}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                    color: Colors.green,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(product.description),
-            const SizedBox(height: 16),
-            const Text(
-              'Tính năng Premium bao gồm:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text('• Sao lưu dữ liệu lên Google Drive'),
-            const Text('• Khôi phục dữ liệu từ Google Drive'),
-            const Text('• Đồng bộ tự động'),
-            const Text('• Hỗ trợ ưu tiên'),
-            const SizedBox(height: 16),
-            Text(
-              'Giá: ${product.price}',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-                color: Colors.green,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Hủy'),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Hủy'),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Mua ngay'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Mua ngay'),
-          ),
-        ],
-      ),
     );
 
     if (confirm == true && mounted) {
@@ -164,10 +175,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(purchaseProvider.lastError ?? 'Không thể bắt đầu giao dịch'),
+            content: Text(
+              purchaseProvider.lastError ?? 'Không thể bắt đầu giao dịch',
+            ),
           ),
         );
-      } else if (success && mounted && purchaseProvider.lastSuccessMessage != null) {
+      } else if (success &&
+          mounted &&
+          purchaseProvider.lastSuccessMessage != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(purchaseProvider.lastSuccessMessage!)),
         );
@@ -192,23 +207,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Show dialog to inform user about premium feature
     final shouldPurchase = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Tính năng Premium'),
-        content: const Text(
-          'Sao lưu và khôi phục dữ liệu lên Google Drive là tính năng Premium. '
-          'Bạn có muốn nâng cấp để sử dụng tính năng này không?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Để sau'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Tính năng Premium'),
+            content: const Text(
+              'Sao lưu và khôi phục dữ liệu lên Google Drive là tính năng Premium. '
+              'Bạn có muốn nâng cấp để sử dụng tính năng này không?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Để sau'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Nâng cấp'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Nâng cấp'),
-          ),
-        ],
-      ),
     );
 
     if (shouldPurchase == true && mounted) {
@@ -244,12 +260,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = Theme.of(context);
     final auth = context.watch<AuthProvider>();
     final purchaseProvider = context.watch<PurchaseProvider>();
-    
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Cài đặt'),
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('Cài đặt'), elevation: 0),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -259,32 +272,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
               side: BorderSide(
-                color: _isOnlineMode ? Colors.green.withOpacity(0.4) : Colors.blueGrey.withOpacity(0.3),
+                color:
+                    _isOnlineMode
+                        ? Colors.green.withOpacity(0.4)
+                        : Colors.blueGrey.withOpacity(0.3),
               ),
             ),
-            color: _isOnlineMode ? Colors.green.withOpacity(0.08) : Colors.blueGrey.withOpacity(0.06),
+            color:
+                _isOnlineMode
+                    ? Colors.green.withOpacity(0.08)
+                    : Colors.blueGrey.withOpacity(0.06),
             child: InkWell(
               borderRadius: BorderRadius.circular(12),
               onTap: () async {
                 await Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const OnlineServerSyncScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const OnlineServerSyncScreen(),
+                  ),
                 );
                 _checkMode();
               },
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _isOnlineMode ? Colors.green.withOpacity(0.2) : Colors.blueGrey.withOpacity(0.2),
+                        color:
+                            _isOnlineMode
+                                ? Colors.green.withOpacity(0.2)
+                                : Colors.blueGrey.withOpacity(0.2),
                       ),
                       child: Icon(
                         _isOnlineMode ? Icons.cloud_done : Icons.cloud_off,
-                        color: _isOnlineMode ? Colors.green[700] : Colors.blueGrey[700],
+                        color:
+                            _isOnlineMode
+                                ? Colors.green[700]
+                                : Colors.blueGrey[700],
                         size: 22,
                       ),
                     ),
@@ -296,23 +326,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Row(
                             children: [
                               Text(
-                                _isOnlineMode ? 'Chế độ Online (PostgreSQL)' : 'Chế độ Offline (Cục bộ)',
+                                _isOnlineMode
+                                    ? 'Chế độ Online (PostgreSQL)'
+                                    : 'Chế độ Offline (Cục bộ)',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
-                                  color: _isOnlineMode ? Colors.green[800] : Colors.blueGrey[800],
+                                  color:
+                                      _isOnlineMode
+                                          ? Colors.green[800]
+                                          : Colors.blueGrey[800],
                                 ),
                               ),
                               const SizedBox(width: 6),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: _isOnlineMode ? Colors.green : Colors.blueGrey,
+                                  color:
+                                      _isOnlineMode
+                                          ? Colors.green
+                                          : Colors.blueGrey,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  _isOnlineMode ? '14.160.33.94' : 'Máy cục bộ',
-                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                  _isOnlineMode
+                                      ? '192.168.1.203'
+                                      : 'Máy cục bộ',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ],
@@ -322,7 +369,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _isOnlineMode
                                 ? 'Đang kết nối máy chủ online. Chạm để quản lý.'
                                 : 'Đang dùng dữ liệu trên máy. Chạm để đồng bộ lên máy chủ.',
-                            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[700],
+                            ),
                           ),
                         ],
                       ),
@@ -334,7 +384,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          
+
           // Quick Actions Section
           Text(
             'Tính năng nhanh',
@@ -352,74 +402,98 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: Icons.inventory_2_outlined,
                   iconColor: const Color(0xFF1E88E5),
                   label: 'Sản phẩm',
-                  onTap: () async => Navigator.of(context).pushNamed('/products'),
+                  onTap:
+                      () async => Navigator.of(context).pushNamed('/products'),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.people_outline,
                   iconColor: const Color(0xFF8E24AA),
                   label: 'Khách hàng',
-                  onTap: () async => Navigator.of(context).pushNamed('/customers'),
+                  onTap:
+                      () async => Navigator.of(context).pushNamed('/customers'),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.store,
                   iconColor: const Color(0xFFFB8C00),
                   label: 'Cửa hàng',
-                  onTap: () async => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const StoreInfoScreen()),
-                  ),
+                  onTap:
+                      () async => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const StoreInfoScreen(),
+                        ),
+                      ),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.palette_outlined,
                   iconColor: const Color(0xFFEC407A),
                   label: 'Giao diện',
-                  onTap: () async => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const ThemeSelectionScreen()),
-                  ),
+                  onTap:
+                      () async => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const ThemeSelectionScreen(),
+                        ),
+                      ),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.description_outlined,
                   iconColor: const Color(0xFF43A047),
                   label: 'Khai thuế',
-                  onTap: () async => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const TaxDeclarationFormScreen()),
-                  ),
+                  onTap:
+                      () async => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) => const TaxDeclarationFormScreen(),
+                        ),
+                      ),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.qr_code_2_outlined,
                   iconColor: const Color(0xFF00ACC1),
                   label: 'Ngân hàng',
-                  onTap: () async => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const VietQrBankAccountsScreen()),
-                  ),
+                  onTap:
+                      () async => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) => const VietQrBankAccountsScreen(),
+                        ),
+                      ),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.badge_outlined,
                   iconColor: const Color(0xFF5E35B1),
                   label: 'Nhân viên',
-                  onTap: () async => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()),
-                  ),
+                  onTap:
+                      () async => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) => const EmployeeManagementScreen(),
+                        ),
+                      ),
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.smart_toy_outlined,
                   iconColor: const Color(0xFF00897B),
                   label: 'Chọn AI',
-                  onTap: () async => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const AiProviderSettingsScreen()),
-                  ),
+                  onTap:
+                      () async => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) => const AiProviderSettingsScreen(),
+                        ),
+                      ),
                 ),
               ];
               return GridView.builder(
@@ -436,9 +510,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
-          
+
           const SizedBox(height: 24),
-          
+
           // Backup & Restore Section
           Text(
             'Sao lưu & Khôi phục',
@@ -450,7 +524,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
-              final children = <Widget>[                
+              final children = <Widget>[
                 /* _buildMenuButton(
                   context,
                   icon: Icons.cloud_outlined,
@@ -491,40 +565,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: Icons.cloud_outlined,
                   iconColor: const Color(0xFF1E88E5),
                   label: 'Backup Drive',
-                  onTap: auth.isSignedIn
-                      ? () async {
-                          final hasPremium = await _checkPremiumAccess(context);
-                          if (!hasPremium) return;
-                          if (!mounted) return;
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const DriveBackupManagerScreen(),
-                            ),
-                          );
-                        }
-                      : null,
+                  onTap:
+                      auth.isSignedIn
+                          ? () async {
+                            final hasPremium = await _checkPremiumAccess(
+                              context,
+                            );
+                            if (!hasPremium) return;
+                            if (!mounted) return;
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder:
+                                    (_) => const DriveBackupManagerScreen(),
+                              ),
+                            );
+                          }
+                          : null,
                 ),
                 _buildMenuButton(
                   context,
                   icon: Icons.table_view_outlined,
                   iconColor: const Color(0xFF43A047),
                   label: 'Google Sheets',
-                  onTap: auth.isSignedIn
-                      ? () async {
-                          final hasPremium = await _checkPremiumAccess(context);
-                          if (!hasPremium) return;
-                          if (!mounted) return;
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const SheetsSyncScreen(),
-                            ),
-                          );
-                        }
-                      : null,
+                  onTap:
+                      auth.isSignedIn
+                          ? () async {
+                            final hasPremium = await _checkPremiumAccess(
+                              context,
+                            );
+                            if (!hasPremium) return;
+                            if (!mounted) return;
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const SheetsSyncScreen(),
+                              ),
+                            );
+                          }
+                          : null,
                 ),
-               /*  const Divider(height: 1),
+                /*  const Divider(height: 1),
                 ListTile(
                   leading: Icon(Icons.backup, color: theme.colorScheme.primary),
                   title: const Text('Sao lưu dữ liệu'),
@@ -741,7 +822,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onTap: () async {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const LocalDataTablesScreen()),
+                      MaterialPageRoute(
+                        builder: (_) => const LocalDataTablesScreen(),
+                      ),
                     );
                   },
                 ),
@@ -761,17 +844,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
- Card(
-  elevation: 2,
-  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-  child: Padding(
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            CircleAvatar(
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
                         radius: 30,
                         // Chỉ hiện ảnh khi có URL
                         backgroundImage:
@@ -797,103 +882,137 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   size: 30,
                                 ), // Nếu chưa đăng nhập thì hiện icon
                       ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    auth.isSignedIn
-                        ? (auth.firebaseUser?.displayName ?? 'Người dùng')
-                        : 'Khách',
-                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              auth.isSignedIn
+                                  ? (auth.firebaseUser?.displayName ??
+                                      'Người dùng')
+                                  : 'Khách',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (auth.isSignedIn &&
+                                auth.firebaseUser?.email != null)
+                              Text(
+                                auth.firebaseUser!.email!,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            if (!auth.isSignedIn)
+                              Text(
+                                'Đăng nhập để đồng bộ dữ liệu',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  if (auth.isSignedIn && auth.firebaseUser?.email != null)
-                    Text(
-                      auth.firebaseUser!.email!,
-                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed:
+                          auth.isLoading
+                              ? null
+                              : () async {
+                                if (auth.isSignedIn) {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder:
+                                        (_) => AlertDialog(
+                                          title: const Text(
+                                            'Xác nhận đăng xuất',
+                                          ),
+                                          content: const Text(
+                                            'Bạn có chắc muốn đăng xuất?',
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed:
+                                                  () => Navigator.pop(
+                                                    context,
+                                                    false,
+                                                  ),
+                                              child: const Text('Hủy'),
+                                            ),
+                                            FilledButton(
+                                              onPressed:
+                                                  () => Navigator.pop(
+                                                    context,
+                                                    true,
+                                                  ),
+                                              child: const Text('Đăng xuất'),
+                                            ),
+                                          ],
+                                        ),
+                                  );
+                                  if (confirm == true) await auth.signOut();
+                                } else {
+                                  await auth.signInWithGoogle();
+                                }
+                              },
+                      icon: Icon(auth.isSignedIn ? Icons.logout : Icons.login),
+                      label: Text(
+                        auth.isSignedIn ? 'Đăng xuất' : 'Đăng nhập với Google',
+                      ),
                     ),
-                  if (!auth.isSignedIn)
-                    Text(
-                      'Đăng nhập để đồng bộ dữ liệu',
-                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-                    ),
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: auth.isLoading ? null : () async {
-              if (auth.isSignedIn) {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Xác nhận đăng xuất'),
-                    content: const Text('Bạn có chắc muốn đăng xuất?'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-                      FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Đăng xuất')),
-                    ],
-                  ),
-                );
-                if (confirm == true) await auth.signOut();
-              } else {
-                await auth.signInWithGoogle();
-              }
-            },
-            icon: Icon(auth.isSignedIn ? Icons.logout : Icons.login),
-            label: Text(auth.isSignedIn ? 'Đăng xuất' : 'Đăng nhập với Google'),
           ),
-        ),
-      ],
-    ),
-  ),
-),
           // Premium Status Card
           if (purchaseProvider.isStoreAvailable)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Card(
-                color: purchaseProvider.isPremiumUser 
-                    ? theme.colorScheme.primaryContainer 
-                    : null,
+                color:
+                    purchaseProvider.isPremiumUser
+                        ? theme.colorScheme.primaryContainer
+                        : null,
                 child: ListTile(
                   leading: Icon(
-                    purchaseProvider.isPremiumUser 
-                        ? Icons.workspace_premium 
+                    purchaseProvider.isPremiumUser
+                        ? Icons.workspace_premium
                         : Icons.lock_outline,
-                    color: purchaseProvider.isPremiumUser 
-                        ? theme.colorScheme.primary 
-                        : null,
+                    color:
+                        purchaseProvider.isPremiumUser
+                            ? theme.colorScheme.primary
+                            : null,
                   ),
                   title: Text(
-                    purchaseProvider.isPremiumUser 
-                        ? 'Tài khoản Premium' 
+                    purchaseProvider.isPremiumUser
+                        ? 'Tài khoản Premium'
                         : 'Nâng cấp Premium',
                   ),
                   subtitle: Text(
-                    purchaseProvider.isPremiumUser 
-                        ? 'Bạn đang sử dụng tất cả tính năng premium' 
+                    purchaseProvider.isPremiumUser
+                        ? 'Bạn đang sử dụng tất cả tính năng premium'
                         : 'Mở khóa sao lưu Google Drive và nhiều tính năng khác',
                   ),
-                  trailing: purchaseProvider.isPremiumUser 
-                      ? const Icon(Icons.check_circle, color: Colors.green)
-                      : TextButton(
-                          onPressed: () => _showPurchaseDialog(context),
-                          child: const Text('Xem thêm'),
-                        ),
+                  trailing:
+                      purchaseProvider.isPremiumUser
+                          ? const Icon(Icons.check_circle, color: Colors.green)
+                          : TextButton(
+                            onPressed: () => _showPurchaseDialog(context),
+                            child: const Text('Xem thêm'),
+                          ),
                 ),
               ),
             ),
-          
+
           const SizedBox(height: 4),
-         
-          
-         /*  Card(
+
+          /*  Card(
             child: ListTile(
               leading: const Icon(Icons.cloud_sync_outlined),
               title: const Text('Đồng bộ dữ liệu'),
@@ -1026,10 +1145,14 @@ class _AboutCardState extends State<_AboutCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Ứng dụng quản lý bán hàng cho tiểu thương', 
-              style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Ứng dụng quản lý bán hàng cho tiểu thương',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            const Text('• Ghi bán nhanh, quản lý công nợ, báo cáo đơn giản\n• Hoạt động offline, đồng bộ khi có mạng'),
+            const Text(
+              '• Ghi bán nhanh, quản lý công nợ, báo cáo đơn giản\n• Hoạt động offline, đồng bộ khi có mạng',
+            ),
             const SizedBox(height: 8),
             Text(
               _appVersion,

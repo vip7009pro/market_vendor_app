@@ -58,7 +58,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const { name, phone, note, isSupplier } = req.body;
+    const { id, name, phone, note, isSupplier } = req.body;
 
     if (!name) {
       res.status(400).json({ error: 'name is required' });
@@ -68,7 +68,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const customer = await prisma.customer.create({
       data: {
         userId,
-        id: uuidv4(),
+        id: id || uuidv4(),
         name,
         phone: phone || null,
         note: note || null,

@@ -53,10 +53,10 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()), // Firebase Auth + Google Sign In
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => ProductProvider()),
-        ChangeNotifierProvider(create: (_) => CustomerProvider()),
-        ChangeNotifierProvider(create: (_) => SaleProvider()),
-        ChangeNotifierProvider(create: (_) => DebtProvider()),
+        ChangeNotifierProvider(create: (_) => ProductProvider()..load()),
+        ChangeNotifierProvider(create: (_) => CustomerProvider()..load()),
+        ChangeNotifierProvider(create: (_) => SaleProvider()..load()),
+        ChangeNotifierProvider(create: (_) => DebtProvider()..load()),
         ChangeNotifierProvider(
           create: (_) => PurchaseProvider()..initialize(), // init async ngay khi tạo
         ),

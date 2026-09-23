@@ -13,7 +13,7 @@ const notDeleted = { deletedAt: null };
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const { startDate, endDate, search, page = '1', limit = '50' } = req.query;
+    const { startDate, endDate, search, page = '1', limit = '2000' } = req.query;
 
     const where: any = { userId, ...notDeleted };
 
@@ -35,7 +35,9 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       ];
     }
 
-    const skip = (parseInt(String(page)) - 1) * parseInt(String(limit));
+    const isAll = limit === 'all';
+    const limitNum = isAll ? undefined : parseInt(String(limit));
+    const skipNum = (!isAll && page && limitNum) ? (parseInt(String(page)) - 1) * limitNum : undefined;
 
     const [sales, total] = await Promise.all([
       prisma.sale.findMany({
@@ -44,13 +46,13 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
           items: { where: notDeleted },
         },
         orderBy: { createdAt: 'desc' },
-        skip,
-        take: parseInt(String(limit)),
+        skip: skipNum,
+        take: limitNum,
       }),
       prisma.sale.count({ where }),
     ]);
 
-    res.json({ data: sales, total, page: parseInt(String(page)), limit: parseInt(String(limit)) });
+    res.json({ data: sales, total, page: parseInt(String(page)), limit: limitNum ?? total });
   } catch (error) {
     console.error('Get sales error:', error);
     res.status(500).json({ error: 'Failed to get sales' });
@@ -83,7 +85,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
     const {
-      customerId, customerName, employeeId, employeeName,
+      id, customerId, customerName, employeeId, employeeName,
       items, discount = 0, paidAmount = 0, paymentType, note, createdAt,
     } = req.body;
 
@@ -92,7 +94,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
       return;
     }
 
-    const saleId = uuidv4();
+    const saleId = id || uuidv4();
     const now = new Date();
     const saleCreatedAt = createdAt ? new Date(createdAt) : now;
 
@@ -155,7 +157,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 
       saleItems.push({
         userId,
-        id: uuidv4(),
+        id: item.id || uuidv4(),
         saleId,
         productId: item.productId || null,
         name: item.name,

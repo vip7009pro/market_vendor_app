@@ -45,18 +45,24 @@ class Product {
     }
   }
 
+  static double _parseDouble(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0.0;
+  }
+
   factory Product.fromMap(Map<String, dynamic> map) => Product(
-        id: map['id'],
-        name: map['name'],
-        price: (map['price'] as num?)?.toDouble() ?? 0,
-        costPrice: (map['costPrice'] as num?)?.toDouble() ?? 0,
-        currentStock: (map['currentStock'] as num?)?.toDouble() ?? 0,
-        unit: map['unit'],
-        barcode: map['barcode'],
-        imagePath: map['imagePath']?.toString(),
-        isActive: map['isActive'] == 1 || map['isActive'] == true,
-        itemType: _parseItemType(map['itemType']),
-        isStocked: map['isStocked'] == null ? true : (map['isStocked'] == 1 || map['isStocked'] == true),
+        id: map['id']?.toString() ?? '',
+        name: map['name']?.toString() ?? '',
+        price: _parseDouble(map['price']),
+        costPrice: _parseDouble(map['costPrice'] ?? map['cost_price']),
+        currentStock: _parseDouble(map['currentStock'] ?? map['current_stock']),
+        unit: map['unit']?.toString() ?? '',
+        barcode: map['barcode']?.toString(),
+        imagePath: map['imagePath']?.toString() ?? map['image_path']?.toString(),
+        isActive: map['isActive'] == 1 || map['isActive'] == true || map['isActive'] == '1',
+        itemType: _parseItemType(map['itemType'] ?? map['item_type']),
+        isStocked: map['isStocked'] == null ? true : (map['isStocked'] == 1 || map['isStocked'] == true || map['isStocked'] == '1'),
       );
 
   Map<String, dynamic> toMap() => {

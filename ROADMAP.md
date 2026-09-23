@@ -25,7 +25,7 @@
   - [x] Chuyển đổi Online/Offline an toàn tuyệt đối: Dữ liệu offline cũ giữ nguyên 100% trên máy.
   - [x] Bật/tắt chế độ Online tức thì, tự động nạp lại dữ liệu cũ khi quay về offline.
 - [x] **12.4 Màn hình Đồng bộ PostgreSQL (`OnlineServerSyncScreen`)**:
-  - [x] Đặt cứng mặc định địa chỉ máy chủ `http://14.160.33.94:3007`, có nút Reset & Test Ping.
+  - [x] Đặt cứng mặc định địa chỉ máy chủ `http://192.168.1.203:3007`, có nút Reset & Test Ping.
   - [x] Nút Tải lên máy chủ 1 chiều (Upload SQLite ➔ PostgreSQL).
   - [x] Nút Đồng bộ về máy (Download Snapshot PostgreSQL ➔ SQLite Offline).
   - [x] Đối chiếu số lượng trực quan 5 bảng chính và hiển thị trạng thái tại `SettingsScreen`.

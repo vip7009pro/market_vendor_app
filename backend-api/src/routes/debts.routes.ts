@@ -12,11 +12,13 @@ const notDeleted = { deletedAt: null };
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const { type, settled, search } = req.query;
+    const { type, settled, search, sourceType, sourceId } = req.query;
     const where: any = { userId, ...notDeleted };
 
     if (type !== undefined) where.type = parseInt(String(type));
     if (settled !== undefined) where.settled = settled === 'true';
+    if (sourceType) where.sourceType = String(sourceType);
+    if (sourceId) where.sourceId = String(sourceId);
     if (search) {
       where.OR = [
         { partyName: { contains: String(search), mode: 'insensitive' } },
@@ -61,7 +63,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const { type, partyId, partyName, amount, description, dueDate, sourceType, sourceId, createdAt } = req.body;
+    const { id, type, partyId, partyName, amount, initialAmount, description, dueDate, sourceType, sourceId, createdAt } = req.body;
 
     if (type === undefined || !partyId || !partyName || amount === undefined) {
       res.status(400).json({ error: 'type, partyId, partyName, and amount are required' });
@@ -71,12 +73,12 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const debt = await prisma.debt.create({
       data: {
         userId,
-        id: uuidv4(),
+        id: id || uuidv4(),
         createdAt: createdAt ? new Date(createdAt) : new Date(),
         type,
         partyId,
         partyName,
-        initialAmount: amount,
+        initialAmount: initialAmount !== undefined ? initialAmount : amount,
         amount,
         description: description || null,
         dueDate: dueDate ? new Date(dueDate) : null,
@@ -160,7 +162,7 @@ router.post('/:id/payments', async (req: AuthRequest, res: Response): Promise<vo
   try {
     const userId = req.user!.userId;
     const debtId = req.params.id;
-    const { amount, note, paymentType, createdAt } = req.body;
+    const { id, uuid, amount, note, paymentType, createdAt } = req.body;
 
     if (!amount || amount <= 0) {
       res.status(400).json({ error: 'amount must be positive' });
@@ -174,7 +176,7 @@ router.post('/:id/payments', async (req: AuthRequest, res: Response): Promise<vo
       await tx.debtPayment.create({
         data: {
           userId,
-          uuid: uuidv4(),
+          uuid: uuid || id || uuidv4(),
           debtId,
           amount,
           note: note || null,

@@ -46,7 +46,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
     const { 
-      occurredAt, amount, category, note,
+      id, occurredAt, amount, category, note,
       expenseDocUploaded, expenseDocFileId, expenseDocUpdatedAt
     } = req.body;
 
@@ -58,7 +58,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
     const expense = await prisma.expense.create({
       data: {
         userId,
-        id: uuidv4(),
+        id: id || uuidv4(),
         occurredAt: new Date(occurredAt),
         amount,
         category,

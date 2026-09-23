@@ -14,6 +14,7 @@ import '../models/customer.dart';
 import '../models/sale.dart';
 import '../models/debt.dart';
 import 'encryption_service.dart';
+import 'online_api_service.dart';
 
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._();
@@ -317,6 +318,18 @@ class DatabaseService {
     final id = saleId.trim();
     if (id.isEmpty) return null;
 
+    if (_isOnlineMode) {
+      final sale = await OnlineApiService.instance.getSaleById(id);
+      if (sale == null) return null;
+      return {
+        'subtotal': sale.subtotal,
+        'discount': sale.discount,
+        'total': sale.total,
+        'paidAmount': sale.paidAmount,
+        'debt': sale.debt,
+      };
+    }
+
     final saleRows = await db.query(
       'sales',
       columns: ['id', 'discount', 'paidAmount'],
@@ -373,6 +386,9 @@ class DatabaseService {
   }
 
   Future<Debt?> getDebtBySource({required String sourceType, required String sourceId}) async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getDebtBySource(sourceType: sourceType, sourceId: sourceId);
+    }
     final st = sourceType.trim();
     final sid = sourceId.trim();
     if (st.isEmpty || sid.isEmpty) return null;
@@ -406,6 +422,10 @@ class DatabaseService {
   }
 
   Future<void> insertDebt(Debt d) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.insertDebt(d);
+      return;
+    }
     await EncryptionService.instance.init();
     final now = DateTime.now().toIso8601String();
     final encryptedDescription = d.description != null ? await EncryptionService.instance.encrypt(d.description!) : null;
@@ -434,6 +454,10 @@ class DatabaseService {
   }
 
   Future<void> updateDebt(Debt d) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateDebt(d);
+      return;
+    }
     await EncryptionService.instance.init();
     final now = DateTime.now().toIso8601String();
     final encryptedDescription = d.description != null ? await EncryptionService.instance.encrypt(d.description!) : null;
@@ -459,6 +483,10 @@ class DatabaseService {
   }
 
   Future<void> updateDebtWithCreatedAt(Debt d) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateDebt(d);
+      return;
+    }
     await EncryptionService.instance.init();
     final now = DateTime.now().toIso8601String();
     final encryptedDescription = d.description != null ? await EncryptionService.instance.encrypt(d.description!) : null;
@@ -485,6 +513,9 @@ class DatabaseService {
   }
 
   Future<Debt?> getDebtById(String debtId) async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getDebtById(debtId);
+    }
     final id = debtId.trim();
     if (id.isEmpty) return null;
     await EncryptionService.instance.init();
@@ -517,6 +548,9 @@ class DatabaseService {
   }
 
   Future<List<Debt>> getDebts() async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getDebts();
+    }
     await EncryptionService.instance.init();
     final rows = await db.query(
       'debts',
@@ -550,6 +584,9 @@ class DatabaseService {
   }
 
   Future<List<Sale>> getSales() async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getSales();
+    }
     await EncryptionService.instance.init();
     final salesRows = await db.query(
       'sales',
@@ -1580,6 +1617,14 @@ class DatabaseService {
     required String category,
     String? note,
   }) async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.insertExpense(
+        occurredAt: occurredAt,
+        amount: amount,
+        category: category,
+        note: note,
+      );
+    }
     final now = DateTime.now();
     final id = _uuid.v4();
     await db.insert(
@@ -1609,6 +1654,16 @@ class DatabaseService {
     required String category,
     String? note,
   }) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateExpense(
+        id: id,
+        occurredAt: occurredAt,
+        amount: amount,
+        category: category,
+        note: note,
+      );
+      return;
+    }
     final now = DateTime.now();
     await db.update(
       'expenses',
@@ -1627,6 +1682,10 @@ class DatabaseService {
   }
 
   Future<void> deleteExpense(String id) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.deleteExpense(id);
+      return;
+    }
     final now = DateTime.now();
     await db.update(
       'expenses',
@@ -1644,6 +1703,13 @@ class DatabaseService {
     String? category,
     String? query,
   }) async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getExpenses(
+        range: range,
+        category: category,
+        query: query,
+      );
+    }
     String? where;
     final whereArgs = <Object?>[];
 
@@ -2849,6 +2915,11 @@ class DatabaseService {
 
     print('Đã khởi tạo database ($currentDbFileName) thành công');
     unawaited(cleanOldLogs());
+
+    // Nếu đang ở Online Mode và database online đang trống, tự động nạp từ offline sang
+    if (_isOnlineMode) {
+      await copyFromOfflineIfOnlineEmpty();
+    }
   }
 
   /// Chuyển đổi giữa Chế độ Online (market_vendor_online.db) và Chế độ Offline (market_vendor.db)
@@ -2860,6 +2931,12 @@ class DatabaseService {
     }
     _isOnlineMode = isOnline;
     await init(isOnline: isOnline);
+
+    // Nếu chuyển sang Online mode và database online đang trống,
+    // tự động sao chép toàn bộ dữ liệu từ offline sang để không bao giờ bị trắng màn hình!
+    if (isOnline) {
+      await copyFromOfflineIfOnlineEmpty();
+    }
   }
 
   /// Mở kết nối riêng biệt tới file SQLite offline (market_vendor.db)
@@ -2871,6 +2948,59 @@ class DatabaseService {
       version: 34,
       onUpgrade: _migrateDatabase,
     );
+  }
+
+  /// Tự động sao chép toàn bộ dữ liệu từ Offline (market_vendor.db) sang Online (market_vendor_online.db)
+  /// nếu database online đang trống (để tránh màn hình trắng khi người dùng mới bật Online)
+  Future<void> copyFromOfflineIfOnlineEmpty() async {
+    if (!_isOnlineMode || _db == null || !_db!.isOpen) return;
+    try {
+      final pCountRows = await _db!.rawQuery('SELECT COUNT(*) as c FROM products');
+      final pCount = (pCountRows.first['c'] as num?)?.toInt() ?? 0;
+      if (pCount > 0) {
+        print('copyFromOfflineIfOnlineEmpty: Online DB đã có $pCount sản phẩm, không cần sao chép.');
+        return;
+      }
+
+      print('copyFromOfflineIfOnlineEmpty: Online DB đang trống. Đang sao chép từ Offline DB...');
+      final offlineDb = await openOfflineDb();
+      try {
+        final tables = [
+          'products',
+          'customers',
+          'sales',
+          'sale_items',
+          'debts',
+          'debt_payments',
+          'purchase_orders',
+          'purchase_history',
+          'expenses',
+          'employees',
+          'vietqr_bank_accounts',
+          'store_info',
+          'product_opening_stocks',
+          'debt_reminder_settings',
+        ];
+
+        await _db!.transaction((txn) async {
+          for (final t in tables) {
+            try {
+              final rows = await offlineDb.query(t);
+              for (final row in rows) {
+                await txn.insert(t, row, conflictAlgorithm: ConflictAlgorithm.replace);
+              }
+            } catch (te) {
+              print('Lỗi sao chép bảng $t: $te');
+            }
+          }
+        });
+        print('copyFromOfflineIfOnlineEmpty: Đã hoàn tất sao chép dữ liệu ban đầu sang Online DB!');
+      } finally {
+        await offlineDb.close();
+      }
+    } catch (e) {
+      print('copyFromOfflineIfOnlineEmpty error: $e');
+    }
   }
 
   /// Trích xuất toàn bộ dữ liệu offline phục vụ Tải lên máy chủ (Sync Up 1 chiều)
@@ -2923,11 +3053,38 @@ class DatabaseService {
     }
   }
 
-  /// Áp dụng Snapshot từ máy chủ vào database (toOfflineOnly: ghi vào market_vendor.db)
+  /// Áp dụng Snapshot từ máy chủ vào database (toOfflineOnly: chỉ ghi vào market_vendor.db)
   Future<void> applySnapshot(Map<String, dynamic> snapshot, {bool toOfflineOnly = false}) async {
-    final targetDb = toOfflineOnly ? await openOfflineDb() : db;
-    try {
-      await targetDb.transaction((txn) async {
+    if (toOfflineOnly) {
+      final targetDb = await openOfflineDb();
+      try {
+        await _applySnapshotToDatabase(targetDb, snapshot);
+      } finally {
+        await targetDb.close();
+      }
+      return;
+    }
+
+    // 1. Áp dụng ngay vào database đang mở (db)
+    await _applySnapshotToDatabase(db, snapshot);
+
+    // 2. Nếu đang ở Online Mode, cập nhật luôn cả database offline để đảm bảo bản sao lưu an toàn
+    if (_isOnlineMode) {
+      try {
+        final offlineDb = await openOfflineDb();
+        try {
+          await _applySnapshotToDatabase(offlineDb, snapshot);
+        } finally {
+          await offlineDb.close();
+        }
+      } catch (e) {
+        print('Không thể cập nhật bản sao lưu offline khi apply snapshot: $e');
+      }
+    }
+  }
+
+  Future<void> _applySnapshotToDatabase(Database targetDb, Map<String, dynamic> snapshot) async {
+    await targetDb.transaction((txn) async {
         // 1. Products
         final products = (snapshot['products'] as List?) ?? [];
         for (final p in products) {
@@ -3231,11 +3388,6 @@ class DatabaseService {
           }
         }
       });
-    } finally {
-      if (toOfflineOnly) {
-        await targetDb.close();
-      }
-    }
   }
 
   /// Dọn dẹp logs và outbox đã gửi
@@ -3386,6 +3538,9 @@ class DatabaseService {
 
   // Products
   Future<List<Product>> getProducts() async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getProducts();
+    }
     final rows = await db.query(
       'products',
       where: "isActive = 1 AND (itemType IS NULL OR itemType = 'RAW') AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
@@ -3395,6 +3550,9 @@ class DatabaseService {
   }
 
   Future<List<Product>> getProductsForSale() async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getProductsForSale();
+    }
     final rows = await db.query(
       'products',
       where: "isActive = 1 AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
@@ -3404,6 +3562,7 @@ class DatabaseService {
   }
 
   Future<bool> isProductUsed(String productId) async {
+    if (_isOnlineMode) return false;
     final saleCount = Sqflite.firstIntValue(
           await db.rawQuery(
             "SELECT COUNT(1) FROM sale_items WHERE productId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
@@ -3424,6 +3583,7 @@ class DatabaseService {
   }
 
   Future<bool> isCustomerUsed(String customerId) async {
+    if (_isOnlineMode) return false;
     final saleCount = Sqflite.firstIntValue(
           await db.rawQuery(
             "SELECT COUNT(1) FROM sales WHERE customerId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
@@ -3444,14 +3604,26 @@ class DatabaseService {
   }
 
   Future<void> deleteCustomerHard(String customerId) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.deleteCustomer(customerId);
+      return;
+    }
     await deleteWithSync('customers', customerId);
   }
 
   Future<void> deleteProductHard(String productId) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.deleteProduct(productId);
+      return;
+    }
     await deleteWithSync('products', productId);
   }
 
   Future<void> insertProduct(Product p) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.insertProduct(p);
+      return;
+    }
     await db.insert('products', {
       ...p.toMap(),
       'updatedAt': DateTime.now().toIso8601String(),
@@ -3459,6 +3631,10 @@ class DatabaseService {
   }
 
   Future<void> updateProduct(Product p) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateProduct(p);
+      return;
+    }
     await db.update('products', {
       ...p.toMap(),
       'updatedAt': DateTime.now().toIso8601String(),
@@ -3466,6 +3642,10 @@ class DatabaseService {
   }
 
   Future<void> upsertProduct(Product p, {DateTime? updatedAt}) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateProduct(p);
+      return;
+    }
     await db.insert('products', {
       ...p.toMap(),
       'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
@@ -3473,6 +3653,10 @@ class DatabaseService {
   }
 
   Future<void> updateProductUnit({required String productId, required String unit}) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateProductUnit(productId: productId, unit: unit);
+      return;
+    }
     await db.update(
       'products',
       {
@@ -3618,6 +3802,9 @@ class DatabaseService {
 
   // Customers
   Future<List<Customer>> getCustomers() async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getCustomers();
+    }
     try {
       final rows = await db.query(
         'customers',
@@ -3654,6 +3841,10 @@ class DatabaseService {
   }
 
   Future<void> insertCustomer(Customer c) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.insertCustomer(c);
+      return;
+    }
     try {
       await db.insert('customers', {
         'id': c.id,
@@ -3672,6 +3863,10 @@ class DatabaseService {
   }
 
   Future<void> updateCustomer(Customer c) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateCustomer(c);
+      return;
+    }
     try {
       await db.update(
         'customers',
@@ -3694,6 +3889,10 @@ class DatabaseService {
   }
 
   Future<void> upsertCustomer(Customer c, {DateTime? updatedAt}) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateCustomer(c);
+      return;
+    }
     try {
       await db.insert('customers', {
         'id': c.id,
@@ -3712,6 +3911,10 @@ class DatabaseService {
   }
 
   Future<void> insertSale(Sale s) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.insertSale(s);
+      return;
+    }
     try {
       // Initialize encryption service
       await EncryptionService.instance.init();
@@ -4025,6 +4228,10 @@ class DatabaseService {
   }
 
   Future<void> deleteSale(String saleId) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.deleteSale(saleId);
+      return;
+    }
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
       // Soft delete sale_items
@@ -4131,6 +4338,10 @@ class DatabaseService {
   }
 
   Future<void> updateSalePaymentType({required String saleId, String? paymentType}) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.updateSalePaymentType(saleId: saleId, paymentType: paymentType);
+      return;
+    }
     final now = DateTime.now();
     await db.update(
       'sales',
@@ -4174,6 +4385,16 @@ class DatabaseService {
 
   // Debt payments API
   Future<void> insertDebtPayment({required String debtId, required double amount, String? note, DateTime? createdAt, String? paymentType}) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.insertDebtPayment(
+        debtId: debtId,
+        amount: amount,
+        note: note,
+        createdAt: createdAt,
+        paymentType: paymentType,
+      );
+      return;
+    }
     try {
       // Initialize encryption service
       await EncryptionService.instance.init();
@@ -4274,6 +4495,9 @@ class DatabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getDebtPayments(String debtId) async {
+    if (_isOnlineMode) {
+      return await OnlineApiService.instance.getDebtPayments(debtId);
+    }
     try {
       final rows = await db.query('debt_payments', 
         where: "debtId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')", 
@@ -4398,6 +4622,10 @@ class DatabaseService {
   }
 
   Future<void> deleteDebt(String debtId) async {
+    if (_isOnlineMode) {
+      await OnlineApiService.instance.deleteDebt(debtId);
+      return;
+    }
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
       final payments = await txn.query(

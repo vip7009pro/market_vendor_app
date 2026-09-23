@@ -38,16 +38,22 @@ class SaleItem {
         'mixItemsJson': mixItemsJson,
       };
 
+  static double _parseDouble(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0.0;
+  }
+
   factory SaleItem.fromMap(Map<String, dynamic> map) => SaleItem(
-        productId: map['productId'],
-        name: map['name'],
-        unitPrice: (map['unitPrice'] as num).toDouble(),
-        unitCost: (map['unitCost'] as num?)?.toDouble() ?? 0.0,
-        quantity: (map['quantity'] as num).toDouble(),
-        unit: map['unit'],
-        itemType: map['itemType']?.toString(),
-        displayName: map['displayName']?.toString(),
-        mixItemsJson: map['mixItemsJson']?.toString(),
+        productId: map['productId']?.toString() ?? '',
+        name: map['name']?.toString() ?? '',
+        unitPrice: _parseDouble(map['unitPrice'] ?? map['unit_price']),
+        unitCost: _parseDouble(map['unitCost'] ?? map['unit_cost']),
+        quantity: _parseDouble(map['quantity']),
+        unit: map['unit']?.toString() ?? '',
+        itemType: map['itemType']?.toString() ?? map['item_type']?.toString(),
+        displayName: map['displayName']?.toString() ?? map['display_name']?.toString(),
+        mixItemsJson: map['mixItemsJson']?.toString() ?? map['mix_items_json']?.toString(),
       );
 }
 
@@ -102,24 +108,32 @@ class Sale {
         'totalCost': totalCost, // Thêm totalCost vào map
       };
 
+  static double _parseDouble(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0.0;
+  }
+
   factory Sale.fromMap(Map<String, dynamic> map) {
-    // Kiểm tra và xử lý null cho totalCost
-    final totalCostValue = map['totalCost'];
-    final totalCost = totalCostValue != null ? (totalCostValue as num).toDouble() : 0.0;
+    final totalCost = _parseDouble(map['totalCost'] ?? map['total_cost']);
+    final rawItems = map['items'];
+    final itemsList = (rawItems is List)
+        ? rawItems.whereType<Map>().map((e) => SaleItem.fromMap(Map<String, dynamic>.from(e))).toList()
+        : <SaleItem>[];
 
     return Sale(
-      id: map['id'],
-      createdAt: DateTime.parse(map['createdAt']),
-      customerId: map['customerId'],
-      customerName: map['customerName'],
-      employeeId: map['employeeId'],
-      employeeName: map['employeeName'],
-      items: (map['items'] as List).map((e) => SaleItem.fromMap(e)).toList(),
-      discount: (map['discount'] as num).toDouble(),
-      paidAmount: (map['paidAmount'] as num).toDouble(),
-      paymentType: map['paymentType']?.toString(),
-      note: map['note'],
-      totalCost: totalCost, // Sử dụng giá trị đã kiểm tra
+      id: map['id']?.toString() ?? '',
+      createdAt: DateTime.tryParse(map['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      customerId: map['customerId']?.toString() ?? map['customer_id']?.toString(),
+      customerName: map['customerName']?.toString() ?? map['customer_name']?.toString(),
+      employeeId: map['employeeId']?.toString() ?? map['employee_id']?.toString(),
+      employeeName: map['employeeName']?.toString() ?? map['employee_name']?.toString(),
+      items: itemsList,
+      discount: _parseDouble(map['discount']),
+      paidAmount: _parseDouble(map['paidAmount'] ?? map['paid_amount']),
+      paymentType: map['paymentType']?.toString() ?? map['payment_type']?.toString(),
+      note: map['note']?.toString(),
+      totalCost: totalCost,
     );
   }
 }
