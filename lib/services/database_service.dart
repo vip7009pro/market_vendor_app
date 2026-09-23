@@ -23,6 +23,10 @@ class DatabaseService {
   Database get db => _db!;
   String? _deviceId;
   final Uuid _uuid = const Uuid();
+
+  static bool _isOnlineMode = false;
+  bool get isOnlineMode => _isOnlineMode;
+  String get currentDbFileName => _isOnlineMode ? 'market_vendor_online.db' : 'market_vendor.db';
   
   // Lấy ID của thiết bị
   Future<String> get deviceId async {
@@ -552,33 +556,46 @@ class DatabaseService {
       where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
       orderBy: 'createdAt DESC',
     );
-    final sales = <Sale>[];
+    if (salesRows.isEmpty) return [];
 
+    // Tối ưu hóa: Pre-fetch toàn bộ sale items gom nhóm theo saleId tránh N+1 queries
+    final allItems = await db.query(
+      'sale_items',
+      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
+    );
+    final itemsBySaleId = <String, List<SaleItem>>{};
+    for (final m in allItems) {
+      final sId = (m['saleId']?.toString() ?? '').trim();
+      if (sId.isEmpty) continue;
+      (itemsBySaleId[sId] ??= []).add(SaleItem.fromMap({
+        'productId': m['productId'],
+        'name': m['name'],
+        'unitPrice': m['unitPrice'],
+        'unitCost': m['unitCost'],
+        'quantity': m['quantity'],
+        'unit': m['unit'],
+        'itemType': m['itemType'],
+        'displayName': m['displayName'],
+        'mixItemsJson': m['mixItemsJson'],
+      }));
+    }
+
+    final sales = <Sale>[];
     for (final row in salesRows) {
       try {
         final sid = (row['id']?.toString() ?? '').trim();
         if (sid.isEmpty) continue;
-        final items = await db.query(
-          'sale_items',
-          where: "saleId = ? AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
-          whereArgs: [sid],
-        );
-        final saleItems = items
-            .map((m) => SaleItem.fromMap({
-                  'productId': m['productId'],
-                  'name': m['name'],
-                  'unitPrice': m['unitPrice'],
-                  'unitCost': m['unitCost'],
-                  'quantity': m['quantity'],
-                  'unit': m['unit'],
-                  'itemType': m['itemType'],
-                  'displayName': m['displayName'],
-                  'mixItemsJson': m['mixItemsJson'],
-                }))
-            .toList();
+        final saleItems = itemsBySaleId[sid] ?? [];
 
         final note = row['note'] as String?;
-        final decryptedNote = note != null ? await EncryptionService.instance.decrypt(note) : null;
+        String? decryptedNote = note;
+        if (note != null && note.isNotEmpty) {
+          try {
+            decryptedNote = await EncryptionService.instance.decrypt(note);
+          } catch (_) {
+            decryptedNote = note;
+          }
+        }
         final totalCost = (row['totalCost'] as num?)?.toDouble() ?? 0.0;
         sales.add(
           Sale(
@@ -2488,15 +2505,32 @@ class DatabaseService {
         print('Lỗi khi backfill updatedAt cho sale_items (v33): $e');
       }
     }
+
+    // Migration lên version 34: Tạo các Indexes tối ưu hiệu năng và tránh giật lag khi dữ liệu lớn
+    if (oldVersion < 34) {
+      try {
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_sale_items_saleId ON sale_items(saleId)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_debt_payments_debtId ON debt_payments(debtId)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_sales_createdAt ON sales(createdAt)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_debts_partyId ON debts(partyId)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_purchase_history_orderId ON purchase_history(purchaseOrderId)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status)');
+      } catch (e) {
+        print('Lỗi khi tạo index tối ưu hiệu năng (v34): $e');
+      }
+    }
   }
 
-  Future<void> init() async {
+  Future<void> init({bool? isOnline}) async {
+    if (isOnline != null) {
+      _isOnlineMode = isOnline;
+    }
     final dbPath = await getDatabasesPath();
-    final path = p.join(dbPath, 'market_vendor.db');
+    final path = p.join(dbPath, currentDbFileName);
 
     _db = await openDatabase(
       path,
-      version: 33, // Tăng version để áp dụng migration
+      version: 34, // Tăng version lên 34 để áp dụng indexes & tối ưu
       onCreate: (db, version) async {
         // Tạo các bảng mới nếu chưa tồn tại
         await db.execute('''
@@ -2796,6 +2830,14 @@ class DatabaseService {
             appliedAt TEXT NOT NULL
           )
         ''');
+
+        // Indexes tối ưu hiệu năng
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_sale_items_saleId ON sale_items(saleId)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_debt_payments_debtId ON debt_payments(debtId)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_sales_createdAt ON sales(createdAt)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_debts_partyId ON debts(partyId)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_purchase_history_orderId ON purchase_history(purchaseOrderId)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status)');
       },
       onUpgrade: _migrateDatabase,
       onDowngrade: (db, oldVersion, newVersion) async {
@@ -2805,7 +2847,407 @@ class DatabaseService {
       },
     );
 
-    print('Đã khởi tạo database thành công');
+    print('Đã khởi tạo database ($currentDbFileName) thành công');
+    unawaited(cleanOldLogs());
+  }
+
+  /// Chuyển đổi giữa Chế độ Online (market_vendor_online.db) và Chế độ Offline (market_vendor.db)
+  Future<void> switchDatabaseMode({required bool isOnline}) async {
+    if (_isOnlineMode == isOnline && _db != null && _db!.isOpen) return;
+    if (_db != null && _db!.isOpen) {
+      await _db!.close();
+      _db = null;
+    }
+    _isOnlineMode = isOnline;
+    await init(isOnline: isOnline);
+  }
+
+  /// Mở kết nối riêng biệt tới file SQLite offline (market_vendor.db)
+  Future<Database> openOfflineDb() async {
+    final dbPath = await getDatabasesPath();
+    final path = p.join(dbPath, 'market_vendor.db');
+    return await openDatabase(
+      path,
+      version: 34,
+      onUpgrade: _migrateDatabase,
+    );
+  }
+
+  /// Trích xuất toàn bộ dữ liệu offline phục vụ Tải lên máy chủ (Sync Up 1 chiều)
+  Future<Map<String, dynamic>> getAllOfflineDataForSync() async {
+    final targetDb = _isOnlineMode ? await openOfflineDb() : db;
+    try {
+      final tables = [
+        'products',
+        'customers',
+        'sales',
+        'debts',
+        'debt_payments',
+        'purchase_orders',
+        'purchase_history',
+        'expenses',
+        'employees',
+        'vietqr_bank_accounts',
+        'store_info',
+        'product_opening_stocks',
+        'debt_reminder_settings',
+      ];
+
+      final result = <String, dynamic>{};
+      for (final t in tables) {
+        try {
+          final rows = await targetDb.query(t);
+          if (t == 'sales') {
+            final salesWithItems = <Map<String, dynamic>>[];
+            for (final s in rows) {
+              final sId = s['id']?.toString() ?? '';
+              final items = await targetDb.query('sale_items', where: 'saleId = ?', whereArgs: [sId]);
+              salesWithItems.add({
+                ...s,
+                'items': items,
+              });
+            }
+            result[t] = salesWithItems;
+          } else {
+            result[t] = rows;
+          }
+        } catch (e) {
+          result[t] = [];
+        }
+      }
+      return result;
+    } finally {
+      if (_isOnlineMode) {
+        await targetDb.close();
+      }
+    }
+  }
+
+  /// Áp dụng Snapshot từ máy chủ vào database (toOfflineOnly: ghi vào market_vendor.db)
+  Future<void> applySnapshot(Map<String, dynamic> snapshot, {bool toOfflineOnly = false}) async {
+    final targetDb = toOfflineOnly ? await openOfflineDb() : db;
+    try {
+      await targetDb.transaction((txn) async {
+        // 1. Products
+        final products = (snapshot['products'] as List?) ?? [];
+        for (final p in products) {
+          if (p is! Map) continue;
+          final row = {
+            'id': p['id']?.toString() ?? '',
+            'name': p['name']?.toString() ?? '',
+            'price': (p['price'] as num?)?.toDouble() ?? double.tryParse(p['price']?.toString() ?? '0') ?? 0.0,
+            'costPrice': (p['costPrice'] as num?)?.toDouble() ?? double.tryParse(p['costPrice']?.toString() ?? '0') ?? 0.0,
+            'currentStock': (p['currentStock'] as num?)?.toDouble() ?? double.tryParse(p['currentStock']?.toString() ?? '0') ?? 0.0,
+            'unit': p['unit']?.toString() ?? '',
+            'barcode': p['barcode']?.toString(),
+            'isActive': (p['isActive'] == true || p['isActive'] == 1 || p['isActive'] == '1') ? 1 : 0,
+            'itemType': p['itemType']?.toString() ?? 'RAW',
+            'isStocked': (p['isStocked'] == true || p['isStocked'] == 1 || p['isStocked'] == '1') ? 1 : 0,
+            'imagePath': p['imagePath']?.toString(),
+            'updatedAt': p['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deviceId': p['deviceId']?.toString() ?? 'server',
+            'deletedAt': p['deletedAt']?.toString(),
+            'isSynced': 1,
+          };
+          if (row['id'] != '') {
+            await txn.insert('products', row, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        }
+
+        // 2. Customers
+        final customers = (snapshot['customers'] as List?) ?? [];
+        for (final c in customers) {
+          if (c is! Map) continue;
+          final row = {
+            'id': c['id']?.toString() ?? '',
+            'name': c['name']?.toString() ?? '',
+            'phone': c['phone']?.toString(),
+            'note': c['note']?.toString(),
+            'isSupplier': (c['isSupplier'] == true || c['isSupplier'] == 1 || c['isSupplier'] == '1') ? 1 : 0,
+            'updatedAt': c['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deviceId': c['deviceId']?.toString() ?? 'server',
+            'deletedAt': c['deletedAt']?.toString(),
+            'isSynced': 1,
+          };
+          if (row['id'] != '') {
+            await txn.insert('customers', row, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        }
+
+        // 3. Sales & Sale Items
+        final sales = (snapshot['sales'] as List?) ?? [];
+        for (final s in sales) {
+          if (s is! Map) continue;
+          final sId = s['id']?.toString() ?? '';
+          if (sId.isEmpty) continue;
+          final saleRow = {
+            'id': sId,
+            'createdAt': s['createdAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'customerId': s['customerId']?.toString(),
+            'customerName': s['customerName']?.toString(),
+            'employeeId': s['employeeId']?.toString(),
+            'employeeName': s['employeeName']?.toString(),
+            'discount': (s['discount'] as num?)?.toDouble() ?? double.tryParse(s['discount']?.toString() ?? '0') ?? 0.0,
+            'paidAmount': (s['paidAmount'] as num?)?.toDouble() ?? double.tryParse(s['paidAmount']?.toString() ?? '0') ?? 0.0,
+            'paymentType': s['paymentType']?.toString(),
+            'totalCost': (s['totalCost'] as num?)?.toDouble() ?? double.tryParse(s['totalCost']?.toString() ?? '0') ?? 0.0,
+            'note': s['note']?.toString(),
+            'updatedAt': s['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deviceId': s['deviceId']?.toString() ?? 'server',
+            'deletedAt': s['deletedAt']?.toString(),
+            'isSynced': 1,
+          };
+          await txn.insert('sales', saleRow, conflictAlgorithm: ConflictAlgorithm.replace);
+
+          final items = (s['items'] as List?) ?? [];
+          await txn.delete('sale_items', where: 'saleId = ?', whereArgs: [sId]);
+          for (final it in items) {
+            if (it is! Map) continue;
+            await txn.insert('sale_items', {
+              'saleId': sId,
+              'productId': it['productId']?.toString(),
+              'name': it['name']?.toString() ?? '',
+              'unitPrice': (it['unitPrice'] as num?)?.toDouble() ?? double.tryParse(it['unitPrice']?.toString() ?? '0') ?? 0.0,
+              'unitCost': (it['unitCost'] as num?)?.toDouble() ?? double.tryParse(it['unitCost']?.toString() ?? '0') ?? 0.0,
+              'quantity': (it['quantity'] as num?)?.toDouble() ?? double.tryParse(it['quantity']?.toString() ?? '0') ?? 0.0,
+              'unit': it['unit']?.toString() ?? '',
+              'itemType': it['itemType']?.toString(),
+              'displayName': it['displayName']?.toString(),
+              'mixItemsJson': it['mixItemsJson']?.toString(),
+              'updatedAt': it['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+              'deletedAt': it['deletedAt']?.toString(),
+              'isSynced': 1,
+            });
+          }
+        }
+
+        // 4. Debts
+        final debts = (snapshot['debts'] as List?) ?? [];
+        for (final d in debts) {
+          if (d is! Map) continue;
+          final dId = d['id']?.toString() ?? '';
+          if (dId.isEmpty) continue;
+          await txn.insert('debts', {
+            'id': dId,
+            'createdAt': d['createdAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'type': (d['type'] as num?)?.toInt() ?? int.tryParse(d['type']?.toString() ?? '0') ?? 0,
+            'partyId': d['partyId']?.toString() ?? '',
+            'partyName': d['partyName']?.toString() ?? '',
+            'initialAmount': (d['initialAmount'] as num?)?.toDouble() ?? double.tryParse(d['initialAmount']?.toString() ?? '0') ?? 0.0,
+            'amount': (d['amount'] as num?)?.toDouble() ?? double.tryParse(d['amount']?.toString() ?? '0') ?? 0.0,
+            'description': d['description']?.toString(),
+            'dueDate': d['dueDate']?.toString(),
+            'settled': (d['settled'] == true || d['settled'] == 1 || d['settled'] == '1') ? 1 : 0,
+            'sourceType': d['sourceType']?.toString(),
+            'sourceId': d['sourceId']?.toString(),
+            'updatedAt': d['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deviceId': d['deviceId']?.toString() ?? 'server',
+            'deletedAt': d['deletedAt']?.toString(),
+            'isSynced': 1,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+
+        // 5. Debt Payments
+        final debtPayments = (snapshot['debtPayments'] as List?) ?? [];
+        for (final dp in debtPayments) {
+          if (dp is! Map) continue;
+          final uuid = dp['uuid']?.toString() ?? '';
+          if (uuid.isEmpty) continue;
+          await txn.insert('debt_payments', {
+            'uuid': uuid,
+            'debtId': dp['debtId']?.toString() ?? '',
+            'amount': (dp['amount'] as num?)?.toDouble() ?? double.tryParse(dp['amount']?.toString() ?? '0') ?? 0.0,
+            'note': dp['note']?.toString(),
+            'paymentType': dp['paymentType']?.toString(),
+            'createdAt': dp['createdAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'updatedAt': dp['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deletedAt': dp['deletedAt']?.toString(),
+            'isSynced': 1,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+
+        // 6. Expenses
+        final expenses = (snapshot['expenses'] as List?) ?? [];
+        for (final ex in expenses) {
+          if (ex is! Map) continue;
+          final exId = ex['id']?.toString() ?? '';
+          if (exId.isEmpty) continue;
+          await txn.insert('expenses', {
+            'id': exId,
+            'occurredAt': ex['occurredAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'amount': (ex['amount'] as num?)?.toDouble() ?? double.tryParse(ex['amount']?.toString() ?? '0') ?? 0.0,
+            'category': ex['category']?.toString() ?? '',
+            'note': ex['note']?.toString(),
+            'expenseDocUploaded': (ex['expenseDocUploaded'] == true || ex['expenseDocUploaded'] == 1 || ex['expenseDocUploaded'] == '1') ? 1 : 0,
+            'expenseDocFileId': ex['expenseDocFileId']?.toString(),
+            'expenseDocUpdatedAt': ex['expenseDocUpdatedAt']?.toString(),
+            'updatedAt': ex['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deletedAt': ex['deletedAt']?.toString(),
+            'isSynced': 1,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+
+        // 7. Purchase Orders
+        final purchaseOrders = (snapshot['purchaseOrders'] as List?) ?? [];
+        for (final po in purchaseOrders) {
+          if (po is! Map) continue;
+          final poId = po['id']?.toString() ?? '';
+          if (poId.isEmpty) continue;
+          await txn.insert('purchase_orders', {
+            'id': poId,
+            'createdAt': po['createdAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'supplierName': po['supplierName']?.toString(),
+            'supplierPhone': po['supplierPhone']?.toString(),
+            'discountType': po['discountType']?.toString() ?? 'AMOUNT',
+            'discountValue': (po['discountValue'] as num?)?.toDouble() ?? double.tryParse(po['discountValue']?.toString() ?? '0') ?? 0.0,
+            'paidAmount': (po['paidAmount'] as num?)?.toDouble() ?? double.tryParse(po['paidAmount']?.toString() ?? '0') ?? 0.0,
+            'note': po['note']?.toString(),
+            'purchaseDocUploaded': (po['purchaseDocUploaded'] == true || po['purchaseDocUploaded'] == 1 || po['purchaseDocUploaded'] == '1') ? 1 : 0,
+            'purchaseDocFileId': po['purchaseDocFileId']?.toString(),
+            'purchaseDocUpdatedAt': po['purchaseDocUpdatedAt']?.toString(),
+            'updatedAt': po['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deletedAt': po['deletedAt']?.toString(),
+            'isSynced': 1,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+
+        // 8. Purchase History
+        final purchaseHistories = (snapshot['purchaseHistories'] as List?) ?? [];
+        for (final ph in purchaseHistories) {
+          if (ph is! Map) continue;
+          final phId = ph['id']?.toString() ?? '';
+          if (phId.isEmpty) continue;
+          await txn.insert('purchase_history', {
+            'id': phId,
+            'createdAt': ph['createdAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'productId': ph['productId']?.toString() ?? '',
+            'productName': ph['productName']?.toString() ?? '',
+            'quantity': (ph['quantity'] as num?)?.toDouble() ?? double.tryParse(ph['quantity']?.toString() ?? '0') ?? 0.0,
+            'unitCost': (ph['unitCost'] as num?)?.toDouble() ?? double.tryParse(ph['unitCost']?.toString() ?? '0') ?? 0.0,
+            'totalCost': (ph['totalCost'] as num?)?.toDouble() ?? double.tryParse(ph['totalCost']?.toString() ?? '0') ?? 0.0,
+            'paidAmount': (ph['paidAmount'] as num?)?.toDouble() ?? double.tryParse(ph['paidAmount']?.toString() ?? '0') ?? 0.0,
+            'supplierName': ph['supplierName']?.toString(),
+            'supplierPhone': ph['supplierPhone']?.toString(),
+            'note': ph['note']?.toString(),
+            'purchaseDocUploaded': (ph['purchaseDocUploaded'] == true || ph['purchaseDocUploaded'] == 1 || ph['purchaseDocUploaded'] == '1') ? 1 : 0,
+            'purchaseDocFileId': ph['purchaseDocFileId']?.toString(),
+            'purchaseDocUpdatedAt': ph['purchaseDocUpdatedAt']?.toString(),
+            'purchaseOrderId': ph['purchaseOrderId']?.toString(),
+            'updatedAt': ph['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deletedAt': ph['deletedAt']?.toString(),
+            'isSynced': 1,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+
+        // 9. Employees
+        final employees = (snapshot['employees'] as List?) ?? [];
+        for (final emp in employees) {
+          if (emp is! Map) continue;
+          final empId = emp['id']?.toString() ?? '';
+          if (empId.isEmpty) continue;
+          await txn.insert('employees', {
+            'id': empId,
+            'name': emp['name']?.toString() ?? '',
+            'updatedAt': emp['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deletedAt': emp['deletedAt']?.toString(),
+            'isSynced': 1,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+
+        // 10. VietQR Bank Accounts
+        final bankAccounts = (snapshot['vietqrBankAccounts'] as List?) ?? [];
+        for (final ba in bankAccounts) {
+          if (ba is! Map) continue;
+          final baId = ba['id']?.toString() ?? '';
+          if (baId.isEmpty) continue;
+          await txn.insert('vietqr_bank_accounts', {
+            'id': baId,
+            'bankApiId': (ba['bankApiId'] as num?)?.toInt() ?? int.tryParse(ba['bankApiId']?.toString() ?? '0'),
+            'name': ba['name']?.toString(),
+            'code': ba['code']?.toString(),
+            'bin': ba['bin']?.toString(),
+            'shortName': ba['shortName']?.toString() ?? ba['short_name']?.toString(),
+            'logo': ba['logo']?.toString(),
+            'transferSupported': (ba['transferSupported'] == true || ba['transferSupported'] == 1 || ba['transferSupported'] == '1') ? 1 : 0,
+            'lookupSupported': (ba['lookupSupported'] == true || ba['lookupSupported'] == 1 || ba['lookupSupported'] == '1') ? 1 : 0,
+            'support': (ba['support'] as num?)?.toInt() ?? int.tryParse(ba['support']?.toString() ?? '0'),
+            'isTransfer': (ba['isTransfer'] == true || ba['isTransfer'] == 1 || ba['isTransfer'] == '1') ? 1 : 0,
+            'swiftCode': ba['swiftCode']?.toString() ?? ba['swift_code']?.toString(),
+            'accountNo': ba['accountNo']?.toString() ?? '',
+            'accountName': ba['accountName']?.toString() ?? '',
+            'isDefault': (ba['isDefault'] == true || ba['isDefault'] == 1 || ba['isDefault'] == '1') ? 1 : 0,
+            'updatedAt': ba['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            'deletedAt': ba['deletedAt']?.toString(),
+            'isSynced': 1,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+
+        // 11. Store Info
+        final storeInfoList = (snapshot['storeInfo'] as List?) ?? [];
+        if (storeInfoList.isNotEmpty && storeInfoList.first is Map) {
+          final si = storeInfoList.first as Map;
+          await txn.insert('store_info', {
+            'id': (si['id'] as num?)?.toInt() ?? 1,
+            'name': si['name']?.toString() ?? '',
+            'address': si['address']?.toString() ?? '',
+            'phone': si['phone']?.toString() ?? '',
+            'taxCode': si['taxCode']?.toString() ?? si['tax_code']?.toString(),
+            'email': si['email']?.toString(),
+            'bankName': si['bankName']?.toString() ?? si['bank_name']?.toString(),
+            'bankAccount': si['bankAccount']?.toString() ?? si['bank_account']?.toString(),
+            'updatedAt': si['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+
+        // 12. Product Opening Stocks
+        final openingStocks = (snapshot['productOpeningStocks'] as List?) ?? [];
+        for (final os in openingStocks) {
+          if (os is! Map) continue;
+          final prodId = os['productId']?.toString() ?? '';
+          final yr = (os['year'] as num?)?.toInt() ?? int.tryParse(os['year']?.toString() ?? '0') ?? 0;
+          final mo = (os['month'] as num?)?.toInt() ?? int.tryParse(os['month']?.toString() ?? '0') ?? 0;
+          if (prodId.isNotEmpty && yr > 0 && mo > 0) {
+            await txn.insert('product_opening_stocks', {
+              'productId': prodId,
+              'year': yr,
+              'month': mo,
+              'openingStock': (os['openingStock'] as num?)?.toDouble() ?? double.tryParse(os['openingStock']?.toString() ?? '0') ?? 0.0,
+              'updatedAt': os['updatedAt']?.toString() ?? DateTime.now().toIso8601String(),
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        }
+
+        // 13. Debt Reminder Settings
+        final reminders = (snapshot['debtReminderSettings'] as List?) ?? [];
+        for (final dr in reminders) {
+          if (dr is! Map) continue;
+          final dId = dr['debtId']?.toString() ?? '';
+          if (dId.isNotEmpty) {
+            await txn.insert('debt_reminder_settings', {
+              'debtId': dId,
+              'muted': (dr['muted'] == true || dr['muted'] == 1 || dr['muted'] == '1') ? 1 : 0,
+              'lastNotifiedAt': dr['lastNotifiedAt']?.toString(),
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        }
+      });
+    } finally {
+      if (toOfflineOnly) {
+        await targetDb.close();
+      }
+    }
+  }
+
+  /// Dọn dẹp logs và outbox đã gửi
+  Future<void> cleanOldLogs() async {
+    try {
+      if (_db == null || !_db!.isOpen) return;
+      await db.execute('DELETE FROM sync_logs WHERE id NOT IN (SELECT id FROM sync_logs ORDER BY id DESC LIMIT 500)');
+      await db.execute('DELETE FROM audit_logs WHERE id NOT IN (SELECT id FROM audit_logs ORDER BY id DESC LIMIT 500)');
+      await db.execute('DELETE FROM outbox WHERE status = 1');
+    } catch (_) {
+      // Ignore
+    }
   }
 
   Future<List<Map<String, dynamic>>> getVietQrBankAccounts() async {

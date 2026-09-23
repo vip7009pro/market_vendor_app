@@ -44,4 +44,17 @@ router.get('/pull', async (req: AuthRequest, res: Response): Promise<void> => {
   }
 });
 
+// GET /api/sync/snapshot - Full data snapshot for sync-down
+router.get('/snapshot', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const snapshot = await SyncService.getSnapshot(userId);
+    res.json({ success: true, data: snapshot });
+  } catch (error: any) {
+    console.error('Snapshot error:', error);
+    res.status(500).json({ error: 'Sync snapshot failed: ' + error.message });
+  }
+});
+
 export default router;
+

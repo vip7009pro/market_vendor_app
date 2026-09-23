@@ -89,11 +89,16 @@ class OnlineSyncService {
     _log('stopAutoSync');
   }
 
+  static const defaultBaseUrl = 'http://14.160.33.94:3007';
+  static const _prefsKeyIsOnlineMode = 'app_mode_is_online';
+
   static Future<String> _baseUrl() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = (prefs.getString(_prefsKeyBaseUrl) ?? '').trim();
-    if (raw.isNotEmpty) return raw;
-    return 'http://10.0.2.2:3006';
+    if (raw.isNotEmpty && raw != 'http://localhost:3006' && raw != 'http://10.0.2.2:3006') {
+      return raw;
+    }
+    return defaultBaseUrl;
   }
 
   static Future<String> getBaseUrl() async {
@@ -103,6 +108,17 @@ class OnlineSyncService {
   static Future<void> setBaseUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsKeyBaseUrl, url.trim());
+  }
+
+  static Future<bool> isOnlineMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_prefsKeyIsOnlineMode) ?? false;
+  }
+
+  static Future<void> setOnlineMode(bool isOnline) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKeyIsOnlineMode, isOnline);
+    await DatabaseService.instance.switchDatabaseMode(isOnline: isOnline);
   }
 
   static Future<String?> getLastSyncAt() async {
@@ -176,6 +192,229 @@ class OnlineSyncService {
     if (token.isNotEmpty) {
       await _setJwt(token);
       _log('auth: jwt stored');
+    }
+  }
+
+  /// Đảm bảo có JWT Token hợp lệ để gọi API (tự động fallback về tài khoản demo mặc định)
+  static Future<String> ensureValidJwt({AuthProvider? auth}) async {
+    String? jwt = await _getJwt();
+    if (jwt != null && jwt.isNotEmpty) return jwt;
+
+    if (auth != null && auth.isSignedIn) {
+      try {
+        await ensureBackendSession(auth: auth);
+        jwt = await _getJwt();
+        if (jwt != null && jwt.isNotEmpty) return jwt;
+      } catch (_) {}
+    }
+
+    // Đăng nhập tài khoản mặc định trên máy chủ nếu chưa đăng nhập Google
+    final url = Uri.parse('${await _baseUrl()}/auth/login');
+    final resp = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': 'demo@marketvendor.com',
+        'password': 'demo123456',
+      }),
+    ).timeout(const Duration(seconds: 7));
+
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      final decoded = (jsonDecode(resp.body) as Map).cast<String, dynamic>();
+      final token = decoded['token']?.toString() ?? '';
+      if (token.isNotEmpty) {
+        await _setJwt(token);
+        return token;
+      }
+    }
+
+    throw Exception('Không thể kết nối đăng nhập máy chủ (${resp.statusCode}): ${resp.body}');
+  }
+
+  /// Kiểm tra kết nối máy chủ
+  static Future<Map<String, dynamic>> testConnection([String? customUrl]) async {
+    final base = (customUrl ?? await _baseUrl()).trim();
+    final stopwatch = Stopwatch()..start();
+    try {
+      final uri = Uri.parse('$base/health');
+      final resp = await http.get(uri).timeout(const Duration(seconds: 5));
+      stopwatch.stop();
+      final ok = resp.statusCode >= 200 && resp.statusCode < 300;
+      return {
+        'ok': ok,
+        'statusCode': resp.statusCode,
+        'latencyMs': stopwatch.elapsedMilliseconds,
+        'message': ok ? 'Kết nối thành công (HTTP ${resp.statusCode} - ${stopwatch.elapsedMilliseconds}ms)' : 'Máy chủ phản hồi lỗi: HTTP ${resp.statusCode}',
+        'body': resp.body,
+      };
+    } catch (e) {
+      stopwatch.stop();
+      return {
+        'ok': false,
+        'statusCode': 0,
+        'latencyMs': stopwatch.elapsedMilliseconds,
+        'message': 'Không thể kết nối tới $base: $e',
+      };
+    }
+  }
+
+  /// Tải toàn bộ dữ liệu từ thiết bị lên PostgreSQL (Sync Up 1 chiều)
+  static Future<Map<String, dynamic>> uploadAllOfflineToServer({
+    AuthProvider? auth,
+    void Function(String message, double progress)? onProgress,
+  }) async {
+    final startedAt = DateTime.now();
+    try {
+      onProgress?.call('Đang kết nối máy chủ...', 0.05);
+      final jwt = await ensureValidJwt(auth: auth);
+      final deviceId = await DatabaseService.instance.deviceId;
+      final baseUrl = await _baseUrl();
+
+      onProgress?.call('Đang gom dữ liệu từ thiết bị...', 0.15);
+      final allData = await DatabaseService.instance.getAllOfflineDataForSync();
+
+      final events = <Map<String, dynamic>>[];
+      final uuid = const Uuid();
+      final now = DateTime.now().toIso8601String();
+
+      allData.forEach((entity, rows) {
+        if (rows is! List) return;
+        for (final r in rows) {
+          if (r is! Map) continue;
+          final rowMap = Map<String, dynamic>.from(r);
+          String entityId = '';
+          if (entity == 'debt_payments') {
+            entityId = rowMap['uuid']?.toString() ?? '';
+          } else if (entity == 'store_info') {
+            entityId = (rowMap['id'] ?? 1).toString();
+          } else if (entity == 'product_opening_stocks') {
+            entityId = '${rowMap['productId']}:${rowMap['year']}:${rowMap['month']}';
+          } else if (entity == 'debt_reminder_settings') {
+            entityId = rowMap['debtId']?.toString() ?? '';
+          } else {
+            entityId = rowMap['id']?.toString() ?? '';
+          }
+
+          if (entityId.isEmpty) continue;
+
+          events.add({
+            'eventUuid': uuid.v4(),
+            'entity': entity,
+            'entityId': entityId,
+            'op': 'upsert',
+            'payload': rowMap,
+            'clientUpdatedAt': rowMap['updatedAt']?.toString() ?? now,
+          });
+        }
+      });
+
+      if (events.isEmpty) {
+        return {
+          'success': true,
+          'totalEvents': 0,
+          'pushedCount': 0,
+          'message': 'Không có dữ liệu nào trên máy để tải lên.',
+        };
+      }
+
+      final totalEvents = events.length;
+      int pushedCount = 0;
+      const chunkSize = 200;
+
+      for (int i = 0; i < totalEvents; i += chunkSize) {
+        final end = (i + chunkSize < totalEvents) ? i + chunkSize : totalEvents;
+        final chunk = events.sublist(i, end);
+        final progressFraction = 0.2 + (0.75 * (end / totalEvents));
+        onProgress?.call('Đang tải lên $end/$totalEvents bản ghi...', progressFraction);
+
+        final url = Uri.parse('$baseUrl/api/sync/push');
+        final resp = await http.post(
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $jwt',
+          },
+          body: jsonEncode({
+            'deviceId': deviceId,
+            'events': chunk,
+          }),
+        ).timeout(const Duration(seconds: 40));
+
+        if (resp.statusCode < 200 || resp.statusCode >= 300) {
+          throw Exception('Lỗi đẩy dữ liệu (${resp.statusCode}): ${resp.body}');
+        }
+        pushedCount += chunk.length;
+      }
+
+      await _setLastSyncOk();
+      final ms = DateTime.now().difference(startedAt).inMilliseconds;
+      onProgress?.call('Đã tải lên hoàn tất $pushedCount bản ghi!', 1.0);
+
+      return {
+        'success': true,
+        'totalEvents': totalEvents,
+        'pushedCount': pushedCount,
+        'ms': ms,
+        'message': 'Đã tải thành công $pushedCount bản ghi lên máy chủ ($ms ms)!',
+      };
+    } catch (e) {
+      await _setLastSyncError(e.toString());
+      rethrow;
+    }
+  }
+
+  /// Đồng bộ toàn bộ dữ liệu từ PostgreSQL về lưu vào máy (Sync Down)
+  static Future<Map<String, dynamic>> downloadAllServerToOffline({
+    AuthProvider? auth,
+    bool toOfflineOnly = true,
+    void Function(String message, double progress)? onProgress,
+  }) async {
+    final startedAt = DateTime.now();
+    try {
+      onProgress?.call('Đang kết nối máy chủ...', 0.1);
+      final jwt = await ensureValidJwt(auth: auth);
+      final baseUrl = await _baseUrl();
+
+      onProgress?.call('Đang tải dữ liệu từ máy chủ...', 0.35);
+      final url = Uri.parse('$baseUrl/api/sync/snapshot');
+      final resp = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $jwt',
+        },
+      ).timeout(const Duration(seconds: 45));
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception('Lỗi tải dữ liệu (${resp.statusCode}): ${resp.body}');
+      }
+
+      final decoded = (jsonDecode(resp.body) as Map).cast<String, dynamic>();
+      final data = (decoded['data'] as Map?)?.cast<String, dynamic>() ?? {};
+
+      onProgress?.call('Đang nạp dữ liệu vào bộ nhớ máy...', 0.75);
+      await DatabaseService.instance.applySnapshot(data, toOfflineOnly: toOfflineOnly);
+
+      await _setLastSyncOk();
+      final ms = DateTime.now().difference(startedAt).inMilliseconds;
+      onProgress?.call('Đã đồng bộ về máy hoàn tất!', 1.0);
+
+      final pCount = (data['products'] as List?)?.length ?? 0;
+      final cCount = (data['customers'] as List?)?.length ?? 0;
+      final sCount = (data['sales'] as List?)?.length ?? 0;
+      final dCount = (data['debts'] as List?)?.length ?? 0;
+
+      return {
+        'success': true,
+        'ms': ms,
+        'products': pCount,
+        'customers': cCount,
+        'sales': sCount,
+        'debts': dCount,
+        'message': 'Đã đồng bộ về máy: $pCount SP, $cCount KH, $sCount Đơn bán, $dCount Công nợ!',
+      };
+    } catch (e) {
+      await _setLastSyncError(e.toString());
+      rethrow;
     }
   }
 
@@ -378,7 +617,7 @@ class OnlineSyncService {
       };
     }).toList();
 
-    final url = Uri.parse('${await _baseUrl()}/sync/push');
+    final url = Uri.parse('${await _baseUrl()}/api/sync/push');
     _log('push: POST $url events=${events.length}');
     final resp = await http.post(
       url,
@@ -479,7 +718,7 @@ class OnlineSyncService {
 
   static Future<void> _pullAndApply({required String jwt}) async {
     final cursor = await _getCursor();
-    final url = Uri.parse('${await _baseUrl()}/sync/pull?cursor=$cursor&limit=2000');
+    final url = Uri.parse('${await _baseUrl()}/api/sync/pull?cursor=$cursor&limit=2000');
     _log('pull: GET $url');
     final resp = await http.get(url, headers: {'Authorization': 'Bearer $jwt'});
     _log('pull: status=${resp.statusCode}');

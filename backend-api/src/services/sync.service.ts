@@ -128,6 +128,20 @@ export class SyncService {
           data
         });
         break;
+      case 'debt_reminder_settings':
+        await tx.debtReminderSetting.deleteMany({
+          where: { userId, debtId: entityId }
+        });
+        break;
+      case 'product_opening_stocks': {
+        const parts = entityId.split(':');
+        if (parts.length >= 3) {
+          await tx.productOpeningStock.deleteMany({
+            where: { userId, productId: parts[0], year: parseInt(parts[1], 10), month: parseInt(parts[2], 10) }
+          });
+        }
+        break;
+      }
       default:
         break;
     }
@@ -539,6 +553,81 @@ export class SyncService {
         break;
       }
 
+      case 'store_info': {
+        const storeId = parseInt(p.id ?? entityId ?? '1', 10) || 1;
+        await tx.storeInfo.upsert({
+          where: { userId_id: { userId, id: storeId } },
+          create: {
+            userId,
+            id: storeId,
+            name: p.name ?? '',
+            address: p.address ?? '',
+            phone: p.phone ?? '',
+            taxCode: p.taxCode ?? p.tax_code ?? null,
+            email: p.email ?? null,
+            bankName: p.bankName ?? p.bank_name ?? null,
+            bankAccount: p.bankAccount ?? p.bank_account ?? null,
+            updatedAt
+          },
+          update: {
+            name: p.name ?? '',
+            address: p.address ?? '',
+            phone: p.phone ?? '',
+            taxCode: p.taxCode ?? p.tax_code ?? null,
+            email: p.email ?? null,
+            bankName: p.bankName ?? p.bank_name ?? null,
+            bankAccount: p.bankAccount ?? p.bank_account ?? null,
+            updatedAt
+          }
+        });
+        break;
+      }
+
+      case 'product_opening_stocks': {
+        const parts = entityId.split(':');
+        const prodId = p.productId ?? parts[0];
+        const yr = parseInt(p.year ?? parts[1] ?? '0', 10);
+        const mo = parseInt(p.month ?? parts[2] ?? '0', 10);
+        if (prodId && yr && mo) {
+          await tx.productOpeningStock.upsert({
+            where: { userId_productId_year_month: { userId, productId: prodId, year: yr, month: mo } },
+            create: {
+              userId,
+              productId: prodId,
+              year: yr,
+              month: mo,
+              openingStock: Number(p.openingStock ?? p.opening_stock ?? 0),
+              updatedAt
+            },
+            update: {
+              openingStock: Number(p.openingStock ?? p.opening_stock ?? 0),
+              updatedAt
+            }
+          });
+        }
+        break;
+      }
+
+      case 'debt_reminder_settings': {
+        const dId = p.debtId ?? entityId;
+        if (dId) {
+          await tx.debtReminderSetting.upsert({
+            where: { userId_debtId: { userId, debtId: dId } },
+            create: {
+              userId,
+              debtId: dId,
+              muted: p.muted === true || p.muted === 1 || p.muted === '1',
+              lastNotifiedAt: this.parseDateOrNull(p.lastNotifiedAt ?? p.last_notified_at)
+            },
+            update: {
+              muted: p.muted === true || p.muted === 1 || p.muted === '1',
+              lastNotifiedAt: this.parseDateOrNull(p.lastNotifiedAt ?? p.last_notified_at)
+            }
+          });
+        }
+        break;
+      }
+
       default:
         break;
     }
@@ -565,6 +654,58 @@ export class SyncService {
         payload: ev.payload,
         clientUpdatedAt: ev.clientUpdatedAt.toISOString()
       }))
+    };
+  }
+
+  static async getSnapshot(userId: number) {
+    const [
+      products,
+      customers,
+      sales,
+      debts,
+      debtPayments,
+      purchaseOrders,
+      purchaseHistories,
+      expenses,
+      employees,
+      vietqrBankAccounts,
+      storeInfo,
+      productOpeningStocks,
+      debtReminderSettings
+    ] = await Promise.all([
+      prisma.product.findMany({ where: { userId, deletedAt: null } }),
+      prisma.customer.findMany({ where: { userId, deletedAt: null } }),
+      prisma.sale.findMany({
+        where: { userId, deletedAt: null },
+        include: { items: { where: { deletedAt: null } } }
+      }),
+      prisma.debt.findMany({ where: { userId, deletedAt: null } }),
+      prisma.debtPayment.findMany({ where: { userId, deletedAt: null } }),
+      prisma.purchaseOrder.findMany({ where: { userId, deletedAt: null } }),
+      prisma.purchaseHistory.findMany({ where: { userId, deletedAt: null } }),
+      prisma.expense.findMany({ where: { userId, deletedAt: null } }),
+      prisma.employee.findMany({ where: { userId, deletedAt: null } }),
+      prisma.vietqrBankAccount.findMany({ where: { userId, deletedAt: null } }),
+      prisma.storeInfo.findMany({ where: { userId } }),
+      prisma.productOpeningStock.findMany({ where: { userId } }),
+      prisma.debtReminderSetting.findMany({ where: { userId } }),
+    ]);
+
+    return {
+      products,
+      customers,
+      sales,
+      debts,
+      debtPayments,
+      purchaseOrders,
+      purchaseHistories,
+      expenses,
+      employees,
+      vietqrBankAccounts,
+      storeInfo,
+      productOpeningStocks,
+      debtReminderSettings,
+      serverTime: new Date().toISOString()
     };
   }
 }

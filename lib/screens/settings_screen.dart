@@ -18,7 +18,9 @@ import 'tax_declaration_form_screen.dart';
 import 'vietqr_bank_accounts_screen.dart';
 import 'employee_management_screen.dart';
 import 'online_sync_settings_screen.dart';
+import 'online_server_sync_screen.dart';
 import 'ai_provider_settings_screen.dart';
+import '../services/online_sync_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -32,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _driveSyncing = false;
   bool _driveRestoring = false;
   String _appVersion = '';
+  bool _isOnlineMode = false;
 
   // Build a menu button with icon and label
   Widget _buildMenuButton(
@@ -81,6 +84,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _getAppVersion();
+    _checkMode();
+  }
+
+  Future<void> _checkMode() async {
+    final mode = await OnlineSyncService.isOnlineMode();
+    if (mounted) setState(() => _isOnlineMode = mode);
   }
 
   /// Show purchase dialog for premium features
@@ -244,8 +253,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-         
-                   const SizedBox(height: 16),
+          // Banner Trạng thái Online / Offline
+          Card(
+            elevation: 1,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: _isOnlineMode ? Colors.green.withOpacity(0.4) : Colors.blueGrey.withOpacity(0.3),
+              ),
+            ),
+            color: _isOnlineMode ? Colors.green.withOpacity(0.08) : Colors.blueGrey.withOpacity(0.06),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const OnlineServerSyncScreen()),
+                );
+                _checkMode();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _isOnlineMode ? Colors.green.withOpacity(0.2) : Colors.blueGrey.withOpacity(0.2),
+                      ),
+                      child: Icon(
+                        _isOnlineMode ? Icons.cloud_done : Icons.cloud_off,
+                        color: _isOnlineMode ? Colors.green[700] : Colors.blueGrey[700],
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                _isOnlineMode ? 'Chế độ Online (PostgreSQL)' : 'Chế độ Offline (Cục bộ)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: _isOnlineMode ? Colors.green[800] : Colors.blueGrey[800],
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: _isOnlineMode ? Colors.green : Colors.blueGrey,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  _isOnlineMode ? '14.160.33.94' : 'Máy cục bộ',
+                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _isOnlineMode
+                                ? 'Đang kết nối máy chủ online. Chạm để quản lý.'
+                                : 'Đang dùng dữ liệu trên máy. Chạm để đồng bộ lên máy chủ.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, color: Colors.grey),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           
           // Quick Actions Section
           Text(
@@ -383,6 +471,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : null,
                 ),
                 const Divider(height: 1), */
+                _buildMenuButton(
+                  context,
+                  icon: Icons.cloud_sync,
+                  iconColor: const Color(0xFF0288D1),
+                  label: 'Đồng bộ PostgreSQL',
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const OnlineServerSyncScreen(),
+                      ),
+                    );
+                    _checkMode();
+                  },
+                ),
                 _buildMenuButton(
                   context,
                   icon: Icons.cloud_outlined,

@@ -15,6 +15,7 @@ import 'providers/purchase_provider.dart';
 import 'services/database_service.dart';
 import 'services/sync_service.dart';
 import 'services/debt_reminder_service.dart';
+import 'services/online_sync_service.dart';
 
 import 'screens/product_list_screen.dart';
 import 'screens/customer_list_screen.dart';
@@ -31,8 +32,9 @@ Future<void> main() async {
   // Khởi tạo Firebase
   await Firebase.initializeApp();
 
-  // Khởi tạo local database
-  await DatabaseService.instance.init();
+  // Khởi tạo database theo chế độ đã lưu (Online / Offline)
+  final isOnline = await OnlineSyncService.isOnlineMode();
+  await DatabaseService.instance.init(isOnline: isOnline);
 
   await DebtReminderService.instance.init();
 

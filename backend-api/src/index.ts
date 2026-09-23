@@ -63,6 +63,7 @@ app.use('/api/expenses', expensesRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/sync', syncRoutes);
 app.use('/api/upload', uploadRoutes);
 
 // ─── Error handler ───────────────────────────────────
@@ -73,8 +74,25 @@ const sslKeyPath = process.env.SSL_KEY_PATH;
 const sslCertPath = process.env.SSL_CERT_PATH;
 const sslCaPath = process.env.SSL_CA_PATH;
 
-const isSslEnabled = sslKeyPath && sslCertPath && fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath);
+// Khởi chạy HTTP server trên 0.0.0.0:PORT cho mobile và mạng nội bộ
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 Market Vendor API running on http://0.0.0.0:${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`🔐 Auth: POST http://localhost:${PORT}/auth/login`);
+  console.log(`📦 Products: http://localhost:${PORT}/api/products`);
+  console.log(`Frontend URL: ${FRONTEND_URL}\n`);
+});
 
+server.on('error', (err: any) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Cổng HTTP ${PORT} đã bị chiếm dụng bởi một tiến trình khác.`);
+  } else {
+    console.error('❌ Lỗi khởi chạy HTTP server:', err);
+  }
+});
+
+// Nếu cấu hình chứng chỉ SSL, khởi chạy song song HTTPS server trên SSL_PORT (mặc định 3443)
+const isSslEnabled = sslKeyPath && sslCertPath && fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath);
 if (isSslEnabled) {
   try {
     const sslOptions: any = {
@@ -84,29 +102,23 @@ if (isSslEnabled) {
     if (sslCaPath && fs.existsSync(sslCaPath)) {
       sslOptions.ca = fs.readFileSync(path.resolve(sslCaPath));
     }
+    const sslPort = parseInt(process.env.SSL_PORT || '3443', 10);
+    const httpsServer = https.createServer(sslOptions, app);
     
-    const server = https.createServer(sslOptions, app);
-    server.listen(PORT, () => {
-      console.log(`\n🚀 Market Vendor API running securely on HTTPS on port ${PORT}`);
-      console.log(`📊 Health check: https://localhost:${PORT}/health`);
-      console.log(`\nFrontend URL: ${FRONTEND_URL}\n`);
+    httpsServer.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`⚠️ Cổng HTTPS phụ ${sslPort} đã bị chiếm dụng (EADDRINUSE). Server HTTP cổng ${PORT} vẫn hoạt động bình thường.`);
+      } else {
+        console.warn('⚠️ Lỗi HTTPS server phụ:', err.message);
+      }
+    });
+
+    httpsServer.listen(sslPort, '0.0.0.0', () => {
+      console.log(`🔒 Market Vendor API running on HTTPS on port ${sslPort}`);
     });
   } catch (err) {
-    console.error('Lỗi khi cấu hình SSL cho backend. Đang fallback sang HTTP...', err);
-    startHttpServer();
+    console.warn('Lỗi cấu hình SSL phụ:', err);
   }
-} else {
-  startHttpServer();
-}
-
-function startHttpServer() {
-  app.listen(PORT, () => {
-    console.log(`\n🚀 Market Vendor API running on http://localhost:${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/health`);
-    console.log(`🔐 Auth: POST http://localhost:${PORT}/auth/login`);
-    console.log(`📦 Products: http://localhost:${PORT}/api/products`);
-    console.log(`\nFrontend URL: ${FRONTEND_URL}\n`);
-  });
 }
 
 export default app;
