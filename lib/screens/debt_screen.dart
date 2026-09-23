@@ -1649,6 +1649,18 @@ class DebtList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫', decimalDigits: 0);
+    if (debts.isEmpty && context.watch<DebtProvider>().isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('Đang tải danh sách công nợ...'),
+          ],
+        ),
+      );
+    }
     if (debts.isEmpty) {
       return const Center(child: Text('Chưa có dữ liệu'));
     }

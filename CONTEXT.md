@@ -94,3 +94,63 @@ Hệ thống quản lý bán hàng đa nền tảng gồm:
      - Đã test live REST API tới máy chủ User 1: Trả về thành công 100% dữ liệu sống gồm **138 sản phẩm**, **420 khách hàng**, **1050 đơn hàng**, **354 khoản nợ**.
      - Phân tích tĩnh `dart analyze` qua các module mới đạt 0 lỗi biên dịch.
 
+### Khắc phục triệt để lỗi Prisma P2028: "Transaction not found... refers to an old closed transaction" khi đồng bộ dữ liệu (2026-09-23)
+- **Nguyên nhân chính xác:**
+  - Prisma Client mặc định giới hạn thời gian thực thi của một Interactive Transaction (`prisma.$transaction(async (tx) => ...)`) là **5000 ms (5 giây)** và `maxWait: 2000 ms`.
+  - Khi người dùng đăng nhập tài khoản khác hoặc tải lên lần đầu, client gửi một lô dữ liệu gồm hàng trăm bản ghi (hàng trăm đơn hàng kèm chi tiết `sale_items`, sản phẩm, công nợ). Việc thực thi tuần tự hàng trăm câu lệnh database bên trong transaction vượt quá 5 giây.
+  - Khi chạm mốc 5 giây, Prisma Engine tự động đóng và rollback transaction. Lệnh kế tiếp (`tx.saleItem.updateMany`) cố thực thi trên transaction đã đóng, dẫn đến lỗi: `P2028: Transaction not found. Transaction ID is invalid, refers to an old closed transaction Prisma doesn't have information about anymore`.
+- **Cách khắc phục:**
+  1. **Backend (`backend-api/src/services/sync.service.ts`):**
+     - Nâng cấp `pushEvents`: Chia nhỏ danh sách sự kiện thành các gói con **50 events/lô**.
+     - Cấu hình tường minh tham số timeout cho Prisma Transaction: `{ maxWait: 30000, timeout: 120000 }` (2 phút thay vì 5 giây mặc định). Nhờ đó, mỗi batch hoàn tất chỉ trong 1-3 giây và không bao giờ bị Prisma đóng sớm.
+     - Tối ưu hóa điều kiện `updateMany` của `saleItem` loại bỏ `{ updatedAt: undefined }`.
+  2. **Mobile App (`lib/services/online_sync_service.dart`):**
+     - Điều chỉnh `chunkSize` từ 200 xuống **50 bản ghi/lần gửi**: Giảm tải kích thước payload HTTP, thanh tiến trình hiển thị mịn và mượt mà hơn (mỗi 50 bản ghi cập nhật 1 lần).
+     - Tăng HTTP request timeout từ 40s lên **60s** cho cả `uploadAllOfflineToServer` và `_pushOutbox`.
+
+### Khắc phục triệt để lỗi Treo màn hình Splash Screen sau khi Đăng nhập Google (2026-09-23)
+- **Hiện tượng:** Người dùng bấm "Đăng nhập với Google" thành công, popup Google tắt nhưng app bị treo vĩnh viễn ở màn hình Splash Screen (`Icon shopping_cart` + text `App Bán Hàng Ghi Nợ` + `CircularProgressIndicator`). Phải tắt ép ứng dụng (kill app) rồi mở lại mới vào được `HomeScreen`.
+- **Nguyên nhân cốt lõi:**
+  1. **Hiển thị Splash sai thời điểm trong `AuthGate` (`lib/main.dart`):** `AuthGate` kiểm tra `if (auth.isLoading)` để hiển thị toàn màn hình Splash Screen. Khi người dùng bấm nút đăng nhập, `signInWithGoogle` đặt `_isLoading = true`, khiến `AuthGate` lập tức tiêu hủy `LoginScreen` và thay thế bằng Splash Screen. Trong khi đó, `LoginScreen` đã có sẵn spinner loading riêng trên nút bấm ("Đang đăng nhập...").
+  2. **Block luồng UI do `await OnlineSyncService.startAutoSync`:** Trước đó, trong `signInWithGoogle()` của `AuthProvider`, hàm `startAutoSync` được gọi với `await` trước khi đặt `_isLoading = false`. `startAutoSync` lại kích hoạt `syncNow()`, `ensureBackendSession()`, và `getIdToken()`. Việc thực hiện toàn bộ chuỗi đồng bộ database qua mạng trước khi nhả loading khiến `_isLoading` bị giữ ở mức `true` hàng phút hoặc vĩnh viễn nếu mạng chập chờn.
+  3. **Treo silent login trên Android:** `getIdToken()` và `getAccessToken()` luôn gọi `_googleSignIn.signInSilently()`. Trên Android, ngay sau khi người dùng vừa đăng nhập bằng popup, việc lập tức gọi lại `signInSilently()` có thể bị chặn hoặc delay bởi Google Play Services.
+  4. **Xung đột điều hướng `Navigator.pushReplacement`:** Trong `LoginScreen`, sau khi `signInWithGoogle()` hoàn tất, code lại gọi tiếp `Navigator.pushReplacement(HomeScreen)`. Điều này xung đột trực tiếp với cơ chế reactive của `AuthGate` (vốn đã tự động chuyển sang `HomeScreen` khi `auth.isSignedIn == true`).
+- **Cách khắc phục:**
+  1. **`lib/main.dart` (`AuthGate`):**
+     - Bỏ kiểm tra `auth.isLoading` cho màn hình Splash. Thay bằng `if (!auth.initialChecked)`.
+     - Splash Screen chỉ xuất hiện trong khoảnh khắc app vừa mở máy để đọc cache Firebase. Khi ở màn hình Login, trạng thái loading chỉ nằm trên nút bấm của `LoginScreen`.
+     - Ngay khi `auth.isSignedIn == true`, `AuthGate` phản ứng tức thì và chuyển ngay sang `const HomeScreen()`.
+  2. **`lib/providers/auth_provider.dart`:**
+     - Đưa việc kết thúc loading vào khối `finally { _setLoading(false); }` để đảm bảo 100% luôn nhả cờ loading.
+     - Khởi chạy `OnlineSyncService.startAutoSync(auth: this)` trong `unawaited(...)` ngầm ở background, tuyệt đối không block luồng đăng nhập UI.
+     - Tối ưu `getIdToken()` và `getAccessToken()`: Ưu tiên lấy tài khoản đã đăng nhập sẵn trong bộ nhớ `_googleSignIn.currentUser`, chỉ gọi fallback `signInSilently()` kèm timeout an toàn 5 giây.
+  3. **`lib/screens/login_screen.dart`:**
+     - Loại bỏ lệnh `Navigator.pushReplacement` dư thừa, để `AuthGate` tự động chuyển trang mượt mà theo kiến trúc Provider chuẩn của Flutter.
+  4. **`lib/screens/home_screen.dart`:**
+     - Dọn dẹp import thừa và thêm `if (!mounted) return;` trước khi đọc ThemeProvider.
+  5. **Kiểm tra chất lượng mã nguồn:**
+     - Chạy `dart analyze` qua toàn bộ các file liên quan: `lib/main.dart`, `lib/providers/auth_provider.dart`, `lib/screens/login_screen.dart`, `lib/screens/home_screen.dart` đạt **0 issues (No issues found!)**.
+
+### Bổ sung Thanh Tiến trình (Progress Bar) & Trạng thái Tải dữ liệu Đa màn hình (2026-09-23)
+- **Mục tiêu:** Bổ sung hiển thị trực quan thanh tiến trình và thông báo khi đang tải dữ liệu hoặc đồng bộ dữ liệu từ server về máy, giúp người dùng nắm rõ tình trạng hệ thống đang hoạt động và không hiểu lầm là app bị lag hoặc đơ.
+- **Đã triển khai:**
+  1. **Thanh tiến trình toàn cục & Huy hiệu trạng thái trên HomeScreen (`lib/screens/home_screen.dart`):**
+     - Đặt một `Stack` bao phủ toàn bộ các tab của app.
+     - Khi bất kỳ tác vụ nào đang nạp dữ liệu (`_isRefreshingData`, `ProductProvider.isLoading`, `CustomerProvider.isLoading`, `SaleProvider.isLoading`, `DebtProvider.isLoading` hoặc `OnlineSyncService.isSyncingNotifier`):
+       - Hiển thị dải `LinearProgressIndicator(minHeight: 3.5)` chạy mượt mà ngay trên đỉnh màn hình (sát dưới thanh trạng thái SafeArea).
+       - Hiển thị huy hiệu dạng viên thuốc (floating frosted pill badge) nổi nhẹ nhàng ở giữa trên đỉnh: có icon `CircularProgressIndicator` xoay kèm văn bản trạng thái chi tiết (ví dụ: `"Đang tải dữ liệu..."`, `"Đang nạp dữ liệu vào máy..."`, `"Đang tải dữ liệu từ máy chủ..."`, `"Đang đồng bộ dữ liệu..."`).
+       - Bọc toàn bộ trong `IgnorePointer` để thanh tiến trình hoàn toàn không gây cản trở thao tác chạm/vuốt màn hình của người dùng.
+       - Khi nạp dữ liệu xong, thanh tiến trình tự động biến mất 100%.
+  2. **Trạng thái `isLoading` trong các Provider (`lib/providers/`):**
+     - Cập nhật [ProductProvider](file:///d:/Apps/market_vendor_app/lib/providers/product_provider.dart), [SaleProvider](file:///d:/Apps/market_vendor_app/lib/providers/sale_provider.dart), [DebtProvider](file:///d:/Apps/market_vendor_app/lib/providers/debt_provider.dart) bổ sung cờ `_isLoading` và getter `bool get isLoading`.
+     - Quản lý an toàn trạng thái nạp dữ liệu trong khối `try/finally` để đảm bảo cờ `isLoading` luôn được reset về `false`.
+  3. **Bộ thông báo trạng thái đồng bộ (`lib/services/online_sync_service.dart`):**
+     - Bổ sung `isSyncingNotifier` (`ValueNotifier<bool>`) và `syncStatusNotifier` (`ValueNotifier<String?>`).
+     - Tự động phát tín hiệu tiến trình trong `uploadAllOfflineToServer()`, `downloadAllServerToOffline()`, và `syncNow()`.
+  4. **Chỉ báo tải dữ liệu trên từng màn hình danh sách:**
+     - [ProductListScreen](file:///d:/Apps/market_vendor_app/lib/screens/product_list_screen.dart): Hiển thị `CircularProgressIndicator` + `"Đang tải danh sách sản phẩm..."` khi danh sách đang tải thay vì để màn hình trống.
+     - [CustomerListScreen](file:///d:/Apps/market_vendor_app/lib/screens/customer_list_screen.dart): Hiển thị `CircularProgressIndicator` + `"Đang tải danh sách khách hàng..."` khi đang nạp dữ liệu.
+     - [SalesHistoryScreen](file:///d:/Apps/market_vendor_app/lib/screens/sales_history_screen.dart): Hiển thị `CircularProgressIndicator` + `"Đang tải lịch sử bán hàng..."`.
+     - [DebtScreen](file:///d:/Apps/market_vendor_app/lib/screens/debt_screen.dart): Hiển thị `CircularProgressIndicator` + `"Đang tải danh sách công nợ..."`.
+
+

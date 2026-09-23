@@ -1,4 +1,5 @@
 // lib/providers/auth_provider.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -22,23 +23,25 @@ class AuthProvider extends ChangeNotifier {
 
   User? _firebaseUser;
   bool _isLoading = false;
+  bool _initialChecked = false;
   String? _errorMessage;
 
   User? get firebaseUser => _firebaseUser;
   String? get uid => _firebaseUser?.uid;
   bool get isSignedIn => _firebaseUser != null;
   bool get isLoading => _isLoading;
+  bool get initialChecked => _initialChecked;
   String? get errorMessage => _errorMessage;
 
   AuthProvider() {
+    // Khởi tạo ngay trạng thái người dùng hiện tại từ cache Firebase
+    _firebaseUser = _firebaseAuth.currentUser;
+    _initialChecked = true;
+
     // Lắng nghe trạng thái auth từ Firebase
     _firebaseAuth.authStateChanges().listen((user) {
       _firebaseUser = user;
-      if (user == null) {
-        //OnlineSyncService.stopAutoSync();
-      } else {
-        //OnlineSyncService.startAutoSync(auth: this);
-      }
+      _initialChecked = true;
       notifyListeners();
     });
   }
@@ -55,7 +58,6 @@ class AuthProvider extends ChangeNotifier {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
         _errorMessage = 'Đăng nhập bị hủy';
-        _setLoading(false);
         return;
       }
 
@@ -69,19 +71,19 @@ class AuthProvider extends ChangeNotifier {
       final userCredential = await _firebaseAuth.signInWithCredential(credential);
       _firebaseUser = userCredential.user;
 
+      // Khởi chạy đồng bộ ngầm trong background (không block luồng đăng nhập UI)
       if (_firebaseUser != null) {
-        try {
-          await OnlineSyncService.startAutoSync(auth: this);
-        } catch (_) {
-          // ignore
-        }
+        unawaited(
+          OnlineSyncService.startAutoSync(auth: this).catchError((e) {
+            debugPrint('startAutoSync background error: $e');
+          }),
+        );
       }
-
-      notifyListeners();
     } catch (e) {
       _errorMessage = 'Lỗi đăng nhập: $e';
       debugPrint('Firebase Google Sign In error: $e');
     } finally {
+      // Luôn kết thúc loading để UI cập nhật trạng thái (AuthGate chuyển sang HomeScreen nếu thành công)
       _setLoading(false);
     }
   }
@@ -116,7 +118,11 @@ class AuthProvider extends ChangeNotifier {
   // Lấy access token Google để dùng Drive API
   Future<String?> getAccessToken() async {
     try {
-      final currentGoogleUser = await _googleSignIn.signInSilently();
+      final currentGoogleUser = _googleSignIn.currentUser ??
+          await _googleSignIn.signInSilently().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => null,
+          );
       if (currentGoogleUser == null) return null;
       final auth = await currentGoogleUser.authentication;
       return auth.accessToken;
@@ -128,7 +134,11 @@ class AuthProvider extends ChangeNotifier {
 
   Future<String?> getIdToken() async {
     try {
-      final currentGoogleUser = await _googleSignIn.signInSilently();
+      final currentGoogleUser = _googleSignIn.currentUser ??
+          await _googleSignIn.signInSilently().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => null,
+          );
       if (currentGoogleUser == null) return null;
       final auth = await currentGoogleUser.authentication;
       return auth.idToken;

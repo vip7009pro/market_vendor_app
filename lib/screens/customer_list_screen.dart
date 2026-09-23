@@ -61,7 +61,20 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
           ),
           const Divider(height: 1),
           Expanded(
-            child: ListView.separated(
+            child: filtered.isEmpty && provider.isLoading
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 12),
+                        Text('Đang tải danh sách khách hàng...'),
+                      ],
+                    ),
+                  )
+                : filtered.isEmpty
+                    ? const Center(child: Text('Chưa có khách hàng nào'))
+                    : ListView.separated(
               itemCount: filtered.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, i) {

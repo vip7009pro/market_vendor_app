@@ -4,19 +4,27 @@ import '../services/database_service.dart';
 
 class DebtProvider with ChangeNotifier {
   final List<Debt> _debts = [];
+  bool _isLoading = false;
   // Undo caches
   Map<String, dynamic>? _lastDeletedPayment; // {debtId, amount, note, createdAt}
   Debt? _lastDeletedDebt;
   List<Map<String, dynamic>> _lastDeletedDebtPayments = const [];
 
   List<Debt> get debts => List.unmodifiable(_debts);
+  bool get isLoading => _isLoading;
 
   Future<void> load() async {
-    final data = await DatabaseService.instance.getDebts();
-    _debts
-      ..clear()
-      ..addAll(data);
+    _isLoading = true;
     notifyListeners();
+    try {
+      final data = await DatabaseService.instance.getDebts();
+      _debts
+        ..clear()
+        ..addAll(data);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<Debt?> getById(String debtId) async {

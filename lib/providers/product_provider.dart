@@ -6,15 +6,23 @@ import '../utils/string_utils.dart';
 
 class ProductProvider with ChangeNotifier {
   final List<Product> _products = [];
+  bool _isLoading = false;
 
   List<Product> get products => List.unmodifiable(_products);
+  bool get isLoading => _isLoading;
 
   Future<void> load() async {
-    final data = await DatabaseService.instance.getProducts();
-    _products
-      ..clear()
-      ..addAll(data);
+    _isLoading = true;
     notifyListeners();
+    try {
+      final data = await DatabaseService.instance.getProducts();
+      _products
+        ..clear()
+        ..addAll(data);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> add(Product p) async {

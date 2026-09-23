@@ -4,18 +4,26 @@ import '../services/database_service.dart';
 
 class SaleProvider with ChangeNotifier {
   final List<Sale> _sales = [];
+  bool _isLoading = false;
   // Undo caches
   Sale? _lastDeletedSale;
   List<Sale> _lastDeletedAllSales = const [];
 
   List<Sale> get sales => List.unmodifiable(_sales);
+  bool get isLoading => _isLoading;
 
   Future<void> load() async {
-    final data = await DatabaseService.instance.getSales();
-    _sales
-      ..clear()
-      ..addAll(data);
+    _isLoading = true;
     notifyListeners();
+    try {
+      final data = await DatabaseService.instance.getSales();
+      _sales
+        ..clear()
+        ..addAll(data);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> add(Sale s) async {

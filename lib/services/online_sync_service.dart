@@ -23,6 +23,8 @@ class OnlineSyncService {
 
   static StreamSubscription<ConnectivityResult>? _connSub;
   static bool _syncInFlight = false;
+  static final ValueNotifier<bool> isSyncingNotifier = ValueNotifier<bool>(false);
+  static final ValueNotifier<String?> syncStatusNotifier = ValueNotifier<String?>(null);
   static int _consecutiveFailures = 0;
   static DateTime? _nextAllowedAttemptAt;
 
@@ -343,6 +345,8 @@ class OnlineSyncService {
     void Function(String message, double progress)? onProgress,
   }) async {
     final startedAt = DateTime.now();
+    isSyncingNotifier.value = true;
+    syncStatusNotifier.value = 'Đang tải dữ liệu lên máy chủ...';
     try {
       onProgress?.call('Đang kết nối máy chủ...', 0.05);
       var jwt = await ensureValidJwt(auth: auth);
@@ -399,7 +403,7 @@ class OnlineSyncService {
 
       final totalEvents = events.length;
       int pushedCount = 0;
-      const chunkSize = 200;
+      const chunkSize = 50;
 
       for (int i = 0; i < totalEvents; i += chunkSize) {
         final end = (i + chunkSize < totalEvents) ? i + chunkSize : totalEvents;
@@ -420,7 +424,7 @@ class OnlineSyncService {
               },
               body: jsonEncode({'deviceId': deviceId, 'events': chunk}),
             )
-            .timeout(const Duration(seconds: 40));
+            .timeout(const Duration(seconds: 60));
 
         // Tự động làm mới token và thử lại nếu bị 401 Unauthorized
         if (resp.statusCode == 401) {
@@ -435,7 +439,7 @@ class OnlineSyncService {
                 },
                 body: jsonEncode({'deviceId': deviceId, 'events': chunk}),
               )
-              .timeout(const Duration(seconds: 40));
+              .timeout(const Duration(seconds: 60));
         }
 
         if (resp.statusCode < 200 || resp.statusCode >= 300) {
@@ -459,6 +463,9 @@ class OnlineSyncService {
     } catch (e) {
       await _setLastSyncError(e.toString());
       rethrow;
+    } finally {
+      isSyncingNotifier.value = false;
+      syncStatusNotifier.value = null;
     }
   }
 
@@ -469,6 +476,8 @@ class OnlineSyncService {
     void Function(String message, double progress)? onProgress,
   }) async {
     final startedAt = DateTime.now();
+    isSyncingNotifier.value = true;
+    syncStatusNotifier.value = 'Đang tải dữ liệu từ máy chủ về máy...';
     try {
       onProgress?.call('Đang kết nối máy chủ...', 0.1);
       final jwt = await ensureValidJwt(auth: auth);
@@ -526,6 +535,9 @@ class OnlineSyncService {
     } catch (e) {
       await _setLastSyncError(e.toString());
       rethrow;
+    } finally {
+      isSyncingNotifier.value = false;
+      syncStatusNotifier.value = null;
     }
   }
 
@@ -543,6 +555,8 @@ class OnlineSyncService {
     }
 
     _syncInFlight = true;
+    isSyncingNotifier.value = true;
+    syncStatusNotifier.value = 'Đang đồng bộ dữ liệu...';
     final startedAt = DateTime.now();
     try {
       _log(
@@ -588,6 +602,8 @@ class OnlineSyncService {
       rethrow;
     } finally {
       _syncInFlight = false;
+      isSyncingNotifier.value = false;
+      syncStatusNotifier.value = null;
     }
   }
 
@@ -772,28 +788,32 @@ class OnlineSyncService {
 
     final url = Uri.parse('${await _baseUrl()}/api/sync/push');
     _log('push: POST $url events=${events.length}');
-    var resp = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $jwt',
-      },
-      body: jsonEncode({'deviceId': deviceId, 'events': events}),
-    );
+    var resp = await http
+        .post(
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $jwt',
+          },
+          body: jsonEncode({'deviceId': deviceId, 'events': events}),
+        )
+        .timeout(const Duration(seconds: 60));
 
     if (resp.statusCode == 401) {
       _log(
         'syncNow push: 401 Unauthorized, đang xin cấp lại JWT và thử lại...',
       );
       final freshJwt = await ensureValidJwt(forceRefresh: true);
-      resp = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $freshJwt',
-        },
-        body: jsonEncode({'deviceId': deviceId, 'events': events}),
-      );
+      resp = await http
+          .post(
+            url,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $freshJwt',
+            },
+            body: jsonEncode({'deviceId': deviceId, 'events': events}),
+          )
+          .timeout(const Duration(seconds: 60));
     }
 
     _log('push: status=${resp.statusCode}');

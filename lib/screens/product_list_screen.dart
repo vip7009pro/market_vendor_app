@@ -337,9 +337,22 @@ class _ProductListScreenState extends State<ProductListScreen> with SingleTicker
           ),
         ),
         Expanded(
-          child: _isTableViewProducts
-              ? _buildProductsTable(rows: filtered, currency: currency)
-              : ListView.separated(
+          child: filtered.isEmpty && provider.isLoading
+              ? const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 12),
+                      Text('Đang tải danh sách sản phẩm...'),
+                    ],
+                  ),
+                )
+              : filtered.isEmpty
+                  ? const Center(child: Text('Chưa có sản phẩm nào'))
+                  : _isTableViewProducts
+                      ? _buildProductsTable(rows: filtered, currency: currency)
+                      : ListView.separated(
                   itemCount: filtered.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, i) {

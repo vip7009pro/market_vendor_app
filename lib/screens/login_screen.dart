@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import 'home_screen.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -53,14 +52,6 @@ class LoginScreen extends StatelessWidget {
                           ? null
                           : () async {
                               await auth.signInWithGoogle();
-
-                              // Nếu đăng nhập thành công → chuyển sang Home
-                              if (auth.isSignedIn && context.mounted) {
-                                Navigator.pushReplacement(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const HomeScreen()),
-                                );
-                              }
 
                               // Nếu có lỗi → hiển thị snackbar
                               if (auth.errorMessage != null && context.mounted) {

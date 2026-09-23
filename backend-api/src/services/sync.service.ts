@@ -15,53 +15,66 @@ export class SyncService {
   }
 
   static async pushEvents(userId: number, deviceId: string, events: any[]) {
-    return await prisma.$transaction(async (tx) => {
-      let insertedCount = 0;
+    const CHUNK_SIZE = 50;
+    let totalInserted = 0;
 
-      for (const ev of events) {
-        const { eventUuid, entity, entityId, op, payload, clientUpdatedAt } = ev;
-        if (!entity || !entityId || !op) continue;
+    for (let i = 0; i < events.length; i += CHUNK_SIZE) {
+      const chunk = events.slice(i, i + CHUNK_SIZE);
+      const insertedCount = await prisma.$transaction(async (tx) => {
+        let count = 0;
 
-        // Idempotency check
-        const exist = await tx.appliedSyncEvent.findUnique({
-          where: { userId_eventUuid: { userId, eventUuid } }
-        });
-        if (exist) continue;
+        for (const ev of chunk) {
+          const { eventUuid, entity, entityId, op, payload, clientUpdatedAt } = ev;
+          if (!entity || !entityId || !op) continue;
 
-        const updatedAtDate = this.parseDate(clientUpdatedAt);
+          // Idempotency check
+          const exist = await tx.appliedSyncEvent.findUnique({
+            where: { userId_eventUuid: { userId, eventUuid } }
+          });
+          if (exist) continue;
 
-        // 1. Record applied sync event
-        await tx.appliedSyncEvent.create({
-          data: { userId, eventUuid, appliedAt: new Date() }
-        });
+          const updatedAtDate = this.parseDate(clientUpdatedAt);
 
-        // 2. Save event history
-        await tx.syncEvent.create({
-          data: {
-            userId,
-            deviceId,
-            entity,
-            entityId,
-            op,
-            payload: payload ? payload : Prisma.JsonNull,
-            clientUpdatedAt: updatedAtDate,
-            eventUuid,
-            serverReceivedAt: new Date()
+          // 1. Record applied sync event
+          await tx.appliedSyncEvent.create({
+            data: { userId, eventUuid, appliedAt: new Date() }
+          });
+
+          // 2. Save event history
+          await tx.syncEvent.create({
+            data: {
+              userId,
+              deviceId,
+              entity,
+              entityId,
+              op,
+              payload: payload ? payload : Prisma.JsonNull,
+              clientUpdatedAt: updatedAtDate,
+              eventUuid,
+              serverReceivedAt: new Date()
+            }
+          });
+
+          // 3. Apply changes (LWW logic)
+          if (op === 'delete') {
+            await this.applyDeleteLww(tx, userId, entity, entityId, updatedAtDate);
+          } else if (op === 'upsert' && payload) {
+            await this.applyUpsertLww(tx, userId, entity, entityId, payload, updatedAtDate);
           }
-        });
 
-        // 3. Apply changes (LWW logic)
-        if (op === 'delete') {
-          await this.applyDeleteLww(tx, userId, entity, entityId, updatedAtDate);
-        } else if (op === 'upsert' && payload) {
-          await this.applyUpsertLww(tx, userId, entity, entityId, payload, updatedAtDate);
+          count++;
         }
 
-        insertedCount++;
-      }
+        return count;
+      }, {
+        maxWait: 30000, // 30s max wait to obtain connection
+        timeout: 120000, // 120s timeout for transaction (prevents P2028 timeout)
+      });
 
-      return insertedCount;
-    });
+      totalInserted += insertedCount;
+    }
+
+    return totalInserted;
   }
 
   private static async applyDeleteLww(tx: Prisma.TransactionClient, userId: number, entity: string, entityId: string, deletedAt: Date) {
@@ -506,7 +519,7 @@ export class SyncService {
 
           // Soft delete existing sale items
           await tx.saleItem.updateMany({
-            where: { userId, saleId: entityId, OR: [{ updatedAt: { lt: updatedAt } }, { updatedAt: undefined }] },
+            where: { userId, saleId: entityId, updatedAt: { lt: updatedAt } },
             data: { deletedAt: updatedAt, updatedAt }
           });
 

@@ -1350,14 +1350,26 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
             ),
           ),
           Expanded(
-            child:
-                _isTableView
-                    ? _buildSalesTable(
-                      rows: finalList,
-                      fmtDate: fmtDate,
-                      currency: currency,
-                    )
-                    : ListView.separated(
+            child: finalList.isEmpty && context.watch<SaleProvider>().isLoading
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 12),
+                        Text('Đang tải lịch sử bán hàng...'),
+                      ],
+                    ),
+                  )
+                : finalList.isEmpty
+                    ? const Center(child: Text('Không có đơn bán hàng nào'))
+                    : _isTableView
+                        ? _buildSalesTable(
+                            rows: finalList,
+                            fmtDate: fmtDate,
+                            currency: currency,
+                          )
+                        : ListView.separated(
                       itemCount: finalList.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 1),
                       itemBuilder: (context, i) {

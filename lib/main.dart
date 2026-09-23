@@ -102,8 +102,8 @@ class _AuthGateState extends State<AuthGate> {
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
       builder: (context, auth, child) {
-        // Đang loading (Firebase đang check auth state hoặc silent login)
-        if (auth.isLoading) {
+        // Chỉ hiện Splash Screen khi app vừa khởi động đang kiểm tra auth lần đầu
+        if (!auth.initialChecked) {
           return const Scaffold(
             body: Center(
               child: Column(
