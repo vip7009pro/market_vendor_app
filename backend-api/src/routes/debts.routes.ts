@@ -12,13 +12,24 @@ const notDeleted = { deletedAt: null };
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!.userId;
-    const { type, settled, search, sourceType, sourceId } = req.query;
+    const { type, settled, search, sourceType, sourceId, startDate, endDate, limit } = req.query;
     const where: any = { userId, ...notDeleted };
 
     if (type !== undefined) where.type = parseInt(String(type));
     if (settled !== undefined) where.settled = settled === 'true';
     if (sourceType) where.sourceType = String(sourceType);
     if (sourceId) where.sourceId = String(sourceId);
+
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = new Date(String(startDate));
+      if (endDate) {
+        const end = new Date(String(endDate));
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
     if (search) {
       where.OR = [
         { partyName: { contains: String(search), mode: 'insensitive' } },
@@ -26,10 +37,13 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       ];
     }
 
+    const limitNum = limit ? parseInt(String(limit)) : undefined;
+
     const debts = await prisma.debt.findMany({
       where,
       include: { payments: { where: notDeleted, orderBy: { createdAt: 'desc' } } },
       orderBy: { createdAt: 'desc' },
+      take: limitNum,
     });
 
     res.json({ data: debts });

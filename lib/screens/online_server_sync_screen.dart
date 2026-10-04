@@ -23,6 +23,7 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
   bool _isOnlineMode = false;
   bool _isUploading = false;
   bool _isDownloading = false;
+  bool _isWiping = false;
 
   String? _connectionStatusText;
   bool? _connectionStatusOk;
@@ -75,20 +76,10 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
     setState(() => _loadingCounts = true);
     try {
       if (_isOnlineMode) {
-        final products = await OnlineApiService.instance.getProducts();
-        final customers = await OnlineApiService.instance.getCustomers();
-        final sales = await OnlineApiService.instance.getSales();
-        final debts = await OnlineApiService.instance.getDebts();
-        final expenses = await OnlineApiService.instance.getExpenses();
+        final counts = await OnlineApiService.instance.getEntityCounts();
         if (!mounted) return;
         setState(() {
-          _localCounts = {
-            'products': products.length,
-            'customers': customers.length,
-            'sales': sales.length,
-            'debts': debts.length,
-            'expenses': expenses.length,
-          };
+          _localCounts = counts;
         });
         return;
       }
@@ -171,7 +162,7 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
     final title = targetMode ? 'Bật Chế độ Online' : 'Chuyển về Chế độ Offline';
     final desc =
         targetMode
-            ? 'Chế độ Online sẽ sử dụng dữ liệu máy chủ PostgreSQL (192.168.1.203).\n\n'
+            ? 'Chế độ Online sẽ sử dụng dữ liệu máy chủ PostgreSQL (ruougaohoatuoi.ddns.net).\n\n'
                 'Toàn bộ dữ liệu offline cũ của bạn vẫn được lưu giữ an toàn 100% trên máy.'
             : 'Chuyển về Chế độ Offline để tiếp tục sử dụng kho dữ liệu cục bộ cũ trên máy.\n\n'
                 'Dữ liệu offline sẽ được nạp lại nguyên vẹn như trước.';
@@ -274,7 +265,7 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
             ),
             content: const Text(
               'Hệ thống sẽ gom toàn bộ danh mục sản phẩm, khách hàng, hóa đơn, công nợ, chi phí '
-              'từ thiết bị và tải lên máy chủ PostgreSQL (192.168.1.203).\n\n'
+              'từ thiết bị và tải lên máy chủ PostgreSQL (ruougaohoatuoi.ddns.net).\n\n'
               'Thao tác này dùng để chuẩn bị chuyển sang dùng hoàn toàn online.',
             ),
             actions: [
@@ -484,10 +475,114 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
     }
   }
 
+  /// Nút 3: Xóa toàn bộ dữ liệu trên Server
+  Future<void> _wipeAllServerData() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            icon: const Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.red,
+              size: 48,
+            ),
+            title: const Text(
+              'Xóa toàn bộ Dữ liệu trên Server?',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+            ),
+            content: const Text(
+              'CẢNH BÁO NGUY HIỂM:\n\n'
+              '• Thao tác này sẽ XÓA VĨNH VIỄN toàn bộ danh mục sản phẩm, khách hàng, hóa đơn, công nợ, chi phí... của tài khoản bạn TRÊN MÁY CHỦ PostgreSQL.\n'
+              '• Dữ liệu offline đã lưu trong bộ nhớ máy này KHÔNG bị ảnh hưởng.\n'
+              '• Nếu đang ở Chế độ Online, toàn bộ danh sách trên app sẽ về 0 ngay lập tức.\n\n'
+              'Bạn có chắc chắn muốn xóa sạch dữ liệu trên máy chủ không?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Hủy'),
+              ),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.delete_forever),
+                label: const Text('Xác nhận Xóa sạch'),
+              ),
+            ],
+          ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    setState(() {
+      _isWiping = true;
+      _actionProgress = 0.0;
+      _actionStatusMessage = 'Đang xóa toàn bộ dữ liệu trên máy chủ...';
+    });
+
+    try {
+      final auth = context.read<AuthProvider>();
+      final result = await OnlineSyncService.wipeAllServerData(auth: auth);
+
+      // Nếu đang dùng Online Mode thì reload các providers về 0
+      if (!mounted) return;
+      if (DatabaseService.instance.isOnlineMode) {
+        await Future.wait([
+          context.read<ProductProvider>().load(),
+          context.read<CustomerProvider>().load(),
+          context.read<SaleProvider>().load(),
+          context.read<DebtProvider>().load(),
+        ]);
+      }
+
+      await _refreshLocalCounts();
+
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        builder:
+            (ctx) => AlertDialog(
+              icon: const Icon(
+                Icons.check_circle,
+                color: Colors.green,
+                size: 48,
+              ),
+              title: const Text('Đã xóa sạch trên Server'),
+              content: Text(
+                result['message'] as String? ??
+                    'Toàn bộ dữ liệu của bạn trên máy chủ đã được dọn sạch.',
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Đóng'),
+                ),
+              ],
+            ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi khi xóa server: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isWiping = false;
+          _actionProgress = 0.0;
+          _actionStatusMessage = '';
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isWorking = _isUploading || _isDownloading || _loading;
+    final isWorking = _isUploading || _isDownloading || _loading || _isWiping;
 
     return Scaffold(
       appBar: AppBar(
@@ -513,6 +608,8 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
                     backgroundColor: Colors.blueGrey,
                   ),
                 );
+              } else if (val == 'wipe_server') {
+                await _wipeAllServerData();
               }
             },
             itemBuilder:
@@ -524,6 +621,16 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
                         Icon(Icons.key_off, size: 20),
                         SizedBox(width: 8),
                         Text('Làm mới phiên đăng nhập (Token)'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'wipe_server',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_forever_outlined, color: Colors.red, size: 20),
+                        SizedBox(width: 8),
+                        Text('Xóa toàn bộ trên Server', style: TextStyle(color: Colors.red)),
                       ],
                     ),
                   ),
@@ -645,7 +752,7 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
 
                   const SizedBox(height: 16),
 
-                  // ─── 2. CARD ĐỊA CHỈ MÁY CHỦ (192.168.1.203) ────────────────
+                  // ─── 2. CARD ĐỊA CHỈ MÁY CHỦ (ruougaohoatuoi.ddns.net) ────────────────
                   Card(
                     elevation: 1,
                     shape: RoundedRectangleBorder(
@@ -668,11 +775,12 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
                             keyboardType: TextInputType.url,
                             enabled: !isWorking,
                             decoration: InputDecoration(
-                              hintText: 'http://192.168.1.203:3007',
+                              hintText: 'http://ruougaohoatuoi.ddns.net:3007',
                               prefixIcon: const Icon(Icons.dns_outlined),
                               suffixIcon: IconButton(
                                 icon: const Icon(Icons.restore, size: 20),
-                                tooltip: 'Đặt lại mặc định 192.168.1.203',
+                                tooltip:
+                                    'Đặt lại mặc định ruougaohoatuoi.ddns.net',
                                 onPressed: isWorking ? null : _resetDefaultUrl,
                               ),
                               border: const OutlineInputBorder(),
@@ -872,8 +980,52 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
                             ),
                           ),
 
+                          const SizedBox(height: 12),
+
+                          // Nút 3: Xóa sạch toàn bộ trên Server (Danger Action)
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: isWorking ? null : _wipeAllServerData,
+                              icon:
+                                  _isWiping
+                                      ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.red,
+                                        ),
+                                      )
+                                      : const Icon(
+                                        Icons.delete_forever_outlined,
+                                        color: Colors.red,
+                                      ),
+                              label: Text(
+                                _isWiping
+                                    ? 'Đang xóa sạch dữ liệu trên server...'
+                                    : 'Xóa toàn bộ Dữ liệu trên Server',
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(
+                                  color: Colors.red.withOpacity(0.5),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+
                           // Progress indicator bar if working
-                          if (_isUploading || _isDownloading) ...[
+                          if (_isUploading || _isDownloading || _isWiping) ...[
                             const SizedBox(height: 16),
                             LinearProgressIndicator(
                               value:

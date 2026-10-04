@@ -1,9 +1,33 @@
 import { Router, Response } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { SyncService } from '../services/sync.service.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 router.use(authMiddleware);
+
+const notDeleted = { deletedAt: null };
+
+// GET /api/sync/counts - Fast counts of entities without fetching records
+router.get('/counts', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const [products, customers, sales, debts, expenses] = await Promise.all([
+      prisma.product.count({ where: { userId, ...notDeleted } }),
+      prisma.customer.count({ where: { userId, ...notDeleted } }),
+      prisma.sale.count({ where: { userId, ...notDeleted } }),
+      prisma.debt.count({ where: { userId, ...notDeleted } }),
+      prisma.expense.count({ where: { userId, ...notDeleted } }),
+    ]);
+    res.json({
+      success: true,
+      data: { products, customers, sales, debts, expenses },
+    });
+  } catch (error: any) {
+    console.error('Counts error:', error);
+    res.status(500).json({ error: 'Failed to count: ' + error.message });
+  }
+});
 
 // POST /api/sync/push
 router.post('/push', async (req: AuthRequest, res: Response): Promise<void> => {
@@ -57,6 +81,26 @@ router.get('/snapshot', async (req: AuthRequest, res: Response): Promise<void> =
     res.status(500).json({ error: 'Sync snapshot failed: ' + error.message });
   }
 });
+
+// POST & DELETE /api/sync/wipe - Xóa toàn bộ dữ liệu trên server của người dùng
+const handleWipe = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`⚠️ [Sync Wipe] Bắt đầu xóa toàn bộ dữ liệu máy chủ cho userId=${userId} (${req.user?.email || 'unknown'})`);
+    await SyncService.wipeUserData(userId);
+    console.log(`✅ [Sync Wipe] Đã xóa toàn bộ dữ liệu thành công cho userId=${userId}`);
+    res.json({
+      success: true,
+      message: 'Đã xóa toàn bộ dữ liệu của bạn trên máy chủ thành công.',
+    });
+  } catch (error: any) {
+    console.error('Wipe error:', error);
+    res.status(500).json({ error: 'Xóa toàn bộ dữ liệu trên server thất bại: ' + error.message });
+  }
+};
+
+router.post('/wipe', handleWipe);
+router.delete('/wipe', handleWipe);
 
 export default router;
 

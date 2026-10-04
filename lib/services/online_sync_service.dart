@@ -23,8 +23,11 @@ class OnlineSyncService {
 
   static StreamSubscription<ConnectivityResult>? _connSub;
   static bool _syncInFlight = false;
-  static final ValueNotifier<bool> isSyncingNotifier = ValueNotifier<bool>(false);
-  static final ValueNotifier<String?> syncStatusNotifier = ValueNotifier<String?>(null);
+  static final ValueNotifier<bool> isSyncingNotifier = ValueNotifier<bool>(
+    false,
+  );
+  static final ValueNotifier<String?> syncStatusNotifier =
+      ValueNotifier<String?>(null);
   static int _consecutiveFailures = 0;
   static DateTime? _nextAllowedAttemptAt;
 
@@ -99,7 +102,7 @@ class OnlineSyncService {
     _log('stopAutoSync');
   }
 
-  static const defaultBaseUrl = 'http://192.168.1.203:3007';
+  static const defaultBaseUrl = 'http://ruougaohoatuoi.ddns.net:3007';
   static const _prefsKeyIsOnlineMode = 'app_mode_is_online';
 
   static Future<String> _baseUrl() async {
@@ -225,11 +228,13 @@ class OnlineSyncService {
     final url = Uri.parse('${await _baseUrl()}/auth/google');
     _log('auth: POST $url');
     try {
-      final resp = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'idToken': idToken, 'deviceId': deviceId}),
-      ).timeout(const Duration(seconds: 15));
+      final resp = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'idToken': idToken, 'deviceId': deviceId}),
+          )
+          .timeout(const Duration(seconds: 15));
       _log('auth: status=${resp.statusCode}');
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         final decoded = (jsonDecode(resp.body) as Map).cast<String, dynamic>();
@@ -540,6 +545,68 @@ class OnlineSyncService {
       syncStatusNotifier.value = null;
     }
   }
+
+  /// Xóa toàn bộ dữ liệu của người dùng trên máy chủ PostgreSQL
+  static Future<Map<String, dynamic>> wipeAllServerData({
+    AuthProvider? auth,
+  }) async {
+    final startedAt = DateTime.now();
+    isSyncingNotifier.value = true;
+    syncStatusNotifier.value = 'Đang xóa toàn bộ dữ liệu trên máy chủ...';
+    try {
+      var jwt = await ensureValidJwt(auth: auth);
+      final baseUrl = await _baseUrl();
+      final url = Uri.parse('$baseUrl/api/sync/wipe');
+
+      var resp = await http
+          .post(
+            url,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $jwt',
+            },
+          )
+          .timeout(const Duration(seconds: 45));
+
+      // Tự động làm mới token và thử lại nếu bị 401 Unauthorized
+      if (resp.statusCode == 401) {
+        _log('wipe: 401 Unauthorized, đang xin cấp lại JWT và thử lại...');
+        jwt = await ensureValidJwt(auth: auth, forceRefresh: true);
+        resp = await http
+            .post(
+              url,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $jwt',
+              },
+            )
+            .timeout(const Duration(seconds: 45));
+      }
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception(
+          'Lỗi xóa dữ liệu server (${resp.statusCode}): ${resp.body}',
+        );
+      }
+
+      final decoded = (jsonDecode(resp.body) as Map).cast<String, dynamic>();
+      final ms = DateTime.now().difference(startedAt).inMilliseconds;
+      return {
+        'success': true,
+        'ms': ms,
+        'message':
+            decoded['message'] ??
+            'Đã xóa toàn bộ dữ liệu của bạn trên máy chủ thành công.',
+      };
+    } catch (e) {
+      await _setLastSyncError(e.toString());
+      rethrow;
+    } finally {
+      isSyncingNotifier.value = false;
+      syncStatusNotifier.value = null;
+    }
+  }
+
 
   static Future<void> syncNow({
     required AuthProvider auth,

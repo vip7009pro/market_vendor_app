@@ -721,4 +721,39 @@ export class SyncService {
       serverTime: new Date().toISOString()
     };
   }
+
+  static async wipeUserData(userId: number) {
+    return await prisma.$transaction(async (tx) => {
+      // 1. Xóa các bảng con phụ thuộc trước (cascade children)
+      await tx.saleItem.deleteMany({ where: { userId } });
+      await tx.sale.deleteMany({ where: { userId } });
+      await tx.debtPayment.deleteMany({ where: { userId } });
+      await tx.debtReminderSetting.deleteMany({ where: { userId } });
+      await tx.debt.deleteMany({ where: { userId } });
+      await tx.purchaseHistory.deleteMany({ where: { userId } });
+      await tx.purchaseOrder.deleteMany({ where: { userId } });
+      await tx.expense.deleteMany({ where: { userId } });
+      await tx.productOpeningStock.deleteMany({ where: { userId } });
+      await tx.product.deleteMany({ where: { userId } });
+      await tx.customer.deleteMany({ where: { userId } });
+      await tx.employee.deleteMany({ where: { userId } });
+      await tx.vietqrBankAccount.deleteMany({ where: { userId } });
+      await tx.storeInfo.deleteMany({ where: { userId } });
+
+      // 2. Xóa các bảng lưu vết đồng bộ & audit
+      await tx.appliedSyncEvent.deleteMany({ where: { userId } });
+      await tx.syncEvent.deleteMany({ where: { userId } });
+      await tx.deletedEntity.deleteMany({ where: { userId } });
+      await tx.syncLog.deleteMany({ where: { userId } });
+      await tx.auditLog.deleteMany({ where: { userId } });
+      await tx.outbox.deleteMany({ where: { userId } });
+      await tx.syncState.deleteMany({ where: { userId } });
+
+      return true;
+    }, {
+      maxWait: 30000,
+      timeout: 120000,
+    });
+  }
 }
+

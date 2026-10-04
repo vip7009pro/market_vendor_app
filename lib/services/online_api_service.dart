@@ -234,15 +234,31 @@ class OnlineApiService {
   // SALES
   // ══════════════════════════════════════════════════════════════
 
-  Future<List<Sale>> getSales({DateTime? startDate, DateTime? endDate, String? search}) async {
+  Future<List<Sale>> getSales({
+    DateTime? startDate,
+    DateTime? endDate,
+    String? search,
+    int? limit,
+    bool fetchAll = false,
+  }) async {
     try {
       final base = await _getBaseUrl();
-      final queryParams = <String, String>{'limit': 'all'};
+      final queryParams = <String, String>{};
+
+      if (fetchAll) {
+        queryParams['limit'] = 'all';
+      } else if (limit != null) {
+        queryParams['limit'] = limit.toString();
+      } else if (startDate == null && endDate == null) {
+        // Mặc định giới hạn an toàn 500 nếu không chỉ định ngày, tránh làm đơ ứng dụng
+        queryParams['limit'] = '500';
+      }
+
       if (startDate != null) queryParams['startDate'] = startDate.toIso8601String();
       if (endDate != null) queryParams['endDate'] = endDate.toIso8601String();
       if (search != null && search.isNotEmpty) queryParams['search'] = search;
 
-      final uri = Uri.parse('$base/api/sales').replace(queryParameters: queryParams);
+      final uri = Uri.parse('$base/api/sales').replace(queryParameters: queryParams.isEmpty ? null : queryParams);
       final res = await _requestWithRetry((h) => _client.get(uri, headers: h));
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -367,13 +383,23 @@ class OnlineApiService {
   // DEBTS & DEBT PAYMENTS
   // ══════════════════════════════════════════════════════════════
 
-  Future<List<Debt>> getDebts({int? type, bool? settled, String? search}) async {
+  Future<List<Debt>> getDebts({
+    int? type,
+    bool? settled,
+    String? search,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? limit,
+  }) async {
     try {
       final base = await _getBaseUrl();
       final queryParams = <String, String>{};
       if (type != null) queryParams['type'] = type.toString();
       if (settled != null) queryParams['settled'] = settled.toString();
       if (search != null && search.isNotEmpty) queryParams['search'] = search;
+      if (startDate != null) queryParams['startDate'] = startDate.toIso8601String();
+      if (endDate != null) queryParams['endDate'] = endDate.toIso8601String();
+      if (limit != null) queryParams['limit'] = limit.toString();
 
       final uri = Uri.parse('$base/api/debts').replace(queryParameters: queryParams.isEmpty ? null : queryParams);
       final res = await _requestWithRetry((h) => _client.get(uri, headers: h));
@@ -392,6 +418,31 @@ class OnlineApiService {
     } catch (e, st) {
       developer.log('OnlineApiService.getDebts error: $e', stackTrace: st);
       return [];
+    }
+  }
+
+  Future<Map<String, int>> getEntityCounts() async {
+    try {
+      final base = await _getBaseUrl();
+      final uri = Uri.parse('$base/api/sync/counts');
+      final res = await _requestWithRetry((h) => _client.get(uri, headers: h));
+
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+        final data = decoded['data'] as Map?;
+        if (data == null) return {};
+        return {
+          'products': (data['products'] as num?)?.toInt() ?? 0,
+          'customers': (data['customers'] as num?)?.toInt() ?? 0,
+          'sales': (data['sales'] as num?)?.toInt() ?? 0,
+          'debts': (data['debts'] as num?)?.toInt() ?? 0,
+          'expenses': (data['expenses'] as num?)?.toInt() ?? 0,
+        };
+      }
+      return {};
+    } catch (e, st) {
+      developer.log('OnlineApiService.getEntityCounts error: $e', stackTrace: st);
+      return {};
     }
   }
 

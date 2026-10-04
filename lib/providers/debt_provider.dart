@@ -1,10 +1,12 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../models/debt.dart';
 import '../services/database_service.dart';
 
 class DebtProvider with ChangeNotifier {
   final List<Debt> _debts = [];
   bool _isLoading = false;
+  DateTimeRange? _dateRange;
+
   // Undo caches
   Map<String, dynamic>? _lastDeletedPayment; // {debtId, amount, note, createdAt}
   Debt? _lastDeletedDebt;
@@ -12,12 +14,23 @@ class DebtProvider with ChangeNotifier {
 
   List<Debt> get debts => List.unmodifiable(_debts);
   bool get isLoading => _isLoading;
+  DateTimeRange? get dateRange => _dateRange;
 
-  Future<void> load() async {
+  Future<void> load({DateTimeRange? range, bool? settled, bool forceAll = false}) async {
     _isLoading = true;
     notifyListeners();
     try {
-      final data = await DatabaseService.instance.getDebts();
+      if (forceAll) {
+        _dateRange = null;
+      } else if (range != null) {
+        _dateRange = range;
+      }
+
+      final data = await DatabaseService.instance.getDebts(
+        startDate: _dateRange?.start,
+        endDate: _dateRange?.end,
+        settled: settled,
+      );
       _debts
         ..clear()
         ..addAll(data);
@@ -25,6 +38,10 @@ class DebtProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> setDateRange(DateTimeRange? newRange) async {
+    await load(range: newRange, forceAll: newRange == null);
   }
 
   Future<Debt?> getById(String debtId) async {
