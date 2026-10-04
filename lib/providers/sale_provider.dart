@@ -1,22 +1,47 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../models/sale.dart';
 import '../services/database_service.dart';
 
 class SaleProvider with ChangeNotifier {
   final List<Sale> _sales = [];
   bool _isLoading = false;
+  DateTimeRange? _dateRange = defaultRange();
+
   // Undo caches
   Sale? _lastDeletedSale;
   List<Sale> _lastDeletedAllSales = const [];
 
   List<Sale> get sales => List.unmodifiable(_sales);
   bool get isLoading => _isLoading;
+  DateTimeRange? get dateRange => _dateRange;
+  bool get isAllTime => _dateRange == null;
 
-  Future<void> load() async {
+  /// Khoảng thời gian mặc định: 30 ngày gần nhất
+  static DateTimeRange defaultRange() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 30));
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+    return DateTimeRange(start: start, end: end);
+  }
+
+  /// Tải dữ liệu theo khoảng thời gian đã chọn (mặc định 30 ngày gần nhất)
+  Future<void> load({DateTimeRange? range, bool forceAll = false}) async {
     _isLoading = true;
     notifyListeners();
     try {
-      final data = await DatabaseService.instance.getSales();
+      if (forceAll) {
+        _dateRange = null;
+      } else if (range != null) {
+        _dateRange = range;
+      } else if (_dateRange == null) {
+        _dateRange = defaultRange();
+      }
+
+      final data = await DatabaseService.instance.getSales(
+        startDate: _dateRange?.start,
+        endDate: _dateRange?.end,
+        fetchAll: _dateRange == null,
+      );
       _sales
         ..clear()
         ..addAll(data);
@@ -26,8 +51,17 @@ class SaleProvider with ChangeNotifier {
     }
   }
 
+  /// Đổi khoảng ngày truy vấn và tự động tải lại
+  Future<void> setDateRange(DateTimeRange? newRange) async {
+    await load(range: newRange, forceAll: newRange == null);
+  }
+
   Future<void> add(Sale s) async {
-    _sales.add(s);
+    // Chỉ thêm vào danh sách đang hiển thị nếu đơn này nằm trong khoảng ngày lọc
+    if (_dateRange == null ||
+        (!s.createdAt.isBefore(_dateRange!.start) && !s.createdAt.isAfter(_dateRange!.end))) {
+      _sales.insert(0, s);
+    }
     notifyListeners();
     await DatabaseService.instance.insertSale(s);
   }

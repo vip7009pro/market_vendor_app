@@ -1482,7 +1482,9 @@ class DebtList extends StatelessWidget {
   }
 
   Future<String?> _pickSaleId(BuildContext context) async {
-    final sales = await DatabaseService.instance.getSales();
+    final sales = await DatabaseService.instance.getSales(
+      startDate: DateTime.now().subtract(const Duration(days: 60)),
+    );
 
     final searchCtrl = TextEditingController();
     String query = '';

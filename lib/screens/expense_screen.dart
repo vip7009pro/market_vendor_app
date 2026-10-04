@@ -23,7 +23,13 @@ class ExpenseScreen extends StatefulWidget {
 }
 
 class _ExpenseScreenState extends State<ExpenseScreen> {
-  DateTimeRange? _range;
+  DateTimeRange? _range = (() {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: DateTime(now.year, now.month, now.day).subtract(const Duration(days: 30)),
+      end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999),
+    );
+  })();
   String _query = '';
   String _category = 'all';
 

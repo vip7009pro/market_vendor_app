@@ -117,6 +117,7 @@ model Sale {
   items SaleItem[]
 
   @@id([userId, id])
+  @@index([userId, createdAt])
   @@map("sales")
 }
 
@@ -173,6 +174,9 @@ model Debt {
   payments DebtPayment[]
 
   @@id([userId, id])
+  @@index([userId, createdAt])
+  @@index([userId, settled])
+  @@index([userId, sourceType, sourceId])
   @@map("debts")
 }
 
@@ -273,6 +277,7 @@ model Expense {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, id])
+  @@index([userId, occurredAt])
   @@map("expenses")
 }
 

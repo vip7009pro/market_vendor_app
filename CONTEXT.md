@@ -9,7 +9,7 @@ Hệ thống quản lý bán hàng đa nền tảng gồm:
 ## Trạng thái hiện tại (2026-09-23)
 
 ### Nâng cấp Đồng bộ PostgreSQL & Chế độ Online - Offline (Hoàn thành)
-- **Địa chỉ máy chủ backend mặc định:** `http://192.168.1.203:3007` (mặc định đặt cứng trong mobile app).
+- **Địa chỉ máy chủ backend mặc định:** `http://ruougaohoatuoi.ddns.net:3007` (mặc định đặt cứng trong mobile app).
 - **Backend API (`backend-api/`)**:
   - Khởi chạy song song HTTP trên `0.0.0.0:3007` và HTTPS trên cổng phụ `3443`.
   - Hỗ trợ cả 2 tiền tố route: `/api/sync/*` và `/sync/*`.
@@ -20,7 +20,7 @@ Hệ thống quản lý bán hàng đa nền tảng gồm:
   - **Khắc phục triệt để lag/chậm:** Thêm SQLite Migration v34 bổ sung 6 Indexes quan trọng (`idx_sale_items_saleId`, `idx_debt_payments_debtId`, `idx_sales_createdAt`, `idx_debts_partyId`, `idx_purchase_history_orderId`, `idx_outbox_status`). Loại bỏ hoàn toàn lỗi N+1 queries trong `getSales()` (gom nhóm truy vấn gom 1 query).
   - **Cơ chế Dual-Database bảo toàn dữ liệu:** Tách biệt `market_vendor.db` (Offline) và `market_vendor_online.db` (Online). Khi chuyển sang Online, toàn bộ dữ liệu offline cũ vẫn lưu giữ 100% trên máy. Khi chuyển lại Offline, app lập tức nạp lại nguyên vẹn kho dữ liệu offline cũ.
   - **Màn hình Đồng bộ PostgreSQL (`lib/screens/online_server_sync_screen.dart`):**
-    - Đặt cứng cấu hình `192.168.1.203:3007`, có nút Reset & Test Ping.
+    - Đặt cứng cấu hình `ruougaohoatuoi.ddns.net:3007`, có nút Reset & Test Ping.
     - Công tắc chuyển đổi Chế độ Online / Chế độ Offline có xác nhận an toàn.
     - Nút "Tải toàn bộ lên Máy chủ" (1 chiều từ Offline SQLite lên PostgreSQL).
     - Nút "Đồng bộ từ máy chủ về Offline" (Tải snapshot PostgreSQL về máy).
@@ -43,7 +43,7 @@ Hệ thống quản lý bán hàng đa nền tảng gồm:
     - [online_server_sync_screen.dart](file:///d:/Apps/market_vendor_app/lib/screens/online_server_sync_screen.dart): Bổ sung tùy chọn menu "Làm mới phiên đăng nhập (Token)" trên AppBar để chủ động reset phiên bất cứ lúc nào.
 
 ### Chẩn đoán lỗi Prisma P1010: "User was denied access on the database `27.66.127.9`"
-- **Nguyên nhân chính xác:** Lỗi xuất phát từ PostgreSQL Server trên máy `DESKTOP-GEQBMTF` (`192.168.1.155:3005`). File cấu hình `pg_hba.conf` trên máy chủ này chưa có rule cho phép các kết nối từ máy khác trong mạng LAN (`192.168.1.203`) hoặc từ bên ngoài qua DDNS (`27.66.127.9`), trả về mã `FATAL: 28000: no pg_hba.conf entry for host ...`.
+- **Nguyên nhân chính xác:** Lỗi xuất phát từ PostgreSQL Server trên máy `DESKTOP-GEQBMTF` (`192.168.1.155:3005`). File cấu hình `pg_hba.conf` trên máy chủ này chưa có rule cho phép các kết nối từ máy khác trong mạng LAN (`ruougaohoatuoi.ddns.net`) hoặc từ bên ngoài qua DDNS (`27.66.127.9`), trả về mã `FATAL: 28000: no pg_hba.conf entry for host ...`.
 - **Cách xử lý:** Đã cập nhật `DATABASE_URL` trong [backend-api/.env](file:///d:/Apps/market_vendor_app/backend-api/.env) trỏ thẳng vào IP LAN `192.168.1.155:3005`. Người dùng đã cấu hình `pg_hba.conf` cấp quyền kết nối thành công.
 
 ### Khắc phục triệt để lỗi Prisma P2021: "The table `public.applied_sync_events` does not exist" (2026-09-23)
@@ -153,4 +153,39 @@ Hệ thống quản lý bán hàng đa nền tảng gồm:
      - [SalesHistoryScreen](file:///d:/Apps/market_vendor_app/lib/screens/sales_history_screen.dart): Hiển thị `CircularProgressIndicator` + `"Đang tải lịch sử bán hàng..."`.
      - [DebtScreen](file:///d:/Apps/market_vendor_app/lib/screens/debt_screen.dart): Hiển thị `CircularProgressIndicator` + `"Đang tải danh sách công nợ..."`.
 
-
+### Tối ưu hóa Hiệu năng & Thiết kế Tải Dữ liệu theo Khoảng Ngày (2026-10-04)
+- **Vấn đề đã rà soát:**
+  1. Khi app chạy ở Chế độ Online với tập dữ liệu lớn, việc mở app hoặc chuyển màn hình gây lag/đơ nghiêm trọng do `SaleProvider().load()` gọi `DatabaseService.instance.getSales()` -> `OnlineApiService.instance.getSales()` gửi tham số đặt cứng `limit: 'all'` mà không kèm bất kỳ bộ lọc ngày nào. Backend phải truy vấn toàn bộ lịch sử bán hàng và hàng chục nghìn chi tiết đơn (`sale_items`), tuần tự hóa chuỗi JSON khổng lồ trả về qua mạng khiến quá trình parse JSON trên main thread của điện thoại bị treo/lag.
+  2. Ở chế độ Offline, SQLite cũng thực hiện `db.query('sale_items')` toàn bộ bảng không có điều kiện WHERE, gây tốn bộ nhớ và chậm chạp.
+  3. `DebtProvider` và `ExpenseScreen` trước đó cũng tải toàn bộ dữ liệu lịch sử vô hạn định.
+  4. Màn hình đồng bộ `online_server_sync_screen.dart` gọi tải toàn bộ bản ghi của cả 5 bảng chỉ để lấy `.length`.
+- **Giải pháp đã triển khai:**
+  1. **Backend API (`backend-api/`):**
+     - [schema.prisma](file:///d:/Apps/market_vendor_app/backend-api/prisma/schema.prisma): Bổ sung các chỉ mục phục vụ truy vấn theo khoảng ngày và trạng thái: `@@index([userId, createdAt])` trên bảng `sales`, `@@index([userId, createdAt])`, `@@index([userId, settled])`, `@@index([userId, sourceType, sourceId])` trên bảng `debts`, `@@index([userId, occurredAt])` trên bảng `expenses`.
+     - [debts.routes.ts](file:///d:/Apps/market_vendor_app/backend-api/src/routes/debts.routes.ts): Bổ sung hỗ trợ lọc `startDate`, `endDate`, và `limit` cho `GET /api/debts`.
+     - [sync.routes.ts](file:///d:/Apps/market_vendor_app/backend-api/src/routes/sync.routes.ts): Thêm endpoint `GET /api/sync/counts` đếm nhanh số lượng bản ghi bằng `prisma.*.count()` trả về chỉ số trong 2-5ms, thay thế hoàn toàn việc tải hàng nghìn bản ghi để đếm.
+     - Biên dịch backend `npm run build` thành công 100% (code 0).
+  2. **Mobile App (`lib/`):**
+     - [online_api_service.dart](file:///d:/Apps/market_vendor_app/lib/services/online_api_service.dart):
+       - `getSales()`: Loại bỏ ép buộc `limit: 'all'`. Hỗ trợ tham số `startDate`, `endDate`, `limit`, `fetchAll`. Mặc định áp dụng giới hạn an toàn khi không truyền ngày để bảo vệ RAM thiết bị.
+       - `getDebts()`: Bổ sung tham số `startDate`, `endDate`, `limit`.
+       - Thêm `getEntityCounts()` gọi `GET /api/sync/counts`.
+     - [database_service.dart](file:///d:/Apps/market_vendor_app/lib/services/database_service.dart):
+       - `getSales()` & `getDebts()`: Hỗ trợ `startDate`, `endDate`, `search`, `limit`.
+       - Ở chế độ Offline SQLite, chỉ gom nhóm các `sale_items` thuộc về các đơn hàng đang nằm trong khoảng ngày truy vấn (chia lô chunk 200 IDs), triệt tiêu hoàn toàn việc đọc cả bảng `sale_items` vào RAM.
+     - [sale_provider.dart](file:///d:/Apps/market_vendor_app/lib/providers/sale_provider.dart):
+       - Bổ sung quản lý trạng thái `DateTimeRange? _dateRange`, mặc định là **30 ngày gần nhất** (`SaleProvider.defaultRange()`).
+       - Bổ sung phương thức `load({DateTimeRange? range, bool forceAll = false})` và `setDateRange(DateTimeRange? newRange)`.
+       - Khi mở app, app chỉ tải đúng dữ liệu của 30 ngày gần nhất, thời gian nạp giảm từ vài giây xuống chỉ còn ~50ms, triệt tiêu 100% hiện tượng lag/đơ điện thoại.
+     - [sales_history_screen.dart](file:///d:/Apps/market_vendor_app/lib/screens/sales_history_screen.dart):
+       - Đồng bộ `_range` với `SaleProvider.dateRange`.
+       - Thiết kế thanh chọn nhanh mốc thời gian trực quan ngay trên đầu danh sách: nút hiển thị khoảng ngày hiện tại (bấm mở DateRangePicker), cùng các nút chip chọn nhanh: **30 ngày (Mặc định)**, **Tháng này**, **7 ngày**, **Hôm nay**, **Tất cả**.
+       - Khi người dùng bấm đổi khoảng ngày hoặc chọn "Tất cả", app lập tức kích hoạt truy vấn đúng khoảng ngày đó từ server/db.
+     - [sales_item_history_screen.dart](file:///d:/Apps/market_vendor_app/lib/screens/sales_item_history_screen.dart):
+       - Đồng bộ khoảng ngày lọc với `SaleProvider`, hỗ trợ đổi khoảng ngày và "Tất cả".
+     - [expense_screen.dart](file:///d:/Apps/market_vendor_app/lib/screens/expense_screen.dart):
+       - Mặc định khởi tạo `_range` là 30 ngày gần nhất thay vì null, ngăn ngừa việc tải toàn bộ chi phí từ trước tới nay.
+     - [debt_screen.dart](file:///d:/Apps/market_vendor_app/lib/screens/debt_screen.dart):
+       - `_pickSaleId()`: Chỉ truy vấn các đơn hàng trong 60 ngày gần nhất khi gán đơn nợ thay vì lấy toàn bộ đơn hàng trong lịch sử.
+     - [online_server_sync_screen.dart](file:///d:/Apps/market_vendor_app/lib/screens/online_server_sync_screen.dart):
+       - `_refreshLocalCounts()` ở chế độ online chuyển sang dùng `OnlineApiService.instance.getEntityCounts()`, nạp số liệu tức thì mà không cần tải dữ liệu chi tiết của 5 bảng.

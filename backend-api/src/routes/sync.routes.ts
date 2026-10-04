@@ -1,9 +1,33 @@
 import { Router, Response } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { SyncService } from '../services/sync.service.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 router.use(authMiddleware);
+
+const notDeleted = { deletedAt: null };
+
+// GET /api/sync/counts - Fast counts of entities without fetching records
+router.get('/counts', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    const [products, customers, sales, debts, expenses] = await Promise.all([
+      prisma.product.count({ where: { userId, ...notDeleted } }),
+      prisma.customer.count({ where: { userId, ...notDeleted } }),
+      prisma.sale.count({ where: { userId, ...notDeleted } }),
+      prisma.debt.count({ where: { userId, ...notDeleted } }),
+      prisma.expense.count({ where: { userId, ...notDeleted } }),
+    ]);
+    res.json({
+      success: true,
+      data: { products, customers, sales, debts, expenses },
+    });
+  } catch (error: any) {
+    console.error('Counts error:', error);
+    res.status(500).json({ error: 'Failed to count: ' + error.message });
+  }
+});
 
 // POST /api/sync/push
 router.post('/push', async (req: AuthRequest, res: Response): Promise<void> => {

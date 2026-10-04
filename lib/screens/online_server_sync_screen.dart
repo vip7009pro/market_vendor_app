@@ -75,20 +75,10 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
     setState(() => _loadingCounts = true);
     try {
       if (_isOnlineMode) {
-        final products = await OnlineApiService.instance.getProducts();
-        final customers = await OnlineApiService.instance.getCustomers();
-        final sales = await OnlineApiService.instance.getSales();
-        final debts = await OnlineApiService.instance.getDebts();
-        final expenses = await OnlineApiService.instance.getExpenses();
+        final counts = await OnlineApiService.instance.getEntityCounts();
         if (!mounted) return;
         setState(() {
-          _localCounts = {
-            'products': products.length,
-            'customers': customers.length,
-            'sales': sales.length,
-            'debts': debts.length,
-            'expenses': expenses.length,
-          };
+          _localCounts = counts;
         });
         return;
       }
@@ -171,7 +161,7 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
     final title = targetMode ? 'Bật Chế độ Online' : 'Chuyển về Chế độ Offline';
     final desc =
         targetMode
-            ? 'Chế độ Online sẽ sử dụng dữ liệu máy chủ PostgreSQL (192.168.1.203).\n\n'
+            ? 'Chế độ Online sẽ sử dụng dữ liệu máy chủ PostgreSQL (ruougaohoatuoi.ddns.net).\n\n'
                 'Toàn bộ dữ liệu offline cũ của bạn vẫn được lưu giữ an toàn 100% trên máy.'
             : 'Chuyển về Chế độ Offline để tiếp tục sử dụng kho dữ liệu cục bộ cũ trên máy.\n\n'
                 'Dữ liệu offline sẽ được nạp lại nguyên vẹn như trước.';
@@ -274,7 +264,7 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
             ),
             content: const Text(
               'Hệ thống sẽ gom toàn bộ danh mục sản phẩm, khách hàng, hóa đơn, công nợ, chi phí '
-              'từ thiết bị và tải lên máy chủ PostgreSQL (192.168.1.203).\n\n'
+              'từ thiết bị và tải lên máy chủ PostgreSQL (ruougaohoatuoi.ddns.net).\n\n'
               'Thao tác này dùng để chuẩn bị chuyển sang dùng hoàn toàn online.',
             ),
             actions: [
@@ -645,7 +635,7 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
 
                   const SizedBox(height: 16),
 
-                  // ─── 2. CARD ĐỊA CHỈ MÁY CHỦ (192.168.1.203) ────────────────
+                  // ─── 2. CARD ĐỊA CHỈ MÁY CHỦ (ruougaohoatuoi.ddns.net) ────────────────
                   Card(
                     elevation: 1,
                     shape: RoundedRectangleBorder(
@@ -668,11 +658,12 @@ class _OnlineServerSyncScreenState extends State<OnlineServerSyncScreen> {
                             keyboardType: TextInputType.url,
                             enabled: !isWorking,
                             decoration: InputDecoration(
-                              hintText: 'http://192.168.1.203:3007',
+                              hintText: 'http://ruougaohoatuoi.ddns.net:3007',
                               prefixIcon: const Icon(Icons.dns_outlined),
                               suffixIcon: IconButton(
                                 icon: const Icon(Icons.restore, size: 20),
-                                tooltip: 'Đặt lại mặc định 192.168.1.203',
+                                tooltip:
+                                    'Đặt lại mặc định ruougaohoatuoi.ddns.net',
                                 onPressed: isWorking ? null : _resetDefaultUrl,
                               ),
                               border: const OutlineInputBorder(),

@@ -547,15 +547,58 @@ class DatabaseService {
     );
   }
 
-  Future<List<Debt>> getDebts() async {
+  Future<List<Debt>> getDebts({
+    DateTime? startDate,
+    DateTime? endDate,
+    int? type,
+    bool? settled,
+    String? search,
+    int? limit,
+  }) async {
     if (_isOnlineMode) {
-      return await OnlineApiService.instance.getDebts();
+      return await OnlineApiService.instance.getDebts(
+        type: type,
+        settled: settled,
+        search: search,
+        startDate: startDate,
+        endDate: endDate,
+        limit: limit,
+      );
     }
     await EncryptionService.instance.init();
+
+    final whereClauses = <String>["(deletedAt IS NULL OR TRIM(deletedAt) = '')"];
+    final whereArgs = <dynamic>[];
+
+    if (startDate != null) {
+      whereClauses.add("createdAt >= ?");
+      whereArgs.add(startDate.toIso8601String());
+    }
+    if (endDate != null) {
+      final end = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59, 999);
+      whereClauses.add("createdAt <= ?");
+      whereArgs.add(end.toIso8601String());
+    }
+    if (type != null) {
+      whereClauses.add("type = ?");
+      whereArgs.add(type);
+    }
+    if (settled != null) {
+      whereClauses.add("settled = ?");
+      whereArgs.add(settled ? 1 : 0);
+    }
+    if (search != null && search.trim().isNotEmpty) {
+      whereClauses.add("(partyName LIKE ? OR description LIKE ?)");
+      whereArgs.add('%${search.trim()}%');
+      whereArgs.add('%${search.trim()}%');
+    }
+
     final rows = await db.query(
       'debts',
-      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      where: whereClauses.join(' AND '),
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
       orderBy: 'createdAt DESC',
+      limit: limit,
     );
     final out = <Debt>[];
     for (final m in rows) {
@@ -583,38 +626,87 @@ class DatabaseService {
     return out;
   }
 
-  Future<List<Sale>> getSales() async {
+  Future<List<Sale>> getSales({
+    DateTime? startDate,
+    DateTime? endDate,
+    String? search,
+    int? limit,
+    bool fetchAll = false,
+  }) async {
     if (_isOnlineMode) {
-      return await OnlineApiService.instance.getSales();
+      return await OnlineApiService.instance.getSales(
+        startDate: startDate,
+        endDate: endDate,
+        search: search,
+        limit: limit,
+        fetchAll: fetchAll,
+      );
     }
     await EncryptionService.instance.init();
+
+    final whereClauses = <String>["(deletedAt IS NULL OR TRIM(deletedAt) = '')"];
+    final whereArgs = <dynamic>[];
+
+    if (startDate != null) {
+      whereClauses.add("createdAt >= ?");
+      whereArgs.add(startDate.toIso8601String());
+    }
+    if (endDate != null) {
+      final end = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59, 999);
+      whereClauses.add("createdAt <= ?");
+      whereArgs.add(end.toIso8601String());
+    }
+    if (search != null && search.trim().isNotEmpty) {
+      whereClauses.add("(customerName LIKE ? OR note LIKE ?)");
+      whereArgs.add('%${search.trim()}%');
+      whereArgs.add('%${search.trim()}%');
+    }
+
     final salesRows = await db.query(
       'sales',
-      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
+      where: whereClauses.join(' AND '),
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
       orderBy: 'createdAt DESC',
+      limit: limit,
     );
     if (salesRows.isEmpty) return [];
 
-    // Tối ưu hóa: Pre-fetch toàn bộ sale items gom nhóm theo saleId tránh N+1 queries
-    final allItems = await db.query(
-      'sale_items',
-      where: "(deletedAt IS NULL OR TRIM(deletedAt) = '')",
-    );
+    // Tối ưu hóa: Chỉ lấy các sale_items thuộc về danh sách đơn bán hàng đang truy vấn
+    final saleIds = salesRows
+        .map((r) => r['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
     final itemsBySaleId = <String, List<SaleItem>>{};
-    for (final m in allItems) {
-      final sId = (m['saleId']?.toString() ?? '').trim();
-      if (sId.isEmpty) continue;
-      (itemsBySaleId[sId] ??= []).add(SaleItem.fromMap({
-        'productId': m['productId'],
-        'name': m['name'],
-        'unitPrice': m['unitPrice'],
-        'unitCost': m['unitCost'],
-        'quantity': m['quantity'],
-        'unit': m['unit'],
-        'itemType': m['itemType'],
-        'displayName': m['displayName'],
-        'mixItemsJson': m['mixItemsJson'],
-      }));
+
+    if (saleIds.isNotEmpty) {
+      const chunkSize = 200;
+      for (var i = 0; i < saleIds.length; i += chunkSize) {
+        final chunk = saleIds.sublist(
+          i,
+          (i + chunkSize > saleIds.length) ? saleIds.length : i + chunkSize,
+        );
+        final placeholders = List.filled(chunk.length, '?').join(',');
+        final items = await db.query(
+          'sale_items',
+          where: "saleId IN ($placeholders) AND (deletedAt IS NULL OR TRIM(deletedAt) = '')",
+          whereArgs: chunk,
+        );
+        for (final m in items) {
+          final sId = (m['saleId']?.toString() ?? '').trim();
+          if (sId.isEmpty) continue;
+          (itemsBySaleId[sId] ??= []).add(SaleItem.fromMap({
+            'productId': m['productId'],
+            'name': m['name'],
+            'unitPrice': m['unitPrice'],
+            'unitCost': m['unitCost'],
+            'quantity': m['quantity'],
+            'unit': m['unit'],
+            'itemType': m['itemType'],
+            'displayName': m['displayName'],
+            'mixItemsJson': m['mixItemsJson'],
+          }));
+        }
+      }
     }
 
     final sales = <Sale>[];

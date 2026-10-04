@@ -60,6 +60,12 @@ class _SalesItemHistoryScreenState extends State<SalesItemHistoryScreen> {
   String _customerQuery = '';
 
   @override
+  void initState() {
+    super.initState();
+    _range = context.read<SaleProvider>().dateRange;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final sales = context.watch<SaleProvider>().sales;
     final fmtDate = DateFormat('dd/MM/yyyy HH:mm');
@@ -104,23 +110,50 @@ class _SalesItemHistoryScreenState extends State<SalesItemHistoryScreen> {
 
     rows.sort((a, b) => b.sale.createdAt.compareTo(a.sale.createdAt));
 
+    final rangeTitle = _range == null
+        ? 'Tất cả'
+        : '${DateFormat('dd/MM').format(_range!.start)} - ${DateFormat('dd/MM').format(_range!.end)}';
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bán hàng chi tiết'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Bán hàng chi tiết'),
+            Text(
+              rangeTitle,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.normal),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.filter_list),
+            tooltip: 'Chọn khoảng ngày',
+            icon: const Icon(Icons.date_range),
             onPressed: () async {
               final now = DateTime.now();
               final picked = await showDateRangePicker(
                 context: context,
-                firstDate: DateTime(now.year - 2),
+                firstDate: DateTime(now.year - 3),
                 lastDate: DateTime(now.year + 1),
-                initialDateRange: _range,
+                initialDateRange: _range ?? SaleProvider.defaultRange(),
               );
-              if (picked != null) setState(() => _range = picked);
+              if (picked != null) {
+                setState(() => _range = picked);
+                await context.read<SaleProvider>().setDateRange(picked);
+              }
             },
           ),
+          if (_range != null)
+            IconButton(
+              tooltip: 'Tất cả',
+              icon: const Icon(Icons.clear),
+              onPressed: () async {
+                setState(() => _range = null);
+                await context.read<SaleProvider>().setDateRange(null);
+              },
+            ),
         ],
       ),
       body: Column(

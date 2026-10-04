@@ -353,7 +353,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 child: Text(
                                   _isOnlineMode
-                                      ? '192.168.1.203'
+                                      ? 'ruougaohoatuoi.ddns.net'
                                       : 'Máy cục bộ',
                                   style: const TextStyle(
                                     color: Colors.white,

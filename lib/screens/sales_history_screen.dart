@@ -103,9 +103,73 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   bool _didBackfillUnitCost = false;
   final Map<String, _DebtIssueInfo> _debtIssueBySaleId = {};
   String _lastIssueKey = '';
+
+  DateTimeRange _presetToday() {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: DateTime(now.year, now.month, now.day),
+      end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999),
+    );
+  }
+
+  DateTimeRange _preset7Days() {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: DateTime(now.year, now.month, now.day).subtract(const Duration(days: 7)),
+      end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999),
+    );
+  }
+
+  DateTimeRange _preset30Days() {
+    return SaleProvider.defaultRange();
+  }
+
+  DateTimeRange _presetCurrentMonth() {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: DateTime(now.year, now.month, 1),
+      end: DateTime(now.year, now.month, now.day, 23, 59, 59, 999),
+    );
+  }
+
+  bool _isTodaySelected() {
+    if (_range == null) return false;
+    final now = DateTime.now();
+    return _range!.start.year == now.year &&
+        _range!.start.month == now.month &&
+        _range!.start.day == now.day &&
+        _range!.duration.inDays <= 1;
+  }
+
+  bool _is7DaysSelected() {
+    if (_range == null) return false;
+    final diff = _range!.end.difference(_range!.start).inDays;
+    return diff >= 6 && diff <= 8;
+  }
+
+  bool _is30DaysSelected() {
+    if (_range == null) return false;
+    final diff = _range!.end.difference(_range!.start).inDays;
+    return diff >= 29 && diff <= 31;
+  }
+
+  bool _isCurrentMonthSelected() {
+    if (_range == null) return false;
+    final now = DateTime.now();
+    return _range!.start.year == now.year &&
+        _range!.start.month == now.month &&
+        _range!.start.day == 1;
+  }
+
+  Future<void> _applyRange(DateTimeRange? newRange) async {
+    setState(() => _range = newRange);
+    await context.read<SaleProvider>().setDateRange(newRange);
+  }
+
   @override
   void initState() {
     super.initState();
+    _range = context.read<SaleProvider>().dateRange;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (_didBackfillUnitCost) return;
       _didBackfillUnitCost = true;
@@ -116,24 +180,26 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       }
     });
   }
+
   Future<void> _refreshDebtIssuesFor(List<Sale> sales) async {
-    // Only compute for sales that currently have debt
-    final withDebt = sales.where((s) => s.debt > 0).toList();
-    if (withDebt.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _debtIssueBySaleId..clear();
-        _lastIssueKey = '';
-      });
-      return;
-    }
-    // Deduplicate by id
-    final saleIds = withDebt.map((e) => e.id).toSet().toList();
-    saleIds.sort();
-    final key = saleIds.join(',');
-    if (key == _lastIssueKey) return;
-    final db = DatabaseService.instance.db;
-    final placeholders = List.filled(saleIds.length, '?').join(',');
+    try {
+      // Only compute for sales that currently have debt
+      final withDebt = sales.where((s) => s.debt > 0).toList();
+      if (withDebt.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _debtIssueBySaleId..clear();
+          _lastIssueKey = '';
+        });
+        return;
+      }
+      // Deduplicate by id
+      final saleIds = withDebt.map((e) => e.id).toSet().toList();
+      saleIds.sort();
+      final key = saleIds.join(',');
+      if (key == _lastIssueKey) return;
+      final db = DatabaseService.instance.db;
+      final placeholders = List.filled(saleIds.length, '?').join(',');
     final debtRows = await db.query(
       'debts',
       columns: [
@@ -231,13 +297,16 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         );
       }
     }
-    if (!mounted) return;
-    setState(() {
-      _debtIssueBySaleId
-        ..clear()
-        ..addAll(next);
-      _lastIssueKey = key;
-    });
+      if (!mounted) return;
+      setState(() {
+        _debtIssueBySaleId
+          ..clear()
+          ..addAll(next);
+        _lastIssueKey = key;
+      });
+    } catch (_) {
+      // ignore
+    }
   }
   _DebtIssueInfo? _getIssue(String saleId) => _debtIssueBySaleId[saleId];
   Future<void> _createDebtForSale(Sale s) async {
@@ -1090,6 +1159,104 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       },
     );
   }
+
+  Widget _buildDateRangePresetBar() {
+    final theme = Theme.of(context);
+    final rangeText = _range == null
+        ? 'Tất cả thời gian'
+        : '${DateFormat('dd/MM/yyyy').format(_range!.start)} - ${DateFormat('dd/MM/yyyy').format(_range!.end)}';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        border: Border(bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.15))),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () async {
+                final now = DateTime.now();
+                final picked = await showDateRangePicker(
+                  context: context,
+                  firstDate: DateTime(now.year - 3),
+                  lastDate: DateTime(now.year + 1),
+                  initialDateRange: _range ?? SaleProvider.defaultRange(),
+                );
+                if (picked != null) {
+                  await _applyRange(picked);
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.calendar_month, size: 14, color: theme.colorScheme.onPrimaryContainer),
+                    const SizedBox(width: 5),
+                    Text(
+                      rangeText,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _buildPresetChip('30 ngày', _is30DaysSelected(), () => _applyRange(_preset30Days())),
+            const SizedBox(width: 5),
+            _buildPresetChip('Tháng này', _isCurrentMonthSelected(), () => _applyRange(_presetCurrentMonth())),
+            const SizedBox(width: 5),
+            _buildPresetChip('7 ngày', _is7DaysSelected(), () => _applyRange(_preset7Days())),
+            const SizedBox(width: 5),
+            _buildPresetChip('Hôm nay', _isTodaySelected(), () => _applyRange(_presetToday())),
+            const SizedBox(width: 5),
+            _buildPresetChip('Tất cả', _range == null, () => _applyRange(null)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPresetChip(String label, bool selected, VoidCallback onTap) {
+    final theme = Theme.of(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected ? theme.colorScheme.primary : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? theme.colorScheme.primary : theme.dividerColor.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            color: selected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final sales = context.watch<SaleProvider>().sales;
@@ -1267,6 +1434,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       ),
       body: Column(
         children: [
+          _buildDateRangePresetBar(),
           AnimatedSize(
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeInOut,
@@ -1319,24 +1487,26 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                   final now = DateTime.now();
                                   final picked = await showDateRangePicker(
                                     context: context,
-                                    firstDate: DateTime(now.year - 2),
+                                    firstDate: DateTime(now.year - 3),
                                     lastDate: DateTime(now.year + 1),
-                                    initialDateRange: _range,
+                                    initialDateRange: _range ?? SaleProvider.defaultRange(),
                                   );
-                                  if (picked != null) setState(() => _range = picked);
+                                  if (picked != null) {
+                                    await _applyRange(picked);
+                                  }
                                 },
                               ),
                               if (_range != null) ...[
                                 const SizedBox(width: 6),
                                 IconButton(
-                                  tooltip: 'Xoá lọc ngày',
+                                  tooltip: 'Xoá lọc ngày (Tất cả)',
                                   icon: const Icon(Icons.clear, size: 18),
                                   visualDensity: VisualDensity.compact,
                                   constraints: const BoxConstraints(
                                     minWidth: 36,
                                     minHeight: 36,
                                   ),
-                                  onPressed: () => setState(() => _range = null),
+                                  onPressed: () => _applyRange(null),
                                 ),
                               ],
                             ],
