@@ -189,3 +189,22 @@ Hệ thống quản lý bán hàng đa nền tảng gồm:
        - `_pickSaleId()`: Chỉ truy vấn các đơn hàng trong 60 ngày gần nhất khi gán đơn nợ thay vì lấy toàn bộ đơn hàng trong lịch sử.
      - [online_server_sync_screen.dart](file:///d:/Apps/market_vendor_app/lib/screens/online_server_sync_screen.dart):
        - `_refreshLocalCounts()` ở chế độ online chuyển sang dùng `OnlineApiService.instance.getEntityCounts()`, nạp số liệu tức thì mà không cần tải dữ liệu chi tiết của 5 bảng.
+
+### Tính năng Xóa toàn bộ trên Server & Cơ chế chống trùng lặp (2026-10-04)
+1. **Kiểm tra hiện tượng tải trùng khi bấm tải lên nhiều lần (Idempotency):**
+   - **Đã kiểm tra kỹ lưỡng:** Hoàn toàn **KHÔNG bị tải trùng dữ liệu**.
+   - **Lý do kỹ thuật:**
+     - Mọi thực thể trong cơ sở dữ liệu PostgreSQL (`products`, `customers`, `sales`, `debts`, `expenses`, `purchase_orders`, `purchase_history`, `debt_payments`, `store_info`, `vietqr_bank_accounts`) đều có ràng buộc duy nhất `@@unique([userId, id])` hoặc `@@id([userId, id])`.
+     - Backend API sử dụng `tx.<model>.upsert(...)`: nếu bản ghi đã tồn tại thì chỉ cập nhật (LWW - Last Write Wins theo `updatedAt`), không bao giờ chèn thêm dòng mới trùng ID.
+     - Các chi tiết đơn hàng (`sale_items`) được gán ID tổng hợp dạng `${saleId}:${localId}` và cũng được `upsert`.
+     - Trên giao diện Flutter, khi đang thực hiện tải lên, nút bấm được khóa (`isWorking ? null : _uploadAllToServer`), đồng thời hiển thị hộp thoại xác nhận và thanh tiến trình chi tiết.
+2. **Tính năng Xóa toàn bộ Dữ liệu trên Server:**
+   - **Backend API (`backend-api/`):**
+     - [sync.service.ts](file:///d:/Apps/market_vendor_app/backend-api/src/services/sync.service.ts): Bổ sung `SyncService.wipeUserData(userId)` thực thi trong interactive transaction an toàn, tự động xóa tuần tự toàn bộ dữ liệu phụ thuộc (bảng con trước, bảng cha sau) của đúng tài khoản `userId` đang đăng nhập mà không ảnh hưởng tới dữ liệu của user khác.
+     - [sync.routes.ts](file:///d:/Apps/market_vendor_app/backend-api/src/routes/sync.routes.ts): Bổ sung endpoint `POST /api/sync/wipe` và `DELETE /api/sync/wipe` (được bảo vệ bởi `authMiddleware`).
+   - **Mobile App (`lib/`):**
+     - [online_sync_service.dart](file:///d:/Apps/market_vendor_app/lib/services/online_sync_service.dart): Bổ sung hàm `wipeAllServerData({AuthProvider? auth})` gọi đến `/api/sync/wipe` kèm JWT và cơ chế auto-retry khi gặp 401.
+     - [online_server_sync_screen.dart](file:///d:/Apps/market_vendor_app/lib/screens/online_server_sync_screen.dart):
+       - Bổ sung nút bấm màu đỏ **"Xóa toàn bộ Dữ liệu trên Server"** ngay trong Card Thao tác đồng bộ và trong menu Popup AppBar.
+       - Hộp thoại cảnh báo bảo mật xác nhận rõ ràng trước khi xóa (nhấn mạnh: dữ liệu offline trên thiết bị không bị mất).
+       - Tự động làm mới danh sách (nếu đang ở Chế độ Online thì danh sách lập tức trở về 0) và cập nhật bảng đếm số liệu đối chiếu.

@@ -82,5 +82,25 @@ router.get('/snapshot', async (req: AuthRequest, res: Response): Promise<void> =
   }
 });
 
+// POST & DELETE /api/sync/wipe - Xóa toàn bộ dữ liệu trên server của người dùng
+const handleWipe = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`⚠️ [Sync Wipe] Bắt đầu xóa toàn bộ dữ liệu máy chủ cho userId=${userId} (${req.user?.email || 'unknown'})`);
+    await SyncService.wipeUserData(userId);
+    console.log(`✅ [Sync Wipe] Đã xóa toàn bộ dữ liệu thành công cho userId=${userId}`);
+    res.json({
+      success: true,
+      message: 'Đã xóa toàn bộ dữ liệu của bạn trên máy chủ thành công.',
+    });
+  } catch (error: any) {
+    console.error('Wipe error:', error);
+    res.status(500).json({ error: 'Xóa toàn bộ dữ liệu trên server thất bại: ' + error.message });
+  }
+};
+
+router.post('/wipe', handleWipe);
+router.delete('/wipe', handleWipe);
+
 export default router;
 
